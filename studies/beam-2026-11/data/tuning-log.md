@@ -144,11 +144,20 @@ read so far is its first lines (the question file's hash, matching the one above
 Each closes a judgement the rules above left open. Item 2 is the design owner's to rule.
 
 1. Timeout: the harness default, 1,800 seconds per turn, as the run was launched.
-2. What counts as an ENGRAM read for the pass rule: PROPOSED, a successful ENGRAM read tool called by
-   the student (query, inspect, get_subgraph, list, surface) after the forced compaction and before its
-   final answer to that question, whose result contains the id of a node created during the reading.
-   ENGRAM's automatic recall hook (which injects nodes into the student's context on each message without
-   a tool call) is logged separately per question; whether it counts is the design owner's ruling.
+2. What counts as an ENGRAM read for the pass rule (RULED by the design owner, 2026-11-14, with no result
+   read by either party): a successful ENGRAM read tool call made by the student (query, inspect,
+   get_subgraph, list, surface) whose result contains the id of a reading-phase node, made inside that
+   question's own turn (after the question arrives and before the student's final answer to it; a call
+   made during an earlier question does not carry over). ENGRAM's automatic recall hook does NOT count:
+   the rule fixed before the run says the student makes the recall, and as a bare count the hook cannot
+   discriminate, since every node in this store is a reading-phase node. Logged beside it per counting
+   question, not counted: whether a hook injection reached the student's context and held a node bearing
+   the pre-committed answer (the study lead's stated judgement); whether the counted tool reads returned
+   such a node; which channel the answer visibly drew on. Reported as three lines: reached (the pass
+   rule), delivered by the hook with the answer, tool read with the answer. For the real entry gate, on
+   the lean profile, whether answer-bearing delivery by the hook counts as recall is open; the design owner
+   fixes it in writing in the pre-registration before any gate run. That definition is therefore settled
+   after this tuning run and before every gate run.
 3. "Created during the reading": the node's `created_at` in the saved store, from the run's start time to
    the end time logged for the last reading exchange. Nodes created during a natural compaction count.
    Nodes created during the forced compaction are listed separately and do not count.
