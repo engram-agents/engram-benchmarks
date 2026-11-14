@@ -14,7 +14,8 @@ the pre-registration.
 
 - **Student**: Claude Code driving `qwen3.8:27b` (see the pre-registration for versions). Arm 2 adds
   ENGRAM.
-- **Proctor**: the study lead, through the harness. Every proctor message starts with `[EXAM PROCTOR]`.
+- **Proctor**: the study lead, through the harness. Every proctor message starts with `[EXAM PROCTOR]`,
+  except `/compact`, which is a Claude Code command and must stand alone.
 - **Reading material**: one BEAM exchange at a time. Never an instruction to the student.
 
 ## Message format (v2; Lei's ruling that proctor text and reading material be told apart)
@@ -44,7 +45,10 @@ the pre-registration.
    fact sheet. Nothing in it comes from BEAM.
 2. The exam session: brief + exchanges, one per user message, in dataset order.
 3. `/compact`, sent by the proctor as a user message, in both arms.
-4. The post-compaction check (no raw conversation text in the window).
+4. The post-compaction check (no raw conversation text in the window). This is an analysis step on
+   the logged events, not code in the harness. A notes file the student wrote may come back into the
+   window by itself: after compaction Claude Code re-reads up to five recently edited files. That is
+   the student's own record and is allowed.
 5. The probing questions, one per user message, in the same session.
 
 ## Escalation

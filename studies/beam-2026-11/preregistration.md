@@ -68,6 +68,9 @@ benchmarked:
 4. "The exact setup" means the same commit, the same instruction texts and the same brief, by hash. Any
    change after the gate is met re-opens it.
 
+This gate is stricter than the reachability criterion in the tuning log (2 of 3 runs, one write and
+one read), which judged single tuning experiments and never the start of the benchmark.
+
 **Stop rule.** Tuning may change only what a user or a release could change (tool reachability, the lean
 profile, the user-level line). If the gate can only be met by telling the student to use ENGRAM by name,
 or by changing what ENGRAM's own nudges are for, tuning stops and the question goes to Lei: that is a

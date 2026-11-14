@@ -7,7 +7,9 @@ questions only show that the pipeline runs. Raw transcripts are not published ye
 text; licence handling is an open item).
 
 Format v1 = bare `USER:`/`ASSISTANT:` turns, brief only in the first message. Format v2 = marked proctor
-messages and reading material (see [../protocol/exam-room.md](../protocol/exam-room.md)).
+messages and reading material (see [../protocol/exam-room.md](../protocol/exam-room.md)). The harness in
+[../tools/](../tools/) renders format v2 only: the v1 text was replaced in place and is not in this
+repository, so runs P1 to P5 cannot be re-run byte for byte from it.
 
 ## Runs, 2026-11-14
 
@@ -20,7 +22,9 @@ messages and reading material (see [../protocol/exam-room.md](../protocol/exam-r
 | P4 | v1 | 1 | P3 + forced `/compact` + 2 practice questions | `/compact` works as a stream-json user message: 14,181 to 5,410 tokens in 33.7 s; the preserved messages are the student's own last reply only. Both practice questions answered from the summary. |
 | P5 | v1 | 2 | first session as its own session (393 s), then a fresh exam session; 3 exchanges + `/compact` + 2 practice questions | The student tried to reach ENGRAM's write tools, misread tool search's successful keyword results as failure, guessed wrong exact names, concluded the tools were unreachable, and kept notes in a file. After compaction it answered from its summary, no tools. Of ENGRAM's hooks only the SessionStart (compact) hook left a visible trace at the compaction. |
 | v2 | v2 | 1 and 2 | same as P5 per arm | Arm 2, tools still deferred: the student did not look for ENGRAM while reading. When ENGRAM's write check fired it answered "Nothing to record to ENGRAM", treating a bystander exam as outside ENGRAM's scope. |
+| E2, attempt 1 | v2 | 2 | as E2 below | Aborted before any exam: the patch step matched a second `server.py` (the plugin's dashboard server, which has no ENGRAM tools) and stopped, as designed. The patch now selects only the file that defines the tools. |
 | E2 | v2 | 2 | six core ENGRAM tools always loaded (sandbox patch), the rest deferred; first session once, then 3 exams from fresh copies | 0 of 3 runs wrote ENGRAM while reading or read it after compaction. Fails the criterion below. |
+| E1 | v2 | 2 | all ENGRAM tools always loaded (`run-e1-alwaysload.sh`) | Not run. Planned only if E2 passed nothing and a cost reference was needed; superseded by E3. |
 
 ## Changes made to get ENGRAM used
 
@@ -41,8 +45,10 @@ added per session and the first turn's wall time.
 
 ## Running now
 
-- **E3**: E2's setup + change 4 + change 5, on the full ENGRAM instruction template. Read against the
-  criterion above; a step result, not the entry gate.
+- **E3**: E2's setup + change 4 + change 5, on the FULL ENGRAM instruction template (the lean profile
+  that arm 2 will use does not exist yet; E3 asks only whether the exam line moves the student at all).
+  Read against the criterion above; a step result, not the entry gate. Its brief and exam line are not
+  in the harness yet; they are added when E3's result is logged.
 - **Talk probe** (Lei's design): E2's setup without the exam line; a normal three-turn conversation with
   the student's own user about its own situation, never naming ENGRAM or note-taking; then `/compact`
   and one recall question. ENGRAM writes here but not in the exam point to an intentional decision;
