@@ -13,7 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - name: Scanner tests
         run: tools/test-privacy-scan.sh
       - name: Scan tracked files
         run: tools/privacy-scan.sh
+      - name: Scan commit messages and identities (pull request)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: tools/privacy-scan.sh --history "origin/$BASE_REF..HEAD"
+      - name: Scan commit messages and identities (push to main)
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "${BEFORE//0/}" ]; then
+            echo "push has no previous commit (all-zero before); skipping the history scan"
+          else
+            tools/privacy-scan.sh --history "$BEFORE..$AFTER"
+          fi

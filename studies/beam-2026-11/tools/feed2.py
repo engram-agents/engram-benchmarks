@@ -3,7 +3,7 @@
 
 ONE persistent Claude Code process per run (`claude -p --input-format stream-json
 --output-format stream-json --verbose`), so SessionStart fires once, as in an ordinary
-session (v1's per-turn `--resume` re-fired it every turn: ob_7457).
+session (v1's per-turn `--resume` re-fired it every turn).
 
 Phases, all in the same session:
   setup     (--first-session) the proctor answers ENGRAM's first-session dialogue with a FIXED
@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from feed import BRIEF, PROCTOR, OLLAMA_URL, data_path, exchanges, unload  # noqa: E402  (one source for the brief and rendering)
+from feed import BRIEF, PROCTOR, QUESTION_PREFIX, OLLAMA_URL, data_path, exchanges, unload  # noqa: E402  (one source for the brief and rendering)
 
 FACT_SHEET = PROCTOR + """ Hello. I am the proctor of a memory study, and you are being set up for it. Please run
 your first-session setup now. Everything you need from me is here, so you do not need to ask me
@@ -109,7 +109,7 @@ def main():
     if args.first_session:
         plan.append(("setup", FACT_SHEET))
     if args.setup_only:
-        # Kepler 29557 (3a): the first session is its OWN session; the exam starts in a fresh process
+        # The first session is its OWN session; the exam starts in a fresh process
         # (a new session, no --resume) on the same home, with the graph carried over.
         exs = []
     if exs:
@@ -120,11 +120,9 @@ def main():
     if args.questions:
         q = ast.literal_eval(conv["probing_questions"])
         for k, item in [(k, it) for k, v in q.items() for it in v][: args.questions]:
-            plan.append(("question", PROCTOR + " The conversation is over. Answer this question about it, "
-                                     "from your record and memory:\n\n" + item["question"]))
+            plan.append(("question", PROCTOR + " " + QUESTION_PREFIX + item["question"]))
     for qtext in args.ask:
-        plan.append(("practice-question", PROCTOR + " The conversation is over. Answer this question about it, "
-                                          "from your record and memory:\n\n" + qtext))
+        plan.append(("practice-question", PROCTOR + " " + QUESTION_PREFIX + qtext))
     pending = os.path.join(os.path.abspath(args.arm_home), ".engram", "first-run-pending")
     st = Student(args); log = open(os.path.join(args.out, "turns.jsonl"), "a"); rc = 0
     try:

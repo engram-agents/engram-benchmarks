@@ -24,7 +24,7 @@ def data_path():
 PROCTOR = "[EXAM PROCTOR]"
 BEGIN, END = "<<< READING MATERIAL", "<<< END OF READING MATERIAL >>>"
 
-# Format v2 (Lei, 2026-11-14 20:30Z): the student must always know which text is the proctor's and
+# Format v2 (see PROVENANCE.md, decision log, 2026-11-14): the student must always know which text is the proctor's and
 # which is reading material. Proctor messages start with PROCTOR; the conversation sits between
 # BEGIN/END lines; its speakers are relabelled so they never collide with the student's own roles.
 # Tool-neutral on purpose: nothing here names files, ENGRAM, or any way of taking notes.
@@ -58,7 +58,10 @@ I answer questions about the exam procedure only, never about the conversation.
 """
 
 
-TURN_LINE = f"{PROCTOR} The next exchange of the conversation follows."  # ONE fixed sentence, every turn (Kepler 29578)
+# The one source of the text that introduces every question (feed2.py puts PROCTOR and a space in front).
+QUESTION_PREFIX = "The conversation is over. Answer this question about it, from your record and memory:\n\n"
+
+TURN_LINE = f"{PROCTOR} The next exchange of the conversation follows."  # ONE fixed sentence, every turn
 
 
 def render(k, session_no, anchor, user, assistant):  # k kept for the log; never shown to the student
@@ -130,8 +133,7 @@ def main():
         q = ast.literal_eval(conv["probing_questions"])
         flat = [(k, item) for k, v in q.items() for item in v][: args.questions]
         for k, item in flat:
-            prompts.append("The conversation is over. Answer this question about it, from your "
-                           "record and memory:\n\n" + item["question"])
+            prompts.append(QUESTION_PREFIX + item["question"])
     for i, pr in enumerate(prompts, 1):
         res = run_turn(args, pr, sid)
         sid = res.get("session_id", sid)

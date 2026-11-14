@@ -3,7 +3,7 @@
 keeps them visible while the rest stay deferred. Inserts one meta= line after the @mcp.tool( line that
 decorates each core def. Prints one line per tool; exits 1 unless every core tool was patched once."""
 import sys
-CORE = ["engram_add_observation", "engram_inspect", "engram_query", "engram_derive", "engram_supersede", "engram_checkpoint"]  # by measured call share on one seat (ob_7473)
+CORE = ["engram_add_observation", "engram_inspect", "engram_query", "engram_derive", "engram_supersede", "engram_checkpoint"]  # by measured call share on one study seat
 META = '    meta={"anthropic/alwaysLoad": True},\n'
 path = sys.argv[1]
 lines = open(path).read().splitlines(keepends=True)

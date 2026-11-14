@@ -1,0 +1,3 @@
+{"cwd":"C:\\Users\\bob\\x"}
+drive D:\Users\bob\notes
+json path E:\\Users\\carol

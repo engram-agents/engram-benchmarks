@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ask-proctor "<question>" : the BEAM exam room's escalation channel (Lei, 2026-11-14).
+# ask-proctor "<question>" : the BEAM exam room's escalation channel (see PROVENANCE.md, decision log, 2026-11-14).
 # For harness or environment problems only (a tool failing, a missing file, unclear
 # instructions about the exam procedure). Never for benchmark content.
 # Writes the question to $PROCTOR_DIR, waits for the proctor's answer file, prints it.

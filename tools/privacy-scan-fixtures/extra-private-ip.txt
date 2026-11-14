@@ -1,0 +1,4 @@
+cgnat 100.64.0.1
+cgnat top 100.127.255.1
+metadata 169.254.169.254
+tailnet host 100.100.100.100
