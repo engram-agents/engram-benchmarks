@@ -1,0 +1,176 @@
+# BEAM study: pre-registration (DRAFT v0.2, NOT registered)
+
+Lead: Borges (lab owner, teacher). Design owner and co-signer: Kepler. Decisions by Lei (project lead).
+Registered when Kepler co-signs and every open item below is closed. Until then this file is a draft
+and changes freely; after registration every change goes in the Deviations log with date, reason and
+who ruled. The decision history behind each rule is in [PROVENANCE.md](PROVENANCE.md).
+
+**No scored run happens before registration, and none before the entry gate (section 5) is met.**
+
+## 1. Question
+
+Does ENGRAM, as shipped, improve a small local model's memory of a long conversation it watched,
+compared with the same model in the same harness without ENGRAM?
+
+First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the box?
+
+## 2. Hypotheses (stated before any scored run)
+
+- H1 (primary): arm 2's OFFICIAL overall score on the scored conversations of the 100K split is higher
+  than arm 1's.
+- H0: no difference, or arm 1 higher. A null or a loss is a publishable result.
+- Arm 3 is reported descriptively; no hypothesis is stated for it.
+
+## 3. Arms
+
+| arm | condition | differs from arm 1 by |
+|---|---|---|
+| 1 | Claude Code as shipped: built-in memory, note files, compaction | nothing |
+| 2 (primary) | arm 1 + a fresh ENGRAM install (named release, default tier) | the ENGRAM plugin and its instruction profile |
+| 3 (secondary) | arm 2 after behavioural training by the teacher | training |
+
+- After the tool-reachability work (PROVENANCE, 2026-11-14) there is ONE arm 2: the shipped release.
+  An earlier "tools loaded up front" secondary arm was dropped. The pre-registration names the exact
+  release or commit both ENGRAM arms run.
+- Arm 3 rules: teach behaviour, never benchmark content; every teacher message is logged and published
+  with the result; training cases are drawn first by a published seed and are never scored.
+
+## 4. Instruction files (identical where they must be)
+
+- **Exam line**, byte-identical, at the top of the student's user-level `CLAUDE.md` in every arm
+  (proposed text; its sha256 goes here when frozen):
+  > In this deployment your job is to take memory exams. Facts from exam material are worth keeping in
+  > your long-term memory, so that you can answer questions about them after your context is compacted.
+
+  It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
+  study then measures is each setup *when the user has said this material matters*.
+- **Each arm's own memory practice**, at comparable length, both texts and their token counts here:
+  - arm 1: the best honest instruction for plain Claude Code's own memory, taken from Claude Code's
+    documentation and cited line by line, then improved by a seat outside the study. Test: no reader
+    could say arm 1 was written to lose. (OPEN: text not written yet.)
+  - arm 2: ENGRAM's lean `CLAUDE.md` profile, shipped as a product option: a second manifest over
+    existing template components, no prose written for the exam, keeping the consent-before-outward-
+    action paragraph. (OPEN: profile not built yet.)
+
+## 5. Entry gate (Lei)
+
+The scored benchmark starts only when the student **reliably uses ENGRAM for note taking**. If it does
+not, the cause is found first. "Reliably" (PROPOSED, to be ruled before registration): on the exact
+setup to be benchmarked, (1) in 3 of 3 short runs it makes at least one successful ENGRAM write while
+reading and at least one successful ENGRAM read after the forced compaction; (2) across those runs, at
+least 2 of every 3 reading exchanges carry a successful ENGRAM write; (3) one longer tuning run (20
+exchanges, seed-drawn tuning conversation) keeps (2) and reads ENGRAM after the compaction.
+
+## 6. Tuning rules (Kepler)
+
+- Tuning conversations are kept apart from scored ones. Conversation 15 of the 100K split, used by
+  every practice run so far, is a tuning conversation and is not scored. More tuning material is
+  drawn by a recorded seed, never chosen by how it looks.
+- No arm-versus-arm accuracy is computed on anything during tuning. The gate is read off transcripts as
+  process (does it write, does it read back); practice questions only show that the pipeline runs.
+- Every change made to get ENGRAM used, to the product or to an instruction, is logged publicly in
+  [data/tuning-log.md](data/tuning-log.md) with what it was, why, and what arm 1 got as its equivalent.
+  Arm 2 may be helped only in ways a user or a release could help it.
+
+## 7. Student and harness (fixed for every scored run)
+
+- Model `qwen3.8:27b` Q4_K_M served by Ollama 0.33.2 as a variant with `num_ctx` 131,072 (the server's
+  default context for these requests is 32,768). Server sampling defaults (temperature 1, top_k 20,
+  top_p 0.95). Claude Code 2.1.325 on Ollama's Anthropic-compatible endpoint. Versions recorded per run.
+- One persistent Claude Code print-mode process per exam (stream-json input), permission mode bypass,
+  each run in its own sandbox home outside any git repository, never on a real user's memory graph.
+- Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
+  proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
+  once as setup, outside exam timing. Arm 1 has no equivalent step.
+- One GPU, exclusive per run; the model is unloaded after every run.
+
+## 8. Procedure (one exam = one conversation, one arm)
+
+1. New session. The first user message is the brief (fixed text, [protocol/exam-room.md](protocol/exam-room.md))
+   plus exchange 1. Then one BEAM user/assistant exchange per user message, in order, in the marked
+   reading-material format. The student ends each turn with NEXT.
+2. After the last exchange the proctor sends `/compact` (the same command in both arms). ENGRAM's
+   pre-compaction behaviour runs as shipped, untuned.
+3. Post-compaction check: no raw conversation text in the window; the student's own words are allowed.
+   Read off the compaction record's preserved messages. A run that fails is FLAGGED and excluded from
+   the primary analysis.
+4. The conversation's 20 probing questions, one per user message, in the dataset's order, in the same
+   session. The answer is the text of the student's final reply to that message.
+5. Escalation: the student may run `ask-proctor`; the proctor answers harness and environment questions
+   only, never content. Every question and answer is logged with UTC times.
+
+## 9. Data
+
+BEAM 100K split (Hugging Face `Mohammadta/BEAM`, parquet sha256 prefix `c0519be25907`), 20
+conversations, 97,252 to 190,209 Qwen tokens each, 20 probing questions each, CC BY-SA 4.0. Scored set:
+the 100K conversations not used for tuning (19 today, fewer if more tuning material is drawn).
+
+## 10. Scoring
+
+- Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
+  the first scored run after a cost pilot. The judge is never told the arm.
+- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
+  answer is "confirmed wrong" only after a first-hand check against the conversation text; each one is
+  raised with the BEAM maintainers and cited. The adjusted set is frozen before arm labels are unblinded.
+- Absolute scores are not comparable with the paper's table (different judge). The comparison is
+  between our arms.
+
+## 11. Primary analysis
+
+- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL.
+- Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
+- Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
+  fixed and published). H1 is supported if the CI's lower bound is above 0.
+- Reported beside it, never instead: the ADJUSTED contrast; per question type; the cost row (seconds and
+  tokens per exchange, compactions, compaction-summary size) per arm.
+
+## 12. Logged per run
+
+Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, tool calls (name, ok or
+error), whether ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files
+the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
+preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation.
+
+## 13. Variance
+
+Claude Code cannot pass a sampling seed to the server, so each (conversation, arm) cell is one sample.
+To size within-cell noise, 3 scored conversations drawn by a published seed run twice per arm; the
+spread is reported, not used to adjust the primary estimate.
+
+## 14. Exclusions and re-runs
+
+A run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails;
+the student process dies; a timeout; the ENGRAM first session does not complete (arm 2). Each flagged
+run may be re-run once, with the reason logged before the re-run; a second failure stays excluded. A
+wrong or empty answer is never a harness fault.
+
+## 15. What this design can and cannot show
+
+It measures each harness's cross-window memory in one-topic, one-session use when the user has said the
+material matters: after the forced compaction neither arm holds the reading in its window, so answers
+come from what each harness carried across (compaction summary and note files; or ENGRAM). It cannot
+separate ENGRAM's storage from the model's choice or ability to reach it; it runs Claude Code in print
+mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
+not measure memory across days or sessions; and with one sample per cell and about 19 conversations it
+detects only moderate effects.
+
+## 16. Budget (estimates from practice, never measured at scale)
+
+About 143 exchanges per conversation. Arm 1 at about 5 to 25 s per exchange: roughly 40 min per
+conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conversation, plus about
+7 to 16 min of first-session setup. The variance repeats add about 15%.
+
+## OPEN before registration
+
+- The gate's "reliably" ruled (section 5); the gate met.
+- Arm 1 practice text; arm 2 lean profile; both token counts; exam line frozen with its sha256.
+- The brief's final text frozen (a purpose sentence is under test, see the tuning log).
+- Which Claude Code tools are on in both arms (web tools, sub-agents, scheduling).
+- Isolation: whether arm 2 needs its own OS user for ENGRAM's recall service to run as for a real user.
+- Judge named after the cost pilot; licence handling for published transcripts.
+- How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
+- Arm 3 design (training cases by seed; exam content kept out of the agent's own graph).
+
+## Deviations log
+
+(empty until registration)
