@@ -62,6 +62,8 @@ template; 3 runs of 3 exchanges, forced compaction, 2 practice questions.
   node ids with their content. With only 3 exchanges the summary holds everything, so the read half
   can barely tell the arms apart at this length; the entry gate (pre-registration section 5) therefore
   tests recall in a 20-exchange run. This is a reading of the result, not a change to the criterion.
+  *(Superseded by Amendment 1 below: recall is tested in a run long enough that a compaction happens
+  naturally during the reading, not in a fixed 20 exchanges.)*
 - Write counts come from the tool results; run 3's six nodes were also checked in its store. Runs 1 and
   2's stores were overwritten by the next run's copy, so later runs keep each run's store.
 - Harness fault found: ENGRAM's surface daemon in a sandbox outlives its run, which caused a copy race

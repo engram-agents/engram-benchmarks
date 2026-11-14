@@ -188,6 +188,17 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - Judge named after the cost pilot; licence handling for published transcripts.
 - How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
 - Arm 3 design (training cases by seed; exam content kept out of the agent's own graph).
+- Judge blinding made mechanical: answers can carry arm tells (ENGRAM node ids, tool names, a notes-file
+  path), so they are stripped or normalised before judging, and the rule is stated here.
+- No interim scores: nothing is judged until every scored run is complete.
+- Pairing when one arm's run of a conversation is flagged: whether the conversation leaves the paired
+  analysis for both arms, stated before any run.
+- Which run of a repeated cell counts (the variance repeats in section 13 and any permitted re-run).
+- A student's non-use of ENGRAM in a scored run is never an exclusion; it is part of the result.
+- Two more bounds for section 15: after a compaction the harness re-reads recently edited files, so
+  arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
+  watch for changes of mind and contradictions, which BEAM scores directly.
+- The per-turn timeout value, fixed before the first scored run.
 
 ## Deviations log
 
