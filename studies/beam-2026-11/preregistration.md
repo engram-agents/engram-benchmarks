@@ -41,15 +41,13 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
   (proposed text; its sha256 goes here when frozen):
   > In this deployment your job is to take memory exams. Facts from exam material are worth keeping in
   > your long-term memory, so that you can answer questions about them after your context is compacted.
-
-  It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
-  study then measures is each setup *when the user has said this material matters*.
-- **What the student may use**, told to the student in the same line, identical in both arms (Lei,
-  2026-11-14, wording (A)):
   > You may use any tool and any file on this machine, including the records your own tools keep. You
   > may not use the web.
 
-  In the book-closed runs (section 13) this sentence also excludes the student's own session transcript;
+  It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
+  study then measures is each setup *when the user has said this material matters*.
+- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14):
+  the rule is told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also excludes the student's own session transcript;
   that wording is OPEN until frozen.
 - **Each arm's own memory practice.** The earlier condition of comparable length is withdrawn
   (Amendment 2 in the tuning log): it cannot hold together with existing components only and no exam
@@ -203,8 +201,11 @@ the student wrote; compactions (count, trigger, tokens before and after); the fo
 preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
-and the transcript: wall seconds; input and output tokens with the cache fields (on a local model most
-input tokens are the window re-read); GPU seconds, only if their method of measurement is stated here
+and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
+returns its cache fields as 0 or empty, so the transcript cannot tell reused prefix from newly
+processed tokens) and output tokens; newly evaluated prompt tokens, from one source used identically in
+both arms (the server's log or a logging proxy), OPEN until a tuning run shows a reliable source, since
+a hook that injects changing text early in the prompt would break prefix reuse in one arm only; GPU seconds, only if their method of measurement is stated here
 first (OPEN); tool calls by kind (ENGRAM read, ENGRAM write, file read, file write, transcript read,
 shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
 diff of both arms' first prompts, that switching it on changes nothing the student sees.
@@ -217,7 +218,7 @@ with a sha256 file list taken before anyone opens them. They are published only 
 text export, after the repository's rule against publishing graphs is amended for a study subject's
 sandbox graph and the licence item is closed; the originals stay private, with their hashes published.
 
-## 13. Variance
+## 13. Repeats and book-closed looks
 
 Claude Code cannot pass a sampling seed to the server, so each (conversation, arm) cell is one sample.
 Three scored conversations, drawn by a published seed before the first scored run, run a second time
@@ -231,9 +232,12 @@ Consequence, a stated bound: run-to-run noise within a cell is not measured.
 ## 14. Exclusions and re-runs
 
 A run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails;
-the student process dies; a timeout; the ENGRAM first session does not complete (arm 2). Each flagged
-run may be re-run once, with the reason logged before the re-run; a second failure stays excluded. A
-wrong or empty answer is never a harness fault.
+the student process dies; a timeout; the ENGRAM first session does not complete (arm 2); the session's
+tool list differs from section 7's; a shell network call to anything but the model endpoint (section
+7). Each flagged run may be re-run once, with the reason logged before the re-run; a second failure
+stays excluded. A wrong or empty answer is never a harness fault. A book-closed run in which the
+student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
+report and reported as it stands, never re-run (section 13).
 
 ## 15. What this design can and cannot show
 
@@ -243,8 +247,8 @@ one-topic, one-session use when the user has said the material matters (Lei's op
 forced compaction neither arm holds the reading in its window, so answers come from what each product
 keeps outside it: the compaction summary, note files and the transcript, or ENGRAM and the transcript.
 The score therefore includes how diligently the student searches. The expected gap between arms is
-smaller than with the record taken away, and a null means ENGRAM adds nothing over transcript search on
-this task, which is a publishable answer. The book-closed looks (section 13) are the only view without
+smaller than with the record taken away, and a null means no difference large enough for this design to detect
+(see the bound below) between ENGRAM and transcript search on this task, which is a publishable answer. The book-closed looks (section 13) are the only view without
 the transcript. It cannot
 separate ENGRAM's storage from the model's choice or ability to reach it; it runs Claude Code in print
 mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
@@ -255,7 +259,7 @@ detects only moderate effects.
 
 About 143 exchanges per conversation. Arm 1 at about 5 to 25 s per exchange: roughly 40 min per
 conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conversation, plus about
-7 to 16 min of first-session setup. The variance repeats add about 15%.
+7 to 16 min of first-session setup. The book-closed second runs (3 of 17 conversations, both arms) add about 18%.
 
 ## OPEN before registration
 
