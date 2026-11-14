@@ -56,16 +56,19 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 
 The scored benchmark starts only when the student **reliably uses ENGRAM for note taking**. If it does
 not, the cause is found first. "Reliably" means all of the following, on the exact setup to be
-benchmarked:
+benchmarked (as amended, Amendment 1 in the tuning log):
 
-1. In 3 of 3 short tuning runs (3 exchanges, forced compaction, practice questions), at least 2 of every
-   3 reading exchanges carry a successful ENGRAM write, counted per run, not pooled across runs.
-2. "Successful" is read from the ENGRAM store after the run: the node exists and carries content from
-   that exchange. The transcript saying it wrote does not count.
-3. One longer tuning run (20 exchanges of a seed-drawn tuning conversation) keeps (1) and (2), and after
-   the forced compaction at least one recall returns a node written during the reading BEFORE the
-   student answers. A right answer from the compaction summary alone does not count toward the gate.
-4. "The exact setup" means the same commit, the same instruction texts and the same brief, by hash. Any
+1. **Writing, short runs.** In 3 of 3 short tuning runs, at least 2 of every 3 reading exchanges carry a
+   successful ENGRAM write, counted per run, not pooled across runs. Every run's store is saved and read:
+   "successful" means the node exists in the store after the run and carries content from that
+   exchange. The transcript saying it wrote does not count.
+2. **Recall, one long run only.** Recall is tested only where a compaction summary cannot carry the
+   reading: a tuning run long enough that at least one compaction happens naturally during the reading,
+   before the forced one (sized by tokens, or a whole seed-drawn tuning conversation). In that run,
+   writing holds as in (1), and after the forced compaction the student makes at least one ENGRAM recall
+   that returns a node written during the reading BEFORE it answers, on at least half of the practice
+   questions that have an answer. A right answer from the summary alone does not count.
+3. "The exact setup" means the same commit, the same instruction texts and the same brief, by hash. Any
    change after the gate is met re-opens it.
 
 This gate is stricter than the reachability criterion in the tuning log (2 of 3 runs, one write and

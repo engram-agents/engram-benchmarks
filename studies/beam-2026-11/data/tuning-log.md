@@ -50,7 +50,7 @@ template; 3 runs of 3 exchanges, forced compaction, 2 practice questions.
 
 | | run 1 | run 2 | run 3 |
 |---|---|---|---|
-| reading exchanges with a successful ENGRAM write | 3 of 3 | 3 of 3 | 3 of 3 |
+| reading exchanges with a successful ENGRAM write | 3 of 3 (tool results; store overwritten) | 3 of 3 (tool results; store overwritten) | 3 of 3 (store-verified) |
 | ENGRAM nodes created while reading | 17 | 6 | 6 |
 | ENGRAM read after the compaction | no | yes (2 lookups) | no |
 | also kept a notes file | no | no | yes |
@@ -66,6 +66,28 @@ template; 3 runs of 3 exchanges, forced compaction, 2 practice questions.
   2's stores were overwritten by the next run's copy, so later runs keep each run's store.
 - Harness fault found: ENGRAM's surface daemon in a sandbox outlives its run, which caused a copy race
   before run 2. Later runs stop it before each copy.
+
+## Amendment 1 to the entry gate (Kepler, design owner, 2026-11-14, before the next run)
+
+Reason, in his words: "a 3-exchange run cannot test recall, because one compaction summary carries the
+whole reading, node ids and content included; a criterion that cannot fail for the right reason, or pass
+for it, is not a criterion." So short runs now test writing only, and recall is tested only in a run long
+enough to compact naturally during the reading. The amended gate is in the pre-registration, section 5.
+E3 does not count toward it: two of its three stores are gone.
+
+For the design, not the gate: the compaction summary that lists node ids with their content is a memory
+channel the harness gives both arms. In arm 2, how much of the summary is ENGRAM's own text is measured
+and reported.
+
+## Arm 1's memory text (2026-11-14)
+
+Drafted from Claude Code's memory documentation, cited line by line, then improved by Ariadne, a seat
+outside the study. Her measurement behind it: in print mode (Claude Code 2.1.325) the auto-memory index
+MEMORY.md is loaded into context (her run with auto memory on showed her MEMORY.md text in the
+transcript; with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, none; her user `CLAUDE.md` appeared in both as a
+same-mode control). Bound: one seat, one pair of runs, her own setup, outside our exam harness. In our
+harness the vanilla student's session reports an auto-memory directory, which it left empty while keeping
+a notes file. Both instruction texts and their token counts go in the pre-registration.
 
 ## Running now
 
