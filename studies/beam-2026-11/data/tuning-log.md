@@ -43,16 +43,37 @@ On format v2, with the brief unchanged, "the model can use ENGRAM" means: in at 
 reading and (b) at least one successful ENGRAM read after the compaction. Also measured: prompt tokens
 added per session and the first turn's wall time.
 
+## E3 result (2026-11-14)
+
+E2's setup plus change 4 (exam line) and change 5 (purpose sentence), on the FULL ENGRAM instruction
+template; 3 runs of 3 exchanges, forced compaction, 2 practice questions.
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| reading exchanges with a successful ENGRAM write | 3 of 3 | 3 of 3 | 3 of 3 |
+| ENGRAM nodes created while reading | 17 | 6 | 6 |
+| ENGRAM read after the compaction | no | yes (2 lookups) | no |
+| also kept a notes file | no | no | yes |
+
+- Against the pre-written criterion: the write half holds in 3 of 3 runs, the read half in 1 of 3, so
+  **E3 fails the criterion**. Compared with E2 (0 of 3 on both halves), the exam line and the purpose
+  sentence are what moved writing.
+- Runs 1 and 3 answered the practice questions from the compaction summary, which listed the ENGRAM
+  node ids with their content. With only 3 exchanges the summary holds everything, so the read half
+  can barely tell the arms apart at this length; the entry gate (pre-registration section 5) therefore
+  tests recall in a 20-exchange run. This is a reading of the result, not a change to the criterion.
+- Write counts come from the tool results; run 3's six nodes were also checked in its store. Runs 1 and
+  2's stores were overwritten by the next run's copy, so later runs keep each run's store.
+- Harness fault found: ENGRAM's surface daemon in a sandbox outlives its run, which caused a copy race
+  before run 2. Later runs stop it before each copy.
+
 ## Running now
 
-- **E3**: E2's setup + change 4 + change 5, on the FULL ENGRAM instruction template (the lean profile
-  that arm 2 will use does not exist yet; E3 asks only whether the exam line moves the student at all).
-  Read against the criterion above; a step result, not the entry gate. Its brief and exam line are not
-  in the harness yet; they are added when E3's result is logged.
 - **Talk probe** (Lei's design): E2's setup without the exam line; a normal three-turn conversation with
   the student's own user about its own situation, never naming ENGRAM or note-taking; then `/compact`
   and one recall question. ENGRAM writes here but not in the exam point to an intentional decision;
   writes in neither point to a capability gap.
 - Measured so far for that question: in every practice sandbox the student wrote its own ENGRAM nodes
-  during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading.
-  The first-session skill instructs those writes, so they show capability under instruction only.
+  during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
+  before the exam line. The first-session skill instructs those writes, so they show capability under
+  instruction only.
