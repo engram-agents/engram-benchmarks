@@ -90,6 +90,8 @@ fixture_case extra-private-ip extra-private-ip.txt 1 "$(printf 'sample.txt:1: pr
 fixture_case private-ipv6 private-ipv6.txt 1 "$(printf 'sample.txt:1: private-ipv6\nsample.txt:2: private-ipv6\nsample.txt:3: private-ipv6\nsample.txt:4: private-ipv6')"
 fixture_case loopback-v6 loopback-v6.txt 1 "$(printf 'sample.txt:1: localhost-port\nsample.txt:2: localhost-port')"
 fixture_case local-hostname local-hostname.txt 1 "$(printf 'sample.txt:1: local-hostname\nsample.txt:2: local-hostname\nsample.txt:3: local-hostname\nsample.txt:4: local-hostname')"
+# Round-3: tailnet and other private DNS suffixes (same hostname-shape rule as .local/.lan)
+fixture_case private-dns private-dns.txt 1 "$(printf 'sample.txt:1: local-hostname\nsample.txt:2: local-hostname\nsample.txt:3: local-hostname\nsample.txt:4: local-hostname')"
 fixture_case near-misses-stay-clean near-misses.txt 0 ""
 
 # Not a git repo: exit 2, never a pass.
@@ -197,6 +199,76 @@ hcommit "$d" "outside the range /home/alice/x" Dev private@example.org Dev "$NOR
 git -C "$d" tag mid
 hcommit "$d" "clean one" Dev "$NOREPLY" Dev "$NOREPLY"
 check_args history-range-excludes-older-commits "$d" 0 "" --history mid..HEAD
+
+# --- allowed-identities file: `#` comment lines and blank lines are ignored ---
+d="$(hrepo hist-id-comment)"
+mkdir -p "$d/tools"
+printf '%s\n' '# deliberate: the public project address of the lead' '' 'listed@example.org' > "$d/tools/privacy-scan-allowed-identities.txt"; git -C "$d" add -A
+hcommit "$d" "ok message" Dev listed@example.org Dev listed@example.org
+check_args history-id-file-with-comments-allows-listed "$d" 0 "" --history base..HEAD
+d="$(hrepo hist-id-in-comment)"
+mkdir -p "$d/tools"
+printf '%s\n' '# commented@example.org' > "$d/tools/privacy-scan-allowed-identities.txt"; git -C "$d" add -A
+hcommit "$d" "ok message" Dev commented@example.org Dev "$NOREPLY"
+# (the comment line itself, being an address in the tree, is also an email finding: that is correct)
+check_args history-comment-line-is-not-an-identity "$d" 1 "$(printf 'SHA:author-email:1: identity-not-allowed\nSHA:tools/privacy-scan-allowed-identities.txt:added: email')" --history base..HEAD
+
+# --- --history also scans every line each commit ADDS (so add-then-remove cannot hide a leak) ---
+# acommit <repo> <path> <content> <message>: commit one file with clean identities.
+acommit() {
+  mkdir -p "$(dirname "$1/$2")"; printf '%s\n' "$3" > "$1/$2"; git -C "$1" add -A
+  GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$1" commit -q -m "$4"
+}
+rmcommit() {
+  git -C "$1" rm -q "$2"
+  GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$1" commit -q -m "$3"
+}
+
+d="$(hrepo add-rm)"
+acommit "$d" notes.txt "ran in /home/alice/proj" "add notes"
+rmcommit "$d" notes.txt "remove notes"
+check_args added-then-removed-leak-flagged "$d" 1 "SHA:notes.txt:added: home-path" --history base..HEAD
+# the head tree is clean: file mode alone cannot see it (this is the gap the added-line pass closes)
+acommit "$d" ok.txt "fine" "add ok"
+check added-then-removed-invisible-to-file-mode "$d" 0 ""
+# the finding names the FIRST commit (the one that added the line)
+first="$(git -C "$d" rev-list --reverse base..HEAD | sed -n 1p)"
+out="$(cd "$d" && "$SCAN" --history base..HEAD 2>/dev/null)"; n=$((n + 1))
+if [ "$out" = "${first:0:12}:notes.txt:added: home-path" ]; then echo "PASS  added-leak-names-first-commit"; else echo "FAIL  added-leak-names-first-commit: out=[$out]"; fails=$((fails + 1)); fi
+
+d="$(hrepo add-exempt)"
+acommit "$d" tools/privacy-scan-fixtures/x.txt "ran in /home/alice/proj" "add fixture"
+rmcommit "$d" tools/privacy-scan-fixtures/x.txt "remove fixture"
+check_args added-line-in-exempt-path-skipped "$d" 0 "" --history base..HEAD
+
+d="$(hrepo add-allow)"
+acommit "$d" notes.txt "example /home/alice/x  # privacy-scan: allow" "add notes"
+rmcommit "$d" notes.txt "remove notes"
+check_args added-line-with-allow-marker-skipped "$d" 0 "" --history base..HEAD
+
+d="$(hrepo add-clean)"
+acommit "$d" notes.txt "nothing private here" "add notes"
+acommit "$d" notes.txt "still nothing private" "edit notes"
+check_args clean-added-range-passes "$d" 0 "" --history base..HEAD
+
+# A leak on the `-` side only: removing a leak is not a new leak, so it must not be reported.
+d="$(hrepo del-only)"
+acommit "$d" notes.txt "ran in /home/alice/proj" "add notes"
+git -C "$d" tag leaked
+acommit "$d" notes.txt "clean now" "scrub notes"
+check_args removed-line-is-not-a-finding "$d" 0 "" --history leaked..HEAD
+
+# A merge commit that brings in a leak from its second parent is flagged (the merge's own first-parent
+# diff shows the leak as added; the second-parent commit is flagged as well, being in the range).
+d="$(hrepo add-merge)"
+git -C "$d" checkout -q -b side
+acommit "$d" side.txt "ran in /home/alice/proj" "side leak"
+git -C "$d" checkout -q -
+acommit "$d" main.txt "clean" "main work"
+GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$d" merge -q --no-ff side -m "merge side"
+check_args merge-bringing-leak-flagged "$d" 1 "$(printf 'SHA:side.txt:added: home-path\nSHA:side.txt:added: home-path')" --history base..HEAD
+# the same merge, with the leaking commit outside the range (already scanned): only the merge diff speaks
+check_args merge-first-parent-diff-flagged "$d" 1 "SHA:side.txt:added: home-path" --history HEAD^2..HEAD
 
 # History mode refuses to report a pass it did not earn: bad range, empty range, no range, odd range.
 d="$(hrepo hist-bad)"

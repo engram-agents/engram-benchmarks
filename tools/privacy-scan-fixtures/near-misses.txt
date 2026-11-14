@@ -8,3 +8,7 @@ self.local = 2
 settings.local.json and .env.local and this.lan_port and localhost
 100.63.0.1 and 100.128.0.1 and 169.253.1.1 and 8.8.4.4 are not private
 config.local_var and obj.lan_port are identifiers, not hosts
+the word internal in prose, and an internal.
+obj.internal_state and self.internal and cls.internal.x are not hosts
+settings.internal.json is a file name, not a host
+see example.com and parts.net and a ts.net_x identifier

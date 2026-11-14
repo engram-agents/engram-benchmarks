@@ -1,0 +1,4 @@
+ssh laptop.tail1234.ts.net
+printer.home.arpa:631
+db.corp.internal
+mail.localdomain.

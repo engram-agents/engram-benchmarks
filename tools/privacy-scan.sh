@@ -8,6 +8,9 @@
 # File mode scans every file from `git ls-files`, as it sits in the working tree, plus each tracked
 # PATH as text (a file name can leak too). History mode scans, per commit in the range, the message,
 # the author and committer names (same patterns), and the author and committer emails (see below).
+# History mode ALSO scans every line each commit in the range adds (see scan_added), so a leak added in
+# one commit and removed in the next is still found:
+#   history mode  <12-hex commit>:<path>:added: <pattern-name>
 # Exit 0 = no findings. Exit 1 = findings, printed one per line:
 #   file mode     path:line: <pattern-name>              (path findings: path:0: <pattern-name> (filename))
 #   history mode  <12-hex commit>:<field>:line: <pattern-name>   field = message | author-name |
@@ -47,8 +50,9 @@ RES=(
   '[A-Za-z]:(\\\\|\\)Users(\\\\|\\)'
   # WSL UNC share, one or more backslashes in front
   '\\\\wsl(\$|\.localhost)'
-  # hostname shape: labels then .local or .lan, not followed by an identifier character
-  '(^|[^A-Za-z0-9._-])[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9-]+)*\.(local|lan)([^A-Za-z0-9_.-]|\.([^A-Za-z0-9_-]|$)|$)'
+  # hostname shape: labels then .local, .lan, .ts.net (Tailscale MagicDNS), .home.arpa, .internal or
+  # .localdomain, not followed by an identifier character
+  '(^|[^A-Za-z0-9._-])[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9-]+)*\.(local|lan|ts\.net|home\.arpa|internal|localdomain)([^A-Za-z0-9_.-]|\.([^A-Za-z0-9_-]|$)|$)'
 )
 
 MODE=files
@@ -82,7 +86,8 @@ if [ -e "$ALLOWED_FILE" ]; then
   fi
   while IFS= read -r l || [ -n "$l" ]; do
     l="${l%$'\r'}"
-    [ -n "$l" ] && ALLOWED="$ALLOWED
+    case "$l" in '' | '#'*) continue ;; esac  # blank and comment lines are never identities
+    ALLOWED="$ALLOWED
 $(lc "$l")"
   done < "$ALLOWED_FILE"
 fi
@@ -100,10 +105,11 @@ email_exempt() {
 findings=0
 io_error=0
 
-# scan_one <file on disk> <label> <suffix> <fixed line: 1 = print line 0>
-# Applies every pattern; prints `label:line: name<suffix>`.
+# scan_one <file on disk> <label> <suffix> <fixed line: 1 = print line 0; 2 = print no line number and
+#          report each pattern once per file>
+# Applies every pattern; prints `label:line: name<suffix>` (mode 2: `label: name<suffix>`).
 scan_one() {
-  local f="$1" label="$2" suffix="$3" fixed="$4" allowed i out rc hit line match prev m
+  local f="$1" label="$2" suffix="$3" fixed="$4" allowed i out rc hit line match prev m seen=" "
   allowed=" $(grep -nF -e "$MARKER" -- "$f" | cut -d: -f1 | tr '\n' ' ')"
   for i in "${!NAMES[@]}"; do
     out="$(grep -naoE -e "${RES[$i]}" -- "$f")"
@@ -115,6 +121,7 @@ scan_one() {
     fi
     [ -z "$out" ] && continue
     prev=""
+    if [ "$fixed" = 2 ] && [ "$seen" != "${seen#* ${NAMES[$i]} }" ]; then continue; fi
     while IFS= read -r hit; do
       line="${hit%%:*}"
       match="${hit#*:}"
@@ -127,6 +134,12 @@ scan_one() {
       esac
       if [ "$line" = "$prev" ]; then continue; fi  # one finding per pattern per line
       prev="$line"
+      if [ "$fixed" = 2 ]; then
+        echo "$label: ${NAMES[$i]}$suffix"
+        seen="$seen${NAMES[$i]} "
+        findings=$((findings + 1))
+        break
+      fi
       [ "$fixed" = 1 ] && line=0
       echo "$label:$line: ${NAMES[$i]}$suffix"
       findings=$((findings + 1))
@@ -134,12 +147,66 @@ scan_one() {
   done
 }
 
+# is_exempt_path <path>: the scanner, its test and its fixtures may contain the patterns.
+is_exempt_path() {
+  case "$1" in tools/privacy-scan.sh | tools/test-privacy-scan.sh | tools/privacy-scan-fixtures/*) return 0 ;; esac
+  return 1
+}
+
+# scan_added <full sha> <short sha>: scan every line the commit ADDS (the `+` lines of its diff), per
+# file, with the same patterns, path exemptions and allow marker as file mode. Reported as
+# `<short>:<path>:added: <pattern-name>`, once per pattern per file per commit.
+#  - A leak that was added and later removed still shows up here; the head tree no longer has it.
+#  - Lines a commit REMOVES (the `-` side) are never scanned: deleting a leak is not a new leak.
+#  - Merge commits are diffed against their FIRST parent only (--diff-merges=first-parent), so a merge
+#    reports everything it brings in, including a leak that arrived on the second parent, and the
+#    evil-merge case (a line only the merge adds) is covered. The default merge diff (combined, `--cc`)
+#    prints nothing for a clean merge of a leaking branch, so it would hide both.
+#  - -a so a file git guesses is binary is still diffed as text; --no-ext-diff/--no-textconv so no
+#    configured filter rewrites what is shown; --no-renames so a renamed file's lines count as added
+#    instead of being folded into a rename header; --unified=0 so only changed lines appear.
+#  - NUL bytes are dropped from the stream, so text split by NULs (UTF-16) is still seen.
+# Diff structure: a line starting `diff --git ` opens a file header, `+++ ` inside the header names the
+# file, `@@ ` ends the header. Content lines always carry a `+`, `-`, space or backslash prefix, so a
+# content line can never be mistaken for a header, and a content line that itself starts `++ ` (shown
+# as `+++ `) is only read as a path while still in the header.
+add_flush() {
+  if [ "$add_have" = 1 ] && [ -n "$add_path" ]; then
+    scan_one "$tmpd/added" "$add_short:$add_path:added" "" 2
+  fi
+  : > "$tmpd/added"
+  add_have=0
+}
+scan_added() {
+  local sha="$1" line inhdr=0 skip=1
+  add_short="$2"; add_path=""; add_have=0
+  git -c core.quotePath=false show -a --no-color --no-ext-diff --no-textconv --no-renames --unified=0 \
+    --diff-merges=first-parent --format= "$sha" 2>/dev/null | tr -d '\000' > "$tmpd/diff"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    echo "privacy-scan: cannot read the diff of commit $add_short" >&2
+    io_error=1
+    return
+  fi
+  : > "$tmpd/added"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      'diff --git '*) add_flush; add_path=""; skip=1; inhdr=1 ;;
+      '@@ '*) inhdr=0 ;;
+      '+++ '*)
+        if [ "$inhdr" = 1 ]; then
+          add_path="${line#+++ b/}"; add_path="${add_path%%$'\t'*}"
+          if [ "$line" = '+++ /dev/null' ] || is_exempt_path "$add_path"; then skip=1; else skip=0; fi
+        elif [ "$skip" = 0 ]; then printf '%s\n' "${line#+}" >> "$tmpd/added"; add_have=1; fi ;;
+      '+'*) if [ "$skip" = 0 ]; then printf '%s\n' "${line#+}" >> "$tmpd/added"; add_have=1; fi ;;
+    esac
+  done < "$tmpd/diff"
+  add_flush
+}
+
 if [ "$MODE" = files ]; then
   scanned=0
   while IFS= read -r -d '' f; do
-    case "$f" in
-      tools/privacy-scan.sh | tools/test-privacy-scan.sh | tools/privacy-scan-fixtures/*) continue ;;
-    esac
+    if is_exempt_path "$f"; then continue; fi
     if [ -d "$f" ]; then continue; fi  # a submodule entry: no file content here
     if [ ! -r "$f" ]; then
       echo "privacy-scan: cannot read tracked file: $f" >&2
@@ -174,6 +241,7 @@ else
            fi ;;
       esac
     done
+    scan_added "$sha" "$short"
   done
   what="commits"
 fi
