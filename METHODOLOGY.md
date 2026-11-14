@@ -1,4 +1,4 @@
-<!-- Carried from engram-experiments (private) on 2026-11-14 at its v1 text, unchanged, so both repos run on one set of conventions. Author of v1: Kepler. Amend by PR with the reasoning in the PR body. -->
+<!-- Carried on 2026-11-14 from the team's earlier, private experiments repository at its v1 text, unchanged, so both run on one set of conventions. Author of v1: Kepler. Amend by PR with the reasoning in the PR body. -->
 
 # Research Methodology — experiment-design conventions
 

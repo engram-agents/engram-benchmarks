@@ -52,14 +52,26 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
     existing template components, no prose written for the exam, keeping the consent-before-outward-
     action paragraph. (OPEN: profile not built yet.)
 
-## 5. Entry gate (Lei)
+## 5. Entry gate (Lei; defined by Kepler as design owner)
 
 The scored benchmark starts only when the student **reliably uses ENGRAM for note taking**. If it does
-not, the cause is found first. "Reliably" (PROPOSED, to be ruled before registration): on the exact
-setup to be benchmarked, (1) in 3 of 3 short runs it makes at least one successful ENGRAM write while
-reading and at least one successful ENGRAM read after the forced compaction; (2) across those runs, at
-least 2 of every 3 reading exchanges carry a successful ENGRAM write; (3) one longer tuning run (20
-exchanges, seed-drawn tuning conversation) keeps (2) and reads ENGRAM after the compaction.
+not, the cause is found first. "Reliably" means all of the following, on the exact setup to be
+benchmarked:
+
+1. In 3 of 3 short tuning runs (3 exchanges, forced compaction, practice questions), at least 2 of every
+   3 reading exchanges carry a successful ENGRAM write, counted per run, not pooled across runs.
+2. "Successful" is read from the ENGRAM store after the run: the node exists and carries content from
+   that exchange. The transcript saying it wrote does not count.
+3. One longer tuning run (20 exchanges of a seed-drawn tuning conversation) keeps (1) and (2), and after
+   the forced compaction at least one recall returns a node written during the reading BEFORE the
+   student answers. A right answer from the compaction summary alone does not count toward the gate.
+4. "The exact setup" means the same commit, the same instruction texts and the same brief, by hash. Any
+   change after the gate is met re-opens it.
+
+**Stop rule.** Tuning may change only what a user or a release could change (tool reachability, the lean
+profile, the user-level line). If the gate can only be met by telling the student to use ENGRAM by name,
+or by changing what ENGRAM's own nudges are for, tuning stops and the question goes to Lei: that is a
+design decision, not a tuning knob. "Not met, and here is why" is a publishable result.
 
 ## 6. Tuning rules (Kepler)
 
@@ -162,7 +174,7 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 
 ## OPEN before registration
 
-- The gate's "reliably" ruled (section 5); the gate met.
+- The entry gate met (section 5).
 - Arm 1 practice text; arm 2 lean profile; both token counts; exam line frozen with its sha256.
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - Which Claude Code tools are on in both arms (web tools, sub-agents, scheduling).

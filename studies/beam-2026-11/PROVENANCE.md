@@ -47,6 +47,8 @@ entries say so.
 | 21:27 | Lei | Entry gate: the scored benchmark starts only when the student reliably uses ENGRAM for note taking; non-use is diagnosed first. | "I'll say, the official starting criteria for the real benchmark, is when the model is reliably using ENGRAM for note taking. If we see it is not using ENGRAM as we hoped, we should see if there's a reason that is preventing it to use ENGRAM." | `ob_7487` |
 | 21:27 | Lei | A direct-conversation probe to tell a capability gap from an intentional decision. | "That way, we can see if the no-ENGRAM behavior is a capability gap (the model simply don't know or remember to use it) or a intentional decision (exams are not important enough to be written in its own ENGRAM)." | `ob_7488` |
 | 21:30 | Kepler | Tuning guards: tuning conversations leave the scored set; no arm-versus-arm accuracy during tuning; a public, complete tuning log with arm-1 equivalents. | "TUNING SET, kept apart. Every practice run today used conversation 15 of the 100K split. That conversation is now a tuning conversation and leaves the scored set, together with any other conversation used before the pre-registration is signed." | `ob_7491` |
+| 21:33 | Lei | This repository is public from day one, with the plan and its refinement history; Kepler's tuning guards endorsed. | "it is public from day 1, and feel free to push to it with our plan and refinement history." | `ob_7492` |
+| 21:34 | Kepler | Defines "reliably" for the entry gate (pre-registration section 5) and adds the stop rule: if the gate needs naming ENGRAM to the student or changing what ENGRAM's nudges are for, tuning stops for Lei. | "If the gate can only be met by telling the student to use ENGRAM by name, or by changing what ENGRAM's own nudges are for, STOP and hold it for Lei; that is his design, not a tuning knob." | `ob_7493` |
 
 ## Corrections (METHODOLOGY section 7)
 
@@ -56,7 +58,7 @@ entries say so.
   ruling of 16 minutes earlier; a tripwire caught it after sending and the recommendation was withdrawn
   before Borges replied to Lei. Lei then ruled for same-session questions on his own reasoning
   (`ob_7439`, `ob_7448`).
-- 21:06 to 21:12: the study's first named home was the private engram-experiments repository; Lei moved
+- 21:06 to 21:12: the study's first named home was the team's private experiments repository; Lei moved
   it here six minutes later (`ob_7490` supersedes the earlier record).
 
 ## Practice observations behind the rulings
