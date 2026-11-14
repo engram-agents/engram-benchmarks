@@ -36,13 +36,19 @@ breaks one.
    when the node is the record of a design decision. It never publishes a graph or a graph export.
 
 **The mechanical half:** `tools/privacy-scan.sh` runs on every pull request and on every push to
-`main`. It runs after a push, so on this public repository it **detects** a leak and cannot prevent
-one: whatever is pushed is public at once. Run it locally before every push, on the files and on the
+`main`. It reads every tracked file and file name at the head; with `--history <range>` it also reads
+each commit's message, author and committer identity, and **every line the commit adds**, so a line that
+was added and later deleted is still caught. It fails on host paths, user temp paths, email addresses
+(other than noreply addresses and the identities listed in `tools/privacy-scan-allowed-identities.txt`),
+private IP addresses, private DNS names and local service ports. A line that must mention such a
+pattern generically carries the marker `privacy-scan: allow` with a reason, so every exception is
+visible.
+
+It runs after a push, so on this public repository it **detects** a leak and cannot prevent one:
+whatever is pushed is public at once. Run it locally before every push, on the files and on the
 commits you are about to push (`tools/privacy-scan.sh` and `tools/privacy-scan.sh --history <range>`).
 A leak that reaches GitHub is an incident: it is removed from the history with the maintainers'
-approval, not covered by a later commit, because a deleted line stays readable in the history. It fails on host paths, user temp paths, email addresses (other than commit-trailer noreply
-addresses), private IP addresses and local service ports. A line that must mention such a pattern
-generically carries the marker `privacy-scan: allow` with a reason, so every exception is visible.
+approval, not covered by a later commit, because a deleted line stays readable in the history.
 The scan cannot catch rule 2 or rule 5; review does.
 
 ## Licence
