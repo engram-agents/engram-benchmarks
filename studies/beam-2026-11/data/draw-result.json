@@ -1,0 +1,57 @@
+{
+  "draws": [
+    {
+      "conversation_id": "14",
+      "purpose": "entry-gate runs and lean-profile tuning",
+      "split": "100K",
+      "stratum": "lower"
+    },
+    {
+      "conversation_id": "16",
+      "purpose": "entry-gate runs and lean-profile tuning",
+      "split": "100K",
+      "stratum": "upper"
+    },
+    {
+      "conversation_id": "8",
+      "purpose": "arm-3 training",
+      "split": "500K",
+      "stratum": null
+    },
+    {
+      "conversation_id": "1",
+      "purpose": "length-stress tuning",
+      "split": "500K",
+      "stratum": null
+    }
+  ],
+  "parquet_sha256": {
+    "100K": "c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace",
+    "500K": "af05921c979355038e1761b7cde3d2dd713200dd3071b278de0200f6c7f30122"
+  },
+  "python_version": "3.12.3",
+  "scored_set_100K": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+    "17",
+    "18",
+    "19",
+    "20"
+  ],
+  "scored_set_count": 17,
+  "seed_commit": "75f72db77a806b704cf0d502d67c9826efccee34",
+  "seed_hex": "75f72db7",
+  "seed_int": 1979133367,
+  "seed_source": "git-add-commit"
+}

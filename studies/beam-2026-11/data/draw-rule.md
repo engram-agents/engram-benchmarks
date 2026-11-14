@@ -84,3 +84,14 @@ output.
   `c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace`
 - `data/500K-00000-of-00001.parquet`: sha256
   `af05921c979355038e1761b7cde3d2dd713200dd3071b278de0200f6c7f30122`
+
+## Record
+
+- The rule and script were published in commit `75f72db7` before the draw ran; the draw ran from that
+  commit and its output is [draw-result.json](draw-result.json).
+- Before publication, one earlier local commit (`5d22250e`) was amended, before any draw had been run
+  with it, to add the check that a later committed edit of the script cannot reuse the seed and to fix a
+  path bug that made the git mode refuse a committed script. Anyone can run `--seed-hex 5d22250e` to see
+  what that commit would have drawn.
+- The git mode's success path was first exercised in a separate throwaway repository with a different
+  commit, so no draw for seed `75f72db7` was computed before publication.

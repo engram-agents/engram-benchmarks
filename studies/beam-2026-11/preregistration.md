@@ -121,7 +121,12 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 
 BEAM 100K split (Hugging Face `Mohammadta/BEAM`, parquet sha256 prefix `c0519be25907`), 20
 conversations, 97,252 to 190,209 Qwen tokens each, 20 probing questions each, CC BY-SA 4.0. Scored set:
-the 100K conversations not used for tuning (19 today, fewer if more tuning material is drawn).
+17 conversations, ids 1 to 13 and 17 to 20. Never scored: conversation 15 (tuning, every practice run
+before the draw) and conversations 14 and 16 (drawn for entry-gate runs and lean-profile tuning). From the
+500K split (parquet sha256 prefix `af05921c9793`), conversation 8 (arm-3 training) and conversation 1
+(length-stress tuning). All four were drawn on 2026-11-14 by seed `75f72db7`, the first 8 hex digits of
+the commit that published the draw rule and script; see [data/draw-rule.md](data/draw-rule.md) and
+[data/draw-result.json](data/draw-result.json).
 
 ## 10. Scoring
 
@@ -169,7 +174,7 @@ material matters: after the forced compaction neither arm holds the reading in i
 come from what each harness carried across (compaction summary and note files; or ENGRAM). It cannot
 separate ENGRAM's storage from the model's choice or ability to reach it; it runs Claude Code in print
 mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
-not measure memory across days or sessions; and with one sample per cell and about 19 conversations it
+not measure memory across days or sessions; and with one sample per cell and 17 scored conversations it
 detects only moderate effects.
 
 ## 16. Budget (estimates from practice, never measured at scale)
