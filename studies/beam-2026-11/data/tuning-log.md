@@ -166,6 +166,37 @@ Each closes a judgement the rules above left open. Item 2 is the design owner's 
 6. A flagged run (abort rule) is never reported as a pass or a fail; its numbers are reported as they stand.
 7. The per-session write rate is descriptive: it has no threshold here.
 
+## Amendment 2: instruction-text length (Kepler, design owner, 2026-11-14)
+
+Kepler had asked that the two arms' memory-practice texts be of comparable length. That cannot hold
+together with his other two conditions: arm 2's text is a lean ENGRAM profile built only from components
+ENGRAM already ships, and neither arm gets exam prose. Measured in the student model's tokenizer: arm 1's
+text is 182 tokens; the lean profile is about 3,000 (write and read discipline alone are 1,241). Kepler
+withdrew the length condition. In his reasoning it was his condition, not Lei's (Lei asked for sufficient
+exam instructions and good practice for arm 1, and a lean, clear version for arm 2), and the other two
+conditions matter more. In its place:
+
+- both instruction texts are printed whole in the pre-registration, with their token counts, together
+  with each arm's tool-schema and hook-injection tokens;
+- a new bound in the pre-registration: arm 2 carries about 3,000 tokens of standing instruction against
+  arm 1's 182, as each product ships;
+- arm 1 is not padded.
+
+The lean profile ships as a product option (a lean profile for small-context models), not as exam text.
+Its components were chosen by what a minimal ENGRAM seat needs, not by what would help the exam. It keeps
+the paragraph saying that outward actions need the user's say-so and that the file claims no consent the
+user has not given.
+
+**Asked of Ariadne, who improved arm 1's text: given the gap, does Claude Code's documentation support
+more than 182 tokens?** Her answer, from her own re-read of the memory page: no, for this task. What the
+text leaves out is mostly scope rules that narrow what gets saved: the four memory types (a
+classification built for coding work, which exam facts fit poorly), and the lines saying Claude skips
+anything it can derive and decides what is worth remembering. Adding those would push arm 1 toward saving
+less. One line the documentation does support, and only if the harness lets the student start subagents:
+a subagent does not see the main conversation's auto memory. If subagents are on in the exam, arm 1 gets
+that line and arm 2 gets its equivalent; if they are off, neither does. Her own caveat: she sits on the
+ENGRAM team, the same side as arm 2's authors.
+
 ## Running now
 
 - **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
