@@ -8,9 +8,10 @@
 # File mode scans every file from `git ls-files`, as it sits in the working tree, plus each tracked
 # PATH as text (a file name can leak too). History mode scans, per commit in the range, the message,
 # the author and committer names (same patterns), and the author and committer emails (see below).
-# History mode ALSO scans every line each commit in the range adds (see scan_added), so a leak added in
-# one commit and removed in the next is still found:
-#   history mode  <12-hex commit>:<path>:added: <pattern-name>
+# History mode ALSO scans every line each commit in the range adds and every path name it adds (see
+# scan_added), so a leak added in one commit and removed in the next is still found:
+#   history mode  <12-hex commit>:<path>:added: <pattern-name>              (an added line)
+#                 <12-hex commit>:<path>:added: <pattern-name> (filename)   (an added path name)
 # Exit 0 = no findings. Exit 1 = findings, printed one per line:
 #   file mode     path:line: <pattern-name>              (path findings: path:0: <pattern-name> (filename))
 #   history mode  <12-hex commit>:<field>:line: <pattern-name>   field = message | author-name |
@@ -108,9 +109,11 @@ io_error=0
 # scan_one <file on disk> <label> <suffix> <fixed line: 1 = print line 0; 2 = print no line number and
 #          report each pattern once per file>
 # Applies every pattern; prints `label:line: name<suffix>` (mode 2: `label: name<suffix>`).
+# Optional 5th argument `nomarker`: ignore the allow marker (used for path names, see scan_path).
 scan_one() {
-  local f="$1" label="$2" suffix="$3" fixed="$4" allowed i out rc hit line match prev m seen=" "
-  allowed=" $(grep -nF -e "$MARKER" -- "$f" | cut -d: -f1 | tr '\n' ' ')"
+  local f="$1" label="$2" suffix="$3" fixed="$4" nomarker="${5:-}" allowed i out rc hit line match prev m seen=" "
+  allowed=" "
+  [ "$nomarker" = nomarker ] || allowed=" $(grep -nF -e "$MARKER" -- "$f" | cut -d: -f1 | tr '\n' ' ')"
   for i in "${!NAMES[@]}"; do
     out="$(grep -naoE -e "${RES[$i]}" -- "$f")"
     rc=$?
@@ -153,11 +156,37 @@ is_exempt_path() {
   return 1
 }
 
+# scan_path <label> <path>: scan a PATH NAME as text with every pattern, once per pattern. A path cannot
+# carry the per-line `privacy-scan: allow` escape (a name is not a line a reader can annotate), so the
+# marker is ignored here; the exempt paths are the only exception, and the caller applies them.
+scan_path() {
+  local label="${1//$'\n'/?}"
+  label="${label//$'\r'/?}"
+  printf '%s\n' "$2" > "$tmpd/pathtext"
+  scan_one "$tmpd/pathtext" "$label" " (filename)" 2 nomarker
+}
+
+# commit_paths <full sha> <diff-filter or empty> <out file>: the NUL-separated list of paths the commit
+# changes (first-parent diff for a merge), unquoted and safe for any name (spaces, tabs, quotes, newlines).
+# --no-renames: a renamed file shows as a delete plus an add, so the NEW name is an `A` entry.
+commit_paths() {
+  local sha="$1" filter="$2" out="$3"
+  git -c core.quotePath=false show --no-color --no-ext-diff --no-textconv --no-renames \
+    --diff-merges=first-parent ${filter:+--diff-filter="$filter"} --name-only -z --format= "$sha" 2>/dev/null > "$out"
+}
+
 # scan_added <full sha> <short sha>: scan every line the commit ADDS (the `+` lines of its diff), per
-# file, with the same patterns, path exemptions and allow marker as file mode. Reported as
-# `<short>:<path>:added: <pattern-name>`, once per pattern per file per commit.
+# file, with the same patterns, path exemptions and allow marker as file mode, then every PATH NAME the
+# commit adds. Reported as `<short>:<path>:added: <pattern-name>` (lines) and
+# `<short>:<path>:added: <pattern-name> (filename)` (names), once per pattern per file per commit.
+#  - The path pass is separate because a file with no added lines (an empty file) has no hunk and so no
+#    line to scan: its name is all the commit shows.
 #  - A leak that was added and later removed still shows up here; the head tree no longer has it.
-#  - Lines a commit REMOVES (the `-` side) are never scanned: deleting a leak is not a new leak.
+#  - Lines a commit REMOVES (the `-` side) are never scanned: deleting a leak is not a new leak. Nor are
+#    paths it removes (`--diff-filter=A` for names).
+#  - The label and the exemption check come from the NUL-separated list of changed paths (same order as
+#    the diff's file headers, one entry per `diff --git` header), never from the header text, which git
+#    quotes for names containing a tab, a quote, a backslash or a newline.
 #  - Merge commits are diffed against their FIRST parent only (--diff-merges=first-parent), so a merge
 #    reports everything it brings in, including a leak that arrived on the second parent, and the
 #    evil-merge case (a line only the merge adds) is covered. The default merge diff (combined, `--cc`)
@@ -178,8 +207,15 @@ add_flush() {
   add_have=0
 }
 scan_added() {
-  local sha="$1" line inhdr=0 skip=1
+  local sha="$1" line inhdr=0 skip=1 idx=-1 p
+  local -a plist=()
   add_short="$2"; add_path=""; add_have=0
+  if ! commit_paths "$sha" "" "$tmpd/allpaths"; then
+    echo "privacy-scan: cannot read the changed paths of commit $add_short" >&2
+    io_error=1
+    return
+  fi
+  while IFS= read -r -d '' p; do plist+=("$p"); done < "$tmpd/allpaths"
   git -c core.quotePath=false show -a --no-color --no-ext-diff --no-textconv --no-renames --unified=0 \
     --diff-merges=first-parent --format= "$sha" 2>/dev/null | tr -d '\000' > "$tmpd/diff"
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then
@@ -190,17 +226,33 @@ scan_added() {
   : > "$tmpd/added"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      'diff --git '*) add_flush; add_path=""; skip=1; inhdr=1 ;;
+      'diff --git '*)
+        add_flush; add_path=""; skip=1; inhdr=1; idx=$((idx + 1))
+        if [ "$idx" -ge "${#plist[@]}" ]; then
+          echo "privacy-scan: diff and path list disagree for commit $add_short" >&2
+          io_error=1
+          return
+        fi
+        add_path="${plist[$idx]}" ;;
       '@@ '*) inhdr=0 ;;
       '+++ '*)
         if [ "$inhdr" = 1 ]; then
-          add_path="${line#+++ b/}"; add_path="${add_path%%$'\t'*}"
           if [ "$line" = '+++ /dev/null' ] || is_exempt_path "$add_path"; then skip=1; else skip=0; fi
         elif [ "$skip" = 0 ]; then printf '%s\n' "${line#+}" >> "$tmpd/added"; add_have=1; fi ;;
       '+'*) if [ "$skip" = 0 ]; then printf '%s\n' "${line#+}" >> "$tmpd/added"; add_have=1; fi ;;
     esac
   done < "$tmpd/diff"
   add_flush
+  # the path pass: every path the commit adds (renames count as adds), exempt paths skipped
+  if ! commit_paths "$sha" A "$tmpd/addedpaths"; then
+    echo "privacy-scan: cannot read the added paths of commit $add_short" >&2
+    io_error=1
+    return
+  fi
+  while IFS= read -r -d '' p; do
+    if is_exempt_path "$p"; then continue; fi
+    scan_path "$add_short:$p:added" "$p"
+  done < "$tmpd/addedpaths"
 }
 
 if [ "$MODE" = files ]; then
@@ -215,7 +267,7 @@ if [ "$MODE" = files ]; then
     fi
     scanned=$((scanned + 1))
     printf '%s\n' "$f" > "$tmpd/path"
-    scan_one "$tmpd/path" "$f" " (filename)" 1
+    scan_one "$tmpd/path" "$f" " (filename)" 1 nomarker
     scan_one "$f" "$f" "" 0
   done < <(git ls-files -z)
   what="files"

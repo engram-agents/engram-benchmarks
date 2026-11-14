@@ -18,14 +18,14 @@ jobs:
           persist-credentials: false
       - name: Scanner tests
         run: tools/test-privacy-scan.sh
-      - name: Scan tracked files
+      - name: Scan tracked files and their path names
         run: tools/privacy-scan.sh
-      - name: Scan commit messages and identities (pull request)
+      - name: Scan commits in the PR range (messages, identities, added lines, added path names)
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: tools/privacy-scan.sh --history "origin/$BASE_REF..HEAD"
-      - name: Scan commit messages and identities (push to main)
+      - name: Scan commits in the push range (messages, identities, added lines, added path names)
         if: github.event_name == 'push'
         env:
           BEFORE: ${{ github.event.before }}

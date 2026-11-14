@@ -270,6 +270,87 @@ check_args merge-bringing-leak-flagged "$d" 1 "$(printf 'SHA:side.txt:added: hom
 # the same merge, with the leaking commit outside the range (already scanned): only the merge diff speaks
 check_args merge-first-parent-diff-flagged "$d" 1 "SHA:side.txt:added: home-path" --history HEAD^2..HEAD
 
+# --- --history also scans every PATH NAME a commit adds (a leaking name with clean or empty content) ---
+# ecommit <repo> <path> <message>: commit one EMPTY file (no hunk at all, so only the path pass can see it).
+ecommit() {
+  mkdir -p "$(dirname "$1/$2")"; : > "$1/$2"; git -C "$1" add -A
+  GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$1" commit -q -m "$3"
+}
+# scan_out <repo> <range>: scanner stdout for a history range
+scan_out() { (cd "$1" && "$SCAN" --history "$2" 2>/dev/null); }
+
+# (a) an EMPTY file whose path carries a pattern, added then removed: the name stays in the log
+d="$(hrepo path-empty)"
+ecommit "$d" run/home/alice/out.log "add"
+rmcommit "$d" run/home/alice/out.log "remove"
+acommit "$d" ok.txt "fine" "add ok"
+check_args added-empty-file-name-flagged "$d" 1 "SHA:run/home/alice/out.log:added: home-path (filename)" --history base..HEAD
+check added-then-removed-name-invisible-to-file-mode "$d" 0 ""
+first="$(git -C "$d" rev-list --reverse base..HEAD | sed -n 1p)"
+out="$(scan_out "$d" base..HEAD)"; n=$((n + 1))
+if [ "$out" = "${first:0:12}:run/home/alice/out.log:added: home-path (filename)" ]; then echo "PASS  added-name-names-adding-commit"; else echo "FAIL  added-name-names-adding-commit: out=[$out]"; fails=$((fails + 1)); fi
+
+# (b) the same with clean non-empty content
+d="$(hrepo path-content)"
+acommit "$d" run-box.local/out.txt "nothing private" "add"
+rmcommit "$d" run-box.local/out.txt "remove"
+check_args added-clean-content-name-flagged "$d" 1 "SHA:run-box.local/out.txt:added: local-hostname (filename)" --history base..HEAD
+
+# (c) a RENAME whose new side carries the pattern (old side clean). Rename detection is OFF in the path
+# pass (--no-renames), so the new name appears as an add and is flagged on the renaming commit.
+d="$(hrepo path-rename)"
+acommit "$d" out/data.txt "some clean content" "add clean"
+mkdir -p "$d/out/home/alice"; git -C "$d" mv out/data.txt out/home/alice/data.txt
+GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$d" commit -q -m "rename"
+last="$(git -C "$d" rev-parse HEAD)"
+out="$(scan_out "$d" base..HEAD)"; n=$((n + 1))
+if [ "$out" = "${last:0:12}:out/home/alice/data.txt:added: home-path (filename)" ]; then echo "PASS  renamed-to-leaking-name-flagged-on-renaming-commit"; else echo "FAIL  renamed-to-leaking-name-flagged-on-renaming-commit: out=[$out]"; fails=$((fails + 1)); fi
+
+# (d) a leaking name under an exempt path is not flagged
+d="$(hrepo path-exempt)"
+ecommit "$d" tools/privacy-scan-fixtures/home/alice/x "add"
+rmcommit "$d" tools/privacy-scan-fixtures/home/alice/x "remove"
+check_args added-name-in-exempt-path-skipped "$d" 0 "" --history base..HEAD
+
+# (e) a REMOVED path that carries a pattern (added before the range) is not a finding
+d="$(hrepo path-removed)"
+ecommit "$d" run/home/alice/old.log "add"
+git -C "$d" tag leaked
+rmcommit "$d" run/home/alice/old.log "remove"
+check_args removed-name-is-not-a-finding "$d" 0 "" --history leaked..HEAD
+
+# (f) a merge bringing in a leaking name from its second parent is flagged (first-parent diff)
+d="$(hrepo path-merge)"
+git -C "$d" checkout -q -b side
+ecommit "$d" run/home/alice/side.log "side"
+git -C "$d" checkout -q -
+acommit "$d" main.txt "clean" "main work"
+GIT_AUTHOR_NAME=Dev GIT_AUTHOR_EMAIL="$NOREPLY" GIT_COMMITTER_NAME=Dev GIT_COMMITTER_EMAIL="$NOREPLY" git -C "$d" merge -q --no-ff side -m "merge side"
+check_args merge-first-parent-name-flagged "$d" 1 "SHA:run/home/alice/side.log:added: home-path (filename)" --history HEAD^2..HEAD
+check_args merge-bringing-name-flagged-with-side-commit "$d" 1 "$(printf 'SHA:run/home/alice/side.log:added: home-path (filename)\nSHA:run/home/alice/side.log:added: home-path (filename)')" --history base..HEAD
+
+# (g) a clean range of oddly named but harmless paths passes
+d="$(hrepo path-clean)"
+ecommit "$d" "run output/caf$(printf '\303\251').log" "add"
+acommit "$d" "docs/the home page.md" "text" "add"
+check_args clean-names-range-passes "$d" 0 "" --history base..HEAD
+
+# the line marker cannot wave a path name through: a name carrying it still fails
+d="$(hrepo path-marker)"
+ecommit "$d" "run/home/alice/x privacy-scan: allow" "add"
+check_args marker-in-path-name-does-not-exempt "$d" 1 "SHA:run/home/alice/x privacy-scan: allow:added: home-path (filename)" --history base..HEAD
+
+# --- labels in the added-line pass come from the NUL-separated path list, not the quoted diff header ---
+d="$(hrepo label-space)"
+acommit "$d" "my notes/a b.txt" "ran in /home/alice/proj" "add"
+check_args added-line-label-path-with-space "$d" 1 "SHA:my notes/a b.txt:added: home-path" --history base..HEAD
+d="$(hrepo label-nonascii)"
+acommit "$d" "caf$(printf '\303\251').txt" "ran in /home/alice/proj" "add"
+check_args added-line-label-non-ascii-path "$d" 1 "SHA:caf$(printf '\303\251').txt:added: home-path" --history base..HEAD
+d="$(hrepo label-quote)"
+acommit "$d" 'say "hi".txt' "ran in /home/alice/proj" "add"
+check_args added-line-label-path-with-quote "$d" 1 'SHA:say "hi".txt:added: home-path' --history base..HEAD
+
 # History mode refuses to report a pass it did not earn: bad range, empty range, no range, odd range.
 d="$(hrepo hist-bad)"
 check_args history-bad-range-exit-2 "$d" 2 "" --history nosuchref..HEAD
