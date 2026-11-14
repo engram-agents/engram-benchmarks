@@ -1,0 +1,3 @@
+config lives in /home/alice/project/settings
+macOS copy at /Users/bob/Documents/notes
+key in /root/.ssh/id

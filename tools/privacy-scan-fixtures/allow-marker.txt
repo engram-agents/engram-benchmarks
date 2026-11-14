@@ -1,0 +1,3 @@
+example path /home/alice/x  # privacy-scan: allow (generic mention)
+mail me@example.org  # privacy-scan: allow
+server localhost:9000  # privacy-scan: allow

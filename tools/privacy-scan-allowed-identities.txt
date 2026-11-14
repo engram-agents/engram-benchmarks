@@ -1,0 +1,4 @@
+# One address per line; blank lines and lines starting with # are ignored (a comment never allows anything).
+# Deliberate: the public project address of the study lead, author of the repository's initial commit.
+# Listed so the identity check stays strict for everyone else.
+borges.funes@engram-agent.org

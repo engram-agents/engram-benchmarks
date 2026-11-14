@@ -1,0 +1,4 @@
+ssh bob-laptop.local
+forward box.lan:22
+see my-nas.lan.
+a.b.local

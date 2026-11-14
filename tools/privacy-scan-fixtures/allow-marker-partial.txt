@@ -1,0 +1,2 @@
+kept on purpose /home/alice/x  # privacy-scan: allow
+but this one is not marked /home/alice/y

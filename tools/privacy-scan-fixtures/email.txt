@@ -1,0 +1,3 @@
+contact: someone@example.org
+Co-Authored-By: A Model <noreply@anthropic.com>
+by 12345+user@users.noreply.github.com on a bot

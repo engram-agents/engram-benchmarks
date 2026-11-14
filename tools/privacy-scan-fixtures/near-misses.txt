@@ -1,0 +1,14 @@
+the /rooted, /rootfs and /root_dir words are not the root directory
+chroot and /root-ish are fine
+/private/var/db and /tmp/pytest-cache and /var/tmp are fine
+commit 9fd00ab12cd34ef567890abcdef1234567890abc and hex fd00ab12 and fc00:dead beef
+iso date 2026-11-14T10:20:30Z and time 12:34:56 and ratio 3:4
+self.local_var = 1
+self.local = 2
+settings.local.json and .env.local and this.lan_port and localhost
+100.63.0.1 and 100.128.0.1 and 169.253.1.1 and 8.8.4.4 are not private
+config.local_var and obj.lan_port are identifiers, not hosts
+the word internal in prose, and an internal.
+obj.internal_state and self.internal and cls.internal.x are not hosts
+settings.internal.json is a file name, not a host
+see example.com and parts.net and a ts.net_x identifier

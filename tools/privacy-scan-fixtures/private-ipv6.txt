@@ -1,0 +1,4 @@
+ula fd00::1
+ula long fd12:3456:789a::1
+bracketed [fd00::1]:80
+ula fc00:1234:abcd:0:0:0:0:1

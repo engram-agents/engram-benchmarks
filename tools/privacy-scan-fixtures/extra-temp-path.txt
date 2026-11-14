@@ -1,0 +1,4 @@
+{"p":"\/var\/tmp\/bob"}
+{"p":"\/tmp\/claude-1000"}
+cache /private/var/folders/ab/cd/T
+run /tmp/pytest-of-bob/pytest-0

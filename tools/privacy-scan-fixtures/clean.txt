@@ -1,0 +1,4 @@
+Plain prose with nothing host specific.
+A generic path /home/<user>/project and /Users/<name>/x are placeholders.
+Attribution: <noreply@anthropic.com>
+Version 10.2 and ratio 3:4 and host name localhost.

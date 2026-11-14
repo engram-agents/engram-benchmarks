@@ -1,0 +1,38 @@
+name: privacy-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  privacy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scanner tests
+        run: tools/test-privacy-scan.sh
+      - name: Scan tracked files and their path names
+        run: tools/privacy-scan.sh
+      - name: Scan commits in the PR range (messages, identities, added lines, added path names)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: tools/privacy-scan.sh --history "origin/$BASE_REF..HEAD"
+      - name: Scan commits in the push range (messages, identities, added lines, added path names)
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "${BEFORE//0/}" ]; then
+            echo "push has no previous commit (all-zero before); skipping the history scan"
+          else
+            tools/privacy-scan.sh --history "$BEFORE..$AFTER"
+          fi

@@ -1,0 +1,6 @@
+{"p":"\/home\/bob\/x"}
+{"p":"\/Users\/bob"}
+cd /root
+HOME=/root
+{"p":"\/root\/.ssh"}
+at /root.
