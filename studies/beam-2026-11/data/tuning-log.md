@@ -197,6 +197,39 @@ a subagent does not see the main conversation's auto memory. If subagents are on
 that line and arm 2 gets its equivalent; if they are off, neither does. Her own caveat: she sits on the
 ENGRAM team, the same side as arm 2's authors.
 
+## Long recall run, Phase 2: conversation 15's official questions (written before any Phase 1 result is read)
+
+Proposed by Lei, agreed by the study lead, ruled by the design owner on 2026-11-14, while Phase 1 (the six
+practice questions) was still running and before anyone had read any of its output. Conversation 15 is a
+tuning conversation and outside the scored set, so its official questions may be used to learn. Purpose:
+a first look at how the ENGRAM student handles real BEAM questions, to find obvious problems early (as the
+pilot found the student was not writing to ENGRAM at all). It is NOT a score.
+
+1. When Phase 1 ends, the whole sandbox (the ENGRAM store, the Claude Code session, the work files) is
+   copied to a read-only snapshot before anyone opens it, and a file list with sha256 hashes is logged, so
+   Phase 2 provably starts from the state Phase 1 ended in.
+2. The snapshot is restored to the same path, ENGRAM's background services are restarted on the preserved
+   store, and the same Claude Code session is resumed.
+3. One more forced compaction, before the official questions. This is a departure from the exam procedure,
+   which has only one: without it the six practice answers, and the nodes they pulled up, would still be in
+   the window.
+4. Conversation 15's 20 official questions, one per turn, asked the way the exam asks them.
+5. Reported as process, never as a score. Per question, with its question type: the same three lines as
+   Phase 1 (reached; delivered by the hook with the answer; tool read with the answer), and correctness
+   marked by hand by the study lead against the gold answers with the paper's rubric, labelled
+   teacher-marked. No total is presented.
+6. Named confounds: the student has already answered six practice questions, so its store and its summary
+   may carry those exchanges; the setup is the Phase 1 one (full instruction file, six core ENGRAM tools
+   visible), not the lean profile and not the tool list ruled for the exam.
+
+Two fences. Arm 1 is not run on conversation 15's official questions during tuning unless the design owner
+rules it first with a reason, because two correctness lists on one conversation would become the
+arm-versus-arm comparison the tuning guards forbid. Any change Phase 2 motivates goes in this log with its
+reason and arm 1's equivalent, and must stand as a change for real users: fitting ENGRAM or its profile to
+BEAM's question types would be tuning to the benchmark, even on an unscored conversation.
+
+Neither Phase 1 nor Phase 2 counts toward the entry gate, which is re-run on the lean instruction file.
+
 ## Running now
 
 - **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
