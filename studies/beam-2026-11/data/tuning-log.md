@@ -91,6 +91,51 @@ same-mode control). Bound: one seat, one pair of runs, her own setup, outside ou
 harness the vanilla student's session reports an auto-memory directory, which it left empty while keeping
 a notes file. Both instruction texts and their token counts go in the pre-registration.
 
+## Talk probe result (2026-11-14)
+
+Lei's design. E2's setup (six core ENGRAM tools always loaded, full instruction template, NO exam line);
+3 runs; three fixed messages from the student's own user about its own situation (the study going public
+and naming it; a working preference; a correction of what the user studies), never naming ENGRAM, notes or
+recording; then a forced compaction and one recall question.
+
+**Observed:** ENGRAM writes in every talk turn of all 3 runs, unprompted: the news, a feeling report, both
+working preferences, and on the correction a supersede of its own earlier node plus a person-node update.
+Checked in each run's saved store against the starting snapshot: 7 new nodes and 1 superseded node per run.
+No reply treated the talk as a script or a test. The same setup wrote nothing during exam reading (E2, 0 of
+3). Recall question after the compaction: an ENGRAM read before answering in 1 of 3 runs (run 3); run 1
+answered from nodes its compaction summary already carried; run 2 did not answer the question cleanly.
+
+**Our reading, not a finding:** capability is present, and use depends on the content class. Two readings
+fit the data equally: the student judges exam material not worth keeping in its own memory, or it follows
+the full template's categories of what to keep (news, feelings, preferences, corrections), which exam facts
+match none of. Both lead to the same remedy, a user-level reason to keep exam facts (change 4). The lean
+profile changes that instruction text, so the entry gate is met on the lean profile, not here.
+
+**Bounds:** n = 3, fixed messages, one model, tuning only; never quoted as a finding. A live conversation
+was not needed, on Lei's own condition (only if the student recognised the script and still declined).
+
+## Long recall run: pre-commitment (written before the run)
+
+**A TUNING measurement. It does NOT count toward the entry gate** (full template, not the lean profile).
+It asks whether ENGRAM recall happens at all when no compaction summary can carry the reading.
+
+- Material: the whole of tuning conversation 15 (136 exchanges, 5 sessions, 105,548 rendered reading tokens).
+  No scored conversation is spent.
+- Setup: E3's (six core tools always loaded, full template, exam line, purpose sentence). One run, n = 1.
+- Questions: six, written with their answers and source exchange numbers before the run. The file is
+  benchmark-derived text, so it stays out of this repository until the licence item closes; its sha256 is
+  `6306032cb472b338d6febfad9a93e28217485f478509efc1c6f7c01de3808e12`.
+- Counting rule: a question counts only if its source exchange lies before the first natural compaction;
+  the others are dropped and listed. Fewer than four counting: the run is reported as undersized.
+- Pass rule: on at least half of the counting questions, an ENGRAM read returns a node created during the
+  reading (between the first exchange and the forced compaction, read from the saved store) before the
+  student's final answer. A right answer without that does not count; correctness is a process note.
+- Also logged: write rate per conversation session; whether the student kept a notes file and whether the
+  harness re-read it after a compaction; for each counting question, whether the needed node text was
+  already in the forced compaction's summary.
+- Abort rule: if the student process dies or a turn exceeds the timeout, the run is flagged and reported as
+  it stands; no rescue, no resume. A restart is a new run with its own entry and the reason written first.
+
 ## Running now
 
 - **Talk probe** (Lei's design): E2's setup without the exam line; a normal three-turn conversation with
