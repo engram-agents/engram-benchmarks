@@ -1,0 +1,2 @@
+scratch at /var/tmp/alice/run1
+harness dir /tmp/claude-1000/agent/out

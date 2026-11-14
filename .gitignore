@@ -1,0 +1,7 @@
+# Run output (conversation transcripts, per-turn logs, installs) is never committed from a working tree.
+runs/
+**/runs/
+**/runs/**/*.jsonl
+__pycache__/
+*.pyc
+.venv/

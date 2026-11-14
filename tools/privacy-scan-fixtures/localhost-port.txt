@@ -1,0 +1,3 @@
+serve on localhost:8080
+or 127.0.0.1:5000
+the word localhost alone is fine

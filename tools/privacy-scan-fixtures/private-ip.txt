@@ -1,0 +1,8 @@
+host 10.1.2.3 is the box
+peer at 172.16.0.1
+peer at 172.31.255.254
+router 192.168.1.1
+public 8.8.8.8 is fine
+outside range 172.32.0.1
+not private 110.1.2.3
+version 1.10.20.30 is not a host

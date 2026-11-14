@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# ask-proctor "<question>" : the BEAM exam room's escalation channel (Lei, 2026-11-14).
+# For harness or environment problems only (a tool failing, a missing file, unclear
+# instructions about the exam procedure). Never for benchmark content.
+# Writes the question to $PROCTOR_DIR, waits for the proctor's answer file, prints it.
+# Every question and answer is appended to $PROCTOR_DIR/log.tsv with UTC times.
+# This file is the study's harness, not shipped product code.
+set -u
+dir="${PROCTOR_DIR:?PROCTOR_DIR is not set}"
+limit="${PROCTOR_TIMEOUT:-900}"
+q="$*"
+if [ -z "$q" ]; then echo 'usage: ask-proctor "<your question>"' >&2; exit 2; fi
+mkdir -p "$dir"
+id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+printf '%s\n' "$q" > "$dir/q-$id.txt"
+printf '%s\tQ\t%s\t%s\n' "$(date -u +%FT%TZ)" "$id" "$(printf '%s' "$q" | tr '\t\n' '  ')" >> "$dir/log.tsv"
+echo "Question sent to the proctor (id $id). Waiting up to ${limit}s for an answer..."
+waited=0
+while [ ! -s "$dir/a-$id.txt" ]; do
+  if [ "$waited" -ge "$limit" ]; then
+    printf '%s\tTIMEOUT\t%s\t\n' "$(date -u +%FT%TZ)" "$id" >> "$dir/log.tsv"
+    echo "No answer from the proctor within ${limit}s. Continue the exam as best you can."
+    exit 3
+  fi
+  sleep 5; waited=$((waited + 5))
+done
+a="$(cat "$dir/a-$id.txt")"
+printf '%s\tA\t%s\t%s\n' "$(date -u +%FT%TZ)" "$id" "$(printf '%s' "$a" | tr '\t\n' '  ')" >> "$dir/log.tsv"
+echo "Proctor's answer:"
+printf '%s\n' "$a"

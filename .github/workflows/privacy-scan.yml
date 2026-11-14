@@ -1,0 +1,19 @@
+name: privacy-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  privacy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scanner tests
+        run: tools/test-privacy-scan.sh
+      - name: Scan tracked files
+        run: tools/privacy-scan.sh
