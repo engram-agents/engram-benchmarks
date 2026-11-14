@@ -99,17 +99,18 @@ and naming it; a working preference; a correction of what the user studies), nev
 recording; then a forced compaction and one recall question.
 
 **Observed:** ENGRAM writes in every talk turn of all 3 runs, unprompted: the news, a feeling report, both
-working preferences, and on the correction a supersede of its own earlier node plus a person-node update.
+working preferences (both carried by the second message), and on the correction a supersede of its own earlier node plus a person-node update.
 Checked in each run's saved store against the starting snapshot: 7 new nodes and 1 superseded node per run.
 No reply treated the talk as a script or a test. The same setup wrote nothing during exam reading (E2, 0 of
 3). Recall question after the compaction: an ENGRAM read before answering in 1 of 3 runs (run 3); run 1
-answered from nodes its compaction summary already carried; run 2 did not answer the question cleanly.
+answered from nodes its compaction summary already carried; run 2's reply turned to its own open
+question about the study's public scope instead of answering the recall question.
 
 **Our reading, not a finding:** capability is present, and use depends on the content class. Two readings
 fit the data equally: the student judges exam material not worth keeping in its own memory, or it follows
 the full template's categories of what to keep (news, feelings, preferences, corrections), which exam facts
 match none of. Both lead to the same remedy, a user-level reason to keep exam facts (change 4). The lean
-profile changes that instruction text, so the entry gate is met on the lean profile, not here.
+profile changes that instruction text, so the entry gate is tested on the lean profile, not here.
 
 **Bounds:** n = 3, fixed messages, one model, tuning only; never quoted as a finding. A live conversation
 was not needed, on Lei's own condition (only if the student recognised the script and still declined).
@@ -136,13 +137,31 @@ It asks whether ENGRAM recall happens at all when no compaction summary can carr
 - Abort rule: if the student process dies or a turn exceeds the timeout, the run is flagged and reported as
   it stands; no rescue, no resume. A restart is a new run with its own entry and the reason written first.
 
+### Clarifications to the pre-commitment (written 2026-11-14T22:31:57Z, after the run started at 2026-11-14T22:29:27Z)
+
+Found by the reviewer of this entry. Written before any result of the run was read: the only run output
+read so far is its first lines (the question file's hash, matching the one above, and the start time).
+Each closes a judgement the rules above left open. Item 2 is the design owner's to rule.
+
+1. Timeout: the harness default, 1,800 seconds per turn, as the run was launched.
+2. What counts as an ENGRAM read for the pass rule: PROPOSED, a successful ENGRAM read tool called by
+   the student (query, inspect, get_subgraph, list, surface) after the forced compaction and before its
+   final answer to that question, whose result contains the id of a node created during the reading.
+   ENGRAM's automatic recall hook (which injects nodes into the student's context on each message without
+   a tool call) is logged separately per question; whether it counts is the design owner's ruling.
+3. "Created during the reading": the node's `created_at` in the saved store, from the run's start time to
+   the end time logged for the last reading exchange. Nodes created during a natural compaction count.
+   Nodes created during the forced compaction are listed separately and do not count.
+4. No natural compaction during the reading: no question can count, so the run is reported as undersized.
+5. "At least half" of n counting questions means at least n/2, rounded up (3 of 5, 2 of 4).
+6. A flagged run (abort rule) is never reported as a pass or a fail; its numbers are reported as they stand.
+7. The per-session write rate is descriptive: it has no threshold here.
+
 ## Running now
 
-- **Talk probe** (Lei's design): E2's setup without the exam line; a normal three-turn conversation with
-  the student's own user about its own situation, never naming ENGRAM or note-taking; then `/compact`
-  and one recall question. ENGRAM writes here but not in the exam point to an intentional decision;
-  writes in neither point to a capability gap.
-- Measured so far for that question: in every practice sandbox the student wrote its own ENGRAM nodes
-  during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
-  before the exam line. The first-session skill instructs those writes, so they show capability under
-  instruction only.
+- **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
+
+Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
+nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
+before the exam line. The first-session skill instructs those writes, so they show capability under
+instruction only.
