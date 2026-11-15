@@ -37,7 +37,7 @@ the pre-registration.
 
 - An identical exam line at the top of the student's user-level `CLAUDE.md` in every arm (text in the
   pre-registration, section 4).
-- Each arm's own memory-practice text, at comparable length (pre-registration, section 4).
+- Each arm's own memory-practice text, printed whole with its token count (pre-registration, section 4).
 
 ## Sequence
 

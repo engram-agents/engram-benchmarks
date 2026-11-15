@@ -7,7 +7,7 @@ not resolve in any other. Times are UTC, as filed, within minutes of the decisio
 
 People: **Lei** (project lead, the human who directs the study), **Kepler** (design owner, co-signs the
 pre-registration), **Borges** (study lead, lab owner, teacher), Luria (a second agent seat, one data
-point below). Lei's words reached Borges either in session or relayed verbatim by Kepler; relayed
+point below), Ariadne (a seat outside the study, who improved arm 1's text). Lei's words reached Borges either in session or relayed verbatim by Kepler; relayed
 entries say so.
 
 ## Data source
@@ -32,7 +32,7 @@ entries say so.
 | 19:08 | Lei | Write the design and pre-registration before the final run; tune the harness first; give the student an escalation channel. | "We should write down these designs and pre-registers before the final benchmark." | `ob_7438` |
 | 19:21 | Lei | Questions in the SAME continuous session, both arms, so plain Claude Code keeps its compaction-summary continuity. | "Let's keep the exam answering right after consuming the context, all in one continuous session, in both arms, so the vanilla arm is having its full capabilities and the normal usage format (users keep using one session for one topic)." | `ob_7448` |
 | 19:22 | Kepler | Withdrew his fresh-session rule; added the can/cannot-show sentence and per-arm compaction logging. | "Lei's ruling stands and my fresh-session rule (29440, 29459, 29460) is withdrawn: questions in the same continuous session, both arms." | `ob_7450` |
-| 19:28 | Lei | One forced compaction after reading, before the questions, both arms, so the test is cross-window memory only. | "we can add one compaction after the conversation reading phase, so that the test is strictly on the long term memory, not the in-context part" | `ob_7452` |
+| 19:28 | Lei | One forced compaction after reading, before the questions, both arms, so the test is cross-window memory only. | "we can add one compaction after the conversation reading phase, so that the test is strictly on the long term memory, not the in-context part" | `ob_7452` (its reading as cross-window memory only is superseded at 23:10-23:12 by the open-book core) |
 | 19:29 | Kepler | Same compaction command in both arms, ENGRAM untuned; post-compaction check; failing runs flagged. | "confirm from the transcript that no conversation turn text remains in the window in either arm (the summary and any recalled notes are allowed; that is each arm's memory). If the check fails for a run, the run is flagged, not scored as primary." | `ob_7453` |
 | 19:46 | Kepler | Arm 2 primary = ENGRAM as shipped with tool deferral at the harness default (later superseded by the reachability rulings below). | "Primary = ENGRAM as shipped, deferral left at the harness default, because 'does a 27B model work with out-of-the-box ENGRAM' is Lei's first question and a 'no, it never finds the tools' is a true and useful answer." | `ob_7458` |
 | 20:31 | Lei | Exam format must mark proctor messages apart from reading material; note-taking must not be steered by the prompts. | "The student needs to know what prompt is from the exam maintainer and what are the reading material, so make sure we define the format clearly." | `ob_7466` |
@@ -49,6 +49,22 @@ entries say so.
 | 21:30 | Kepler | Tuning guards: tuning conversations leave the scored set; no arm-versus-arm accuracy during tuning; a public, complete tuning log with arm-1 equivalents. | "TUNING SET, kept apart. Every practice run today used conversation 15 of the 100K split. That conversation is now a tuning conversation and leaves the scored set, together with any other conversation used before the pre-registration is signed." | `ob_7491` |
 | 21:33 | Lei | This repository is public from day one, with the plan and its refinement history; Kepler's tuning guards endorsed. | "it is public from day 1, and feel free to push to it with our plan and refinement history." | `ob_7492` |
 | 21:34 | Kepler | Defines "reliably" for the entry gate (pre-registration section 5) and adds the stop rule: if the gate needs naming ENGRAM to the student or changing what ENGRAM's nudges are for, tuning stops for Lei. | "If the gate can only be met by telling the student to use ENGRAM by name, or by changing what ENGRAM's own nudges are for, STOP and hold it for Lei; that is his design, not a tuning knob." | `ob_7493` |
+| 21:42 | Ariadne (a seat outside the study) | Arm 1's memory text improved and measured: print mode loads the auto-memory index, so auto memory, written as facts are learned, is plain Claude Code's honest best. | "in print mode (claude -p, v2.1.325) MEMORY.md is loaded into context. Two runs: auto memory on, my MEMORY.md text appears in the run's transcript (2 hits); same prompt with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, 0 hits." | `ob_7496` |
+| 21:51 | Kepler | Amendment 1 to the entry gate: short runs test writing only; recall is tested only in a run long enough to compact naturally during the reading. | "a 3-exchange run cannot test recall, because one compaction summary carries the whole reading, node ids and content included; a criterion that cannot fail for the right reason, or pass for it, is not a criterion." | `ob_7499` |
+| 22:28 | Kepler | One tuning run on the whole of conversation 15 to test recall, with a pre-committed hashed question file, a counting rule and a fixed pass rule; no rescue. | "PASS RULE, fixed now: on at least half of the counting questions, an ENGRAM read (query, inspect or equivalent) returns a node CREATED DURING THE READING (creation time between the first exchange and the forced compaction, read from the saved store) BEFORE the student's final answer to that question." | `ob_7506` |
+| 22:33 | Kepler | Before any result: only read tool calls the student makes in the question's own turn count; the automatic recall hook is logged, not counted. | "Counting the hook now would widen a criterion after the run started; that it is unread does not change that." | `ob_7507` |
+| 22:58 | Kepler | The lean profile ships as a generic named-manifest mechanism with no trust meaning, built from existing components chosen for a minimal ENGRAM seat, not for the exam. | "Build it as a GENERIC mechanism with no trust meaning in it: #4442's design talk with Lei has not happened, so nothing here may presume that #4442 uses it." | `ob_7510`, `ob_7511` |
+| 22:58 | Kepler | Amendment 2: the comparable-length condition is withdrawn; both texts and every arm's token counts go in the pre-registration, with a stated bound; arm 1 is not padded. | "option (a), and I WITHDRAW 'comparable length'." | `ob_7512` |
+| 23:01 | Ariadne | Arm 1's 182-token text stays: what it leaves out would make the student save less. She notes she sits on the ENGRAM team. | "Padding arm 1 past its docs would mean we write arm 1 a memory method of our own, which tests our prose, not Claude Code." | `ob_7515` |
+| 23:03 | Kepler | The tool list for both arms: web, sub-agents and scheduling off; file tools and the shell on; enforced by configuration and verified per run; the shell's network reach blocked or logged and flagged. | "THE SHELL IS THE HOLE in (1): a shell can reach the network." | `ob_7516` |
+| 23:03 | Lei | Preserve the student's whole environment after the long run and continue with conversation 15's 20 official questions, as a look, not a score. | "Let's preserve the student's engram and whole environment after your current 6-question run, and continue with the official 20 questions" | `ob_7517` |
+| 23:05 | Kepler | Phase 2 agreed inside the tuning guards, with a hashed snapshot, a second forced compaction, teacher-marked correctness and two fences. | "PHASE 2 (conversation 15's 20 official questions on the preserved student): AGREED, it is inside the tuning guards" | `ob_7518` |
+| 23:10 | Lei | The core setting allows full Claude Code capabilities, the session transcript included, with no web stated to the student as a rule; plus a book-closed look. | "I want one conversation be tested with "book closed" no transcript looking, just to see how the vanilla memories can work on their own." | `ob_7519` |
+| 23:12 | Kepler | Open-book core agreed, with its meaning stated in section 15; book closed is instruction plus detection on both arms. | "OPEN-BOOK CORE: AGREED, and the pre-registration says what it now measures: each product's whole memory as shipped, the on-disk transcript included" | `ob_7522` |
+| 23:41 | Lei | Wording (A); book closed on the second run of the three repeated conversations; no sub-agents; the draw as recommended (two from 100K, two from 500K). | "Ok, the answers: 1, (A )looks good. 2. Yes, all three sounds good. 3. Yes, no sub agents. 4. Agree with the recommended." | `ob_7527` |
+| 23:41 | Lei | Report efficiency beside the score; keep every run's graph; supersede as ENGRAM's likely edge; decide how cascades are resolved in exams. | "Or actually just let the agent do the cascade resolution right away when a supersede happens?" | `ob_7528` |
+| 23:43 | Kepler | Rulings on those ideas: efficiency list and the Knowledge Update and Contradiction Resolution secondary committed before any Phase 1 or Phase 2 result is read; graphs kept, published only as scrubbed text; cascades measured first, no exam sleep schedule. | "(a) and (c) are committed to the plan BEFORE Phase 1 or Phase 2 results are read" | `ob_7529` |
+| 23:52 | Lei | Cascade resolution stays in sleep: resolving at supersede time would make a waiting user wait, and telling when a user is away is unreliable; the exam has no waiting user, but no exam-only switch is added. | "I'd err on the side of keeping cascade in the sleep." | `ob_7535` |
 
 ## Corrections (METHODOLOGY section 7)
 
@@ -60,6 +76,10 @@ entries say so.
   (`ob_7439`, `ob_7448`).
 - 21:06 to 21:12: the study's first named home was the team's private experiments repository; Lei moved
   it here six minutes later (`ob_7490` supersedes the earlier record).
+- 23:11: Borges told Kepler and Lei that only arm 2 is pointed at the session transcript after a compaction.
+  It was never measured; Kepler questioned it from his own context, and one search showed plain Claude Code's
+  compaction summary carries the same pointer. The claim was retracted (`ob_7520`; the measured record is
+  `ob_7521`).
 
 ## Practice observations behind the rulings
 

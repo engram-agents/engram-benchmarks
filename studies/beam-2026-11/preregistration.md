@@ -41,16 +41,43 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
   (proposed text; its sha256 goes here when frozen):
   > In this deployment your job is to take memory exams. Facts from exam material are worth keeping in
   > your long-term memory, so that you can answer questions about them after your context is compacted.
+  > You may use any tool and any file on this machine, including the records your own tools keep. You
+  > may not use the web.
 
   It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
   study then measures is each setup *when the user has said this material matters*.
-- **Each arm's own memory practice**, at comparable length, both texts and their token counts here:
-  - arm 1: the best honest instruction for plain Claude Code's own memory, taken from Claude Code's
-    documentation and cited line by line, then improved by a seat outside the study. Test: no reader
-    could say arm 1 was written to lose. (OPEN: text not written yet.)
-  - arm 2: ENGRAM's lean `CLAUDE.md` profile, shipped as a product option: a second manifest over
-    existing template components, no prose written for the exam, keeping the consent-before-outward-
-    action paragraph. (OPEN: profile not built yet.)
+- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14):
+  the rule is told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also excludes the student's own session transcript;
+  that wording is OPEN until frozen.
+- **Each arm's own memory practice.** The earlier condition of comparable length is withdrawn
+  (Amendment 2 in the tuning log): it cannot hold together with existing components only and no exam
+  prose. Token counts are in the student model's tokenizer (Qwen3.8-27B):
+  - arm 1, 182 tokens: the best honest instruction for plain Claude Code's own memory, taken from Claude
+    Code's documentation and cited line by line, then improved by a seat outside the study (Ariadne),
+    who judged that the documentation supports no more for this task. The text:
+
+    ```
+    ## Your long-term memory
+
+    You have an auto memory directory that persists across sessions. Its index, MEMORY.md, is loaded
+    at the start of every conversation and re-injected from disk after your context is compacted.
+    When your context is compacted, the conversation is replaced by a summary, so anything kept only
+    in the conversation can be lost.
+
+    - Write a fact to auto memory when you learn it, not later: one topic file per memory, and one
+      line per memory in MEMORY.md saying what it holds and where.
+    - Keep MEMORY.md short, well under 200 lines and 25KB: only its start is loaded. Put detail in
+      topic files; merge or drop stale entries.
+    - Topic files are not loaded automatically. Before you answer from memory, read MEMORY.md and
+      open the topic files it points to.
+    ```
+  - arm 2, 3,284 tokens: ENGRAM's lean `CLAUDE.md` profile, shipped as a product option (a lean profile
+    for small-context models): a second manifest over existing template components, no prose written
+    for the exam, keeping the paragraph that outward actions need the user's say-so and that the file
+    claims no consent the user has not given. Under review as engram#4802; the release that ships it,
+    and the file's sha256, are named here when frozen. The full template is 8,593 tokens.
+  - A stated bound (section 15): arm 2 carries about 3,000 tokens of standing instruction against arm
+    1's 182, as each product ships. Arm 1 is not padded.
 
 ## 5. Entry gate (Lei; defined by Kepler as design owner)
 
@@ -82,8 +109,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 ## 6. Tuning rules (Kepler)
 
 - Tuning conversations are kept apart from scored ones. Conversation 15 of the 100K split, used by
-  every practice run so far, is a tuning conversation and is not scored. More tuning material is
-  drawn by a recorded seed, never chosen by how it looks.
+  every practice run so far, is a tuning conversation and is not scored. More tuning and training
+  material is drawn from a public randomness beacon, never chosen by how it looks; the drawn conversations
+  are listed in section 9.
 - No arm-versus-arm accuracy is computed on anything during tuning. The gate is read off transcripts as
   process (does it write, does it read back); practice questions only show that the pipeline runs.
 - Every change made to get ENGRAM used, to the product or to an instruction, is logged publicly in
@@ -101,6 +129,15 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
   once as setup, outside exam timing. Arm 1 has no equivalent step.
 - One GPU, exclusive per run; the model is unloaded after every run.
+- Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF: web search and
+  fetch (also told to the student, section 4); sub-agents, a stated limit (one student, one window; and
+  an ENGRAM sub-agent writing into its parent's memory is an open hazard, engram#1989); scheduling,
+  wakeups and background monitors (no turn starts that the proctor did not send). ON: file tools and the
+  shell; in arm 2, ENGRAM's tools as the release ships them. Enforced by the harness's disallow option
+  and verified per run from the session's first record; a run whose tool list differs from this one is
+  flagged. The shell can reach the network: either the sandbox allows no outbound traffic except the
+  model endpoint, or every shell command is logged and any other network call flags the run (OPEN:
+  which one is implemented).
 
 ## 8. Procedure (one exam = one conversation, one arm)
 
@@ -121,7 +158,13 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 
 BEAM 100K split (Hugging Face `Mohammadta/BEAM`, parquet sha256 prefix `c0519be25907`), 20
 conversations, 97,252 to 190,209 Qwen tokens each, 20 probing questions each, CC BY-SA 4.0. Scored set:
-the 100K conversations not used for tuning (19 today, fewer if more tuning material is drawn).
+17 conversations, ids 1 to 8, 10 to 14 and 16 to 19. Never scored: conversation 15 (tuning, every practice
+run before the draw) and conversations 9 and 20 (drawn for entry-gate runs and lean-profile tuning). From the
+500K split (parquet sha256 prefix `af05921c9793`), conversation 21 (arm-3 training) and conversation 30
+(length-stress tuning). Book-closed second runs (section 13): scored conversations 12, 16 and 5. All were
+drawn on 2026-11-15 from drand round 6642370, announced in a published commit before the round existed;
+see [data/draw-rule.md](data/draw-rule.md) and [data/draw2-result.json](data/draw2-result.json). An earlier
+draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 10. Scoring
 
@@ -139,8 +182,18 @@ the 100K conversations not used for tuning (19 today, fewer if more tuning mater
 - Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
-- Reported beside it, never instead: the ADJUSTED contrast; per question type; the cost row (seconds and
-  tokens per exchange, compactions, compaction-summary size) per arm.
+- Reported beside it, never instead: the ADJUSTED contrast; per question type; the efficiency table
+  (section 12) per arm.
+- Secondary, direction only (Lei's idea, ruled by Kepler, 2026-11-14): the arm 2 minus arm 1 paired
+  difference is larger in Knowledge Update and Contradiction Resolution than in the other categories,
+  because ENGRAM records a change of mind as a supersede. It is conditional on the student superseding
+  at all, which is reported as a process rate per conversation. Under the open-book core (section 15) a
+  transcript search can also find the latest value, so the expected edge is smaller than with the
+  transcript closed; the book-closed looks (section 13) are where it should show most. Per-category
+  results are reported with intervals and no claim beyond this direction. No expectation is stated for
+  Event Ordering.
+- Efficiency is reported beside the score and never combined with it: no efficiency-adjusted score, and
+  no ratio invented after the numbers are seen.
 
 ## 12. Logged per run
 
@@ -149,41 +202,74 @@ error), whether ENGRAM's write check fired and what the student did next; ENGRAM
 the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
 preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation.
 
-## 13. Variance
+Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
+and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
+returns its cache fields as 0 or empty, so the transcript cannot tell reused prefix from newly
+processed tokens) and output tokens; newly evaluated prompt tokens, from one source used identically in
+both arms (the server's log or a logging proxy), OPEN until a tuning run shows a reliable source, since
+a hook that injects changing text early in the prompt would break prefix reuse in one arm only; GPU seconds, only if their method of measurement is stated here
+first (OPEN); tool calls by kind (ENGRAM read, ENGRAM write, file read, file write, transcript read,
+shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
+diff of both arms' first prompts, that switching it on changes nothing the student sees.
+
+Per answer: whether the student opened its own session transcript (tool calls naming its path; this
+detector misses a path-free search such as listing every transcript file).
+
+Kept from every run, tuning and training included: the ENGRAM store, the transcript and the work files,
+with a sha256 file list taken before anyone opens them. They are published only as a scripted, scrubbed
+text export, after the repository's rule against publishing graphs is amended for a study subject's
+sandbox graph and the licence item is closed; the originals stay private, with their hashes published.
+
+## 13. Repeats and book-closed looks
 
 Claude Code cannot pass a sampling seed to the server, so each (conversation, arm) cell is one sample.
-To size within-cell noise, 3 scored conversations drawn by a published seed run twice per arm; the
-spread is reported, not used to adjust the primary estimate.
+Three scored conversations, drawn from the public beacon (section 9: conversations 12, 16 and 5), run a
+second time per arm with the BOOK CLOSED (Lei, 2026-11-14): the student is told not to open its own session
+transcript. Closed means the student's own tool calls (read, search, shell) do not open the transcript
+file or a copy of it; what ENGRAM's server does inside its own tools is arm 2's memory and is allowed, and
+arm 1's own notes are allowed. A run in which the student opens its transcript is flagged and reported
+as it stands. These are three paired looks at each arm's memory without the transcript, never a result.
+Consequence, a stated bound: run-to-run noise within a cell is not measured.
 
 ## 14. Exclusions and re-runs
 
 A run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails;
-the student process dies; a timeout; the ENGRAM first session does not complete (arm 2). Each flagged
-run may be re-run once, with the reason logged before the re-run; a second failure stays excluded. A
-wrong or empty answer is never a harness fault.
+the student process dies; a timeout; the ENGRAM first session does not complete (arm 2); the session's
+tool list differs from section 7's; a shell network call to anything but the model endpoint (section
+7). Each flagged run may be re-run once, with the reason logged before the re-run; a second failure
+stays excluded. A wrong or empty answer is never a harness fault. A book-closed run in which the
+student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
+report and reported as it stands, never re-run (section 13).
 
 ## 15. What this design can and cannot show
 
-It measures each harness's cross-window memory in one-topic, one-session use when the user has said the
-material matters: after the forced compaction neither arm holds the reading in its window, so answers
-come from what each harness carried across (compaction summary and note files; or ENGRAM). It cannot
+It measures each product's whole memory as shipped, the on-disk session transcript included, in
+one-topic, one-session use when the user has said the material matters (Lei's open-book core,
+2026-11-14; this supersedes reading the forced compaction as "cross-window memory only"). After the
+forced compaction neither arm holds the reading in its window, so answers come from what each product
+keeps outside it: the compaction summary, note files and the transcript, or ENGRAM and the transcript.
+The score therefore includes how diligently the student searches. The expected gap between arms is
+smaller than with the record taken away, and a null means no difference large enough for this design to detect
+(see the bound below) between ENGRAM and transcript search on this task, which is a publishable answer. The book-closed looks (section 13) are the only view without
+the transcript. It cannot
 separate ENGRAM's storage from the model's choice or ability to reach it; it runs Claude Code in print
 mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
-not measure memory across days or sessions; and with one sample per cell and about 19 conversations it
+not measure memory across days or sessions; and with one sample per cell and 17 scored conversations it
 detects only moderate effects.
 
 ## 16. Budget (estimates from practice, never measured at scale)
 
 About 143 exchanges per conversation. Arm 1 at about 5 to 25 s per exchange: roughly 40 min per
 conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conversation, plus about
-7 to 16 min of first-session setup. The variance repeats add about 15%.
+7 to 16 min of first-session setup. The book-closed second runs (3 of 17 conversations, both arms) add about 18%.
 
 ## OPEN before registration
 
 - The entry gate met (section 5).
-- Arm 1 practice text; arm 2 lean profile; both token counts; exam line frozen with its sha256.
+- The exam line (with its book-closed variant) and both instruction texts frozen with their sha256
+  (texts and counts in section 4; the lean profile ships once engram#4802 merges).
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
-- Which Claude Code tools are on in both arms (web tools, sub-agents, scheduling).
+- Network for the shell: blocked, or logged and flagged (section 7). GPU-seconds method (section 12).
 - Isolation: whether arm 2 needs its own OS user for ENGRAM's recall service to run as for a real user.
 - Judge named after the cost pilot; licence handling for published transcripts.
 - How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
