@@ -319,6 +319,22 @@ for trigger reliability, so the wording's own effect cannot be separated from th
 whatever the message says. So no wording can produce cascade resolution in the exam today; this test
 shows only whether the first half runs, and Phase 2b shows what it changes.
 
+## Long recall run STOPPED (logged at 2026-11-15T01:43:00Z, before the stop)
+
+Stopped on Lei's decision, in session, after 46 of 136 reading exchanges (about three hours). The reason is
+speed, not anything in the results, none of which has been read: recent exchanges took about 340 seconds
+each and were still rising, which puts one 100K-tier conversation at more than ten hours. That is far too
+slow for the benchmark, and the harness and serving set-up will change before any further run. The
+remaining reading, the recall questions and Phases 2a and 2b would therefore have measured a set-up we are
+about to replace.
+
+Under this run's own abort rule it is reported as it stands, never rescued or resumed: no pass or fail on
+the pre-registered rule, because the questions were never asked. The whole sandbox (ENGRAM store,
+transcript, work files) is snapshotted read-only with a sha256 file list before anyone opens it. The next
+step is a diagnosis of where the time goes (model calls, tokens and prefix-cache reuse per exchange) and a
+look at serving stacks with prefix caching, before the harness is redesigned. Phases 2a and 2b and the
+wording test wait for the new set-up.
+
 ## Running now
 
 - **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
