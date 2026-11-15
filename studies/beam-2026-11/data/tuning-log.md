@@ -565,6 +565,25 @@ Run 2026-11-15 17:36:20Z to 17:46:34Z on setup `8762312e…`, conversation 9, ex
 
 **Next:** the entry gate's note-taking check (three short runs) on this setup id, with its rule as written above.
 
+## Entry gate, criterion 1 (writing, short runs) on setup `8762312e`: parameters (logged 2026-11-15T17:52:19Z, before the first run)
+
+This is the gate's writing check (pre-registration section 5, item 1), not a tuning run. Design owner's choices, fixed
+before the first run:
+
+- **Three runs, in this order, fixed now: conversation 9, then 20, then 9.** Each covers reading exchanges 1 to 3, one
+  per user message, and starts from a fresh copy of the setup's snapshot. Writing only (Amendment 1): no forced
+  compaction, no questions. The window setting as in the setup; no capture proxy (it is not part of the setup id).
+- **Why this order:** a gate that says the student reliably takes notes must not rest on one text. Conversation 20 is
+  the only pick the setup was not tuned against, so it is the run that can surprise us; the two runs on 9 give a
+  repeatability reading.
+- **Pass rule, unchanged and per run:** at least 2 of the 3 reading exchanges carry a successful ENGRAM write, in
+  **each** of the 3 runs. "Successful" means the node exists in that run's store after the run and carries content
+  from that exchange; the transcript saying it wrote does not count. Every run's store is saved and read.
+- **A fail on conversation 20 alone fails the gate,** and is reported as such, never averaged with the runs on 9.
+- **Both picks stay out of the scored set,** as the draw rule says.
+- This check is criterion 1 only. Criterion 2 (recall after a natural compaction, in one long run) is separate and
+  still to come.
+
 ## Running now
 
 - Nothing.
