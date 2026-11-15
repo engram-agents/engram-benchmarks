@@ -648,6 +648,81 @@ answers, and here it filled the window within three exchanges. This goes to the 
 
 **Next:** criterion 2 (recall after a natural compaction, in one long run), with its parameters logged before it runs.
 
+## Entry gate, criterion 2 (recall, one long run) on setup `8762312e`: rulings and parameters (logged before the run)
+
+Proposed by Borges (study lead); both rulings by Kepler (design owner), 2026-11-15, before anything ran.
+
+**One compaction or several: several.** Section 5 asks for at least one natural compaction during the reading,
+so several are within the criterion, and both runs below will compact several times. Recall is then tested
+across one or more natural compactions plus the forced one. Each counting question reports k, the number of
+natural compactions after its latest source exchange.
+
+**Ruling 1, the conversation (Kepler).** Run A, the whole of conversation 9 (135 exchanges), decides criterion 2.
+Run B, the first 40 exchanges of conversation 20, runs after A with the same committed analysis and is reported
+in full beside A; B does not change the criterion-2 verdict. **No official run starts until the project lead has
+seen both results and the note-volume finding together.** That sentence is the price of choosing A, stated in
+advance: conversation 9 is the lower-volume of the two gate texts, and conversation 20 is where note volume
+fills the window within about three exchanges. Both are draw-2 picks for the entry gate.
+
+**Ruling 2, the automatic recall hook (Kepler; owed since 2026-11-14, fixed here before any recall run).**
+Delivery by the hook does not count as the student making the recall, and it is not scored as a miss either.
+Four cells, fixed now:
+
+| hook delivered the answer-bearing node | a tool read returned a reading-phase node | cell |
+|---|---|---|
+| yes | no | excluded from the counting set, reported as "hook-delivered" |
+| yes | yes | counts, PASS |
+| no | yes | counts, PASS |
+| no | no | counts, FAIL |
+
+"Delivered" is decided mechanically: the hook-injected context in the question's own turn names a node whose
+source exchange is among the question's source exchanges. If exclusions leave fewer than 4 counting questions,
+the run is reported as **undersized by hook delivery** (in this setup the hook does the recalling), and the
+design owner rules then.
+
+**Counting rule (changed from the 2026-11-14 long run's "before the first natural compaction", accepted by
+Kepler).** A question counts if it has an answer (abstention questions and questions without source ids are
+out), all its source exchanges were read, and all lie before the **last** natural compaction, so every source
+fact passed through at least two summaries. A source exchange lies before a compaction only if it ended
+before it: the exchange in progress when the compaction fired is not credited. Fewer than 4 counting means
+undersized.
+
+**Definitions, all read from the run's transcript and its saved store:**
+- Reading exchange: a user message carrying the reading-material marker, excluding records the transcript
+  flags as compaction summaries (the criterion-1 instrument defect is excluded by construction).
+- Natural compaction: a compaction record with trigger `auto` during the reading. The proctor's `/compact`
+  is recorded with trigger `manual` and is never natural.
+- Reading-phase node: created between the first reading exchange and the `/compact` command. Nodes created
+  between `/compact` and the first question are listed apart and never count. A node's source exchange is
+  the exchange during which it was created.
+- Tool read: a successful student call of the ENGRAM query, inspect, get_subgraph, list or surface tool inside
+  the question's own turn, whose result names a reading-phase node. Other ENGRAM read tools are reported, not
+  counted.
+- Question source exchanges: the dataset's source message ids for each official question, mapped through the
+  feeder's own pairing of user and assistant messages.
+- Pass rule (section 5): at least half (rounded up) of the scored questions PASS. Writing holds as in
+  criterion 1: at least two thirds (rounded up) of the reading exchanges carry a write whose node exists in
+  the store after the run, and a seeded sample of 20 written exchanges is read in full for content.
+
+**Run parameters.** Reading, then the proctor's `/compact`, then all 20 official questions, one per user
+message, in the same session (ruled 2026-11-14). Fresh copy of the setup's snapshot per run; window setting as
+in the setup; no capture proxy. Turn timeout 1,800 s. Abort rule as on 2026-11-14: a dead student process or a
+timed-out turn flags the run, reported as it stands, never as a pass or a fail; no rescue, no resume.
+
+**Expectations, written before the run (projections, not measurements).** Conversation 9 has 16 answerable
+questions with source exchanges from 3 to 131. Projected from T1's context growth (about 3K tokens per
+exchange, compaction near 98K): 4 to 5 natural compactions, about 12 to 14 counting questions, about 3.3 hours.
+Run B: about 13 compactions, 7 counting questions, about 3 hours. One risk is already visible: in a 2026-11-14
+practice run with a forced compaction, the hook named several reading-phase nodes in every question turn, so
+"undersized by hook delivery" is a live outcome.
+
+**The analysis is committed before the run**, with controls that all pass: a planted run with every cell and
+both undersized outcomes, a planted control each way for "delivered" (a hook naming a source-exchange node
+with no read is excluded; one naming a node from another exchange fails), and one mutant per rule (delivery,
+natural trigger, reading window, last versus first compaction, strict boundary). Each mutant flips its target
+case. Shape checks also ran on two real transcripts: one with an automatic compaction and one with a forced
+one. sha256 prefixes: analysis `2a338912c2c8dd46`, controls `cd5549b2eb5f5df6`, runner `a3e7695d8c9bde35`.
+
 ## Running now
 
 - Nothing.
