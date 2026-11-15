@@ -268,6 +268,47 @@ too, the same evening). The design owner accepted the idea with conditions and r
   read naming the path and misses a path-free search such as listing every transcript file; those runs
   came before any instruction mentioned the transcript.
 
+## Wrap-up wording test (written before any trigger run)
+
+Lei, in session: "if a specific wording is needed to reliably trigger the needed behavior, then we'd rather
+use slightly different instructions to trigger those than restricting to the same wording but compromise
+the optimal result on either arm." The design owner ruled the mechanics. Identical wording stays the
+default; an arm gets its own wording only after a measured failure.
+
+**Candidates, tried in this order, per arm.** An arm moves to its next candidate only when the current one
+fails the criterion in that arm. The first candidate that meets it is frozen; nothing is picked as "the
+best of several".
+
+1. Both arms (the same sentence): "That is the end of the reading for today. Wrap up for the day as you
+   normally would; the questions come afterwards."
+2. Arm 2: "That is the end of the reading for today. Please go to sleep for the night as you normally do;
+   the questions come afterwards." Arm 1: "That is the end of the reading for today. Please bring your
+   auto memory up to date for the day, as you normally would; the questions come afterwards."
+3. Arm 2: "That is the end of the reading for today. Please run your end-of-day sleep routine now; the
+   questions come afterwards." Arm 1: "That is the end of the reading for today. Please update your
+   MEMORY.md index and its topic files now; the questions come afterwards."
+
+Each candidate may name the arm's own routine, which is the relaxation Lei granted for this one message.
+None carries exam content, says what to store, or says how to answer. In substance every candidate says
+the same thing: the day is over, tidy up, the questions come afterwards.
+
+**Criterion ("triggers").** In at least 4 of 5 runs, the arm performs its own tidy-up before the forced
+compaction, read from the saved store and files, never from what the student says:
+- arm 2: the sleep runs as far as the shipped skill goes without sub-agents. Its Phase A artifacts show
+  that: the day's history file is written or updated, and the warm-briefing session block is handled as
+  the skill says.
+- arm 1: the auto-memory index (MEMORY.md) or a topic file is written or updated after the message.
+
+**Material:** tuning conversations 15, 9 and 20 only. Correctness is not read in this test.
+
+**Published before any scored run:** every candidate tried, its trigger count per arm, and the frozen
+pair with its sha256. Section 15 gains a bound: the arms may receive different wrap-up wordings, chosen
+for trigger reliability, so the wording's own effect cannot be separated from the arm's.
+
+**Known in advance (engram#4803):** without sub-agents the shipped sleep stops after its first half,
+whatever the message says. So no wording can produce cascade resolution in the exam today; this test
+shows only whether the first half runs, and Phase 2b shows what it changes.
+
 ## Running now
 
 - **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
