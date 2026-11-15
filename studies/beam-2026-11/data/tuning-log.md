@@ -434,9 +434,42 @@ expected well before exchange 21. The pass rule is the amended one above, read o
 reported one line per condition. If it fails, the setting is judged not to fix compaction on this
 harness (as pre-committed above). Tuning material only; it does not count toward the entry gate.
 
+## Probe 2 result: from below, PASS (logged 2026-11-15T14:47:43Z)
+
+The stopped run's setup plus `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072`, exchanges 1 to 24, 2026-11-15
+14:16:01Z to 14:38:45Z. Read with the same pre-written analysis script, unchanged. One line per condition:
+
+- **Automatic compaction record:** YES, during exchange 20 (14:34:40Z), from 98,183 tokens to 17,113,
+  taking 83 seconds.
+- **Calls at the window (input plus output of 131,000 or more):** 0 of 43 before the compaction (largest
+  95,684) and 0 of 16 after it (largest 70,458).
+- **Largest input after the compaction:** 70,433, below 111,072.
+- **Exchanges after the compaction:** 5 (3 required).
+- **Verdict under the pre-committed rule: PASS.** One run, so n = 1.
+
+**What this does and does not show.** It shows the setting makes Claude Code compact inside the model's
+real window on this harness, after which the session keeps running well below it. It does **not** show the
+setting makes reading faster: exchanges 1 to 19 took 972 seconds here against 2,190 in the stopped run, but
+that difference comes from the student, not the setting (here it wrote about one note per exchange where the
+stopped run wrote about two, so 61 model turns instead of 80 and 2.4M input tokens instead of 5.7M). The
+setting only acts at the compaction.
+
+**Watch items asked for by the study owner, first readings (old instruction file, this run only):**
+- *Permission confusion:* 0 of 84 student text and thinking blocks ask an absent human, cite a
+  tell-the-user-first or ask-before-acting rule, or decline on those grounds (text search; the 2 matches were
+  the student deliberating with itself about whether to write a note).
+- *Context budget before the first exchange* (from the stopped run's first request, same setup): the six core
+  ENGRAM tool definitions are about 5,000 tokens of the 31,978-token first prompt (4,963 counted as JSON,
+  5,017 through the model's own chat template). About 8,300 tokens of that prompt are not yet attributed to
+  a part; the next tuning run will capture the request itself to attribute them.
+
+**Next.** The new setup is this setting plus the lean instruction file and its dated grant line, once that
+file's final placement lands; its hash is taken then, and the note-taking check runs on it before anything
+is scored.
+
 ## Running now
 
-- Probe 2 (from below), as logged above.
+- Nothing.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
