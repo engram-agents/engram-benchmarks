@@ -716,7 +716,7 @@ Run B: about 13 compactions, 7 counting questions, about 3 hours. One risk is al
 practice run with a forced compaction, the hook named several reading-phase nodes in every question turn, so
 "undersized by hook delivery" is a live outcome.
 
-*Correction to the expectations, committed 2026-11-15T19:00:31Z (as 3ee79287, under a typed stamp of 19:05Z, corrected here) during run A, before any question was asked or any
+*Correction to the expectations, committed 2026-11-15T19:00:28Z (as 3ee79287, under a typed stamp of 19:05Z, corrected here) during run A, before any question was asked or any
 result read (only the run's progress lines and compaction records were read).* The projection above was wrong.
 After 8 of 135 exchanges, run A had compacted naturally twice (during exchanges 6 and 8; 98,976 to 19,771 and
 96,816 to 27,417 tokens) and averaged 148 s per exchange, rising. So conversation 9 also compacts every few
