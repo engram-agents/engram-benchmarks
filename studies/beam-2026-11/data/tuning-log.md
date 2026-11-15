@@ -615,7 +615,11 @@ stands as *not ruled*, not as met. Criterion 2 (recall after a natural compactio
 **A finding for criterion 2:** on conversation 20 the student wrote 12 to 14 notes per exchange, and the session
 compacted naturally within three exchanges. A long run on that text will compact early and often.
 
-## Amendment 2 to the entry gate: criterion 1 ruled MET under the rule's text (Kepler, design owner; Borges, study lead; logged 2026-11-15T18:19:03Z, before criterion 2 starts)
+## Amendment 3 (to the entry gate): criterion 1 ruled MET under the rule's text (Kepler, design owner; Borges, study lead; logged 2026-11-15T18:19:03Z, before criterion 2 starts)
+
+*Numbering: this log's amendments are one series (Amendments 1 and 2 above, both 2026-11-14; this is 3). It was first
+committed as `4120be62` under the name "Amendment 2", which collided with the instruction-text amendment above; renamed
+before co-signing. The pass-rule amendment under "Diagnosis 1" is unnumbered and cited by its commit, `3e7ff83`.*
 
 **Ruling (Kepler):** criterion 1 is decided by the rule's text, which the second version of the analysis implements, and
 it is **met**. The two verdicts stand side by side; neither replaces the other.
@@ -634,8 +638,8 @@ it is **met**. The two verdicts stand side by side; neither replaces the other.
    three runs under the second version, committed first.
 4. **Recorded here, with both names, before criterion 2 starts.**
 
-**A finding beside the pass, not instead of it.** The project lead's words were "using ENGRAM correctly", not
-"writing". In the run on conversation 20 the student wrote 38 observations and one derivation in three exchanges (4 to 5
+**A finding beside the pass, not instead of it.** The gate's purpose is correct use of the memory, not the act of
+writing. In the run on conversation 20 the student wrote 38 observations and one derivation in three exchanges (4 to 5
 per exchange on conversation 9). No two of the 38 share half or more of their words, and read in full they are mostly
 distinct: the student records the assistant's long answers item by item (each step of a process, each search tip, each
 filing option), with about two or three restatements (one explicit summary of an exchange, one generic sentence). So
