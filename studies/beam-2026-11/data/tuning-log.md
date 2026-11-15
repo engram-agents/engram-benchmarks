@@ -335,7 +335,7 @@ step is a diagnosis of where the time goes (model calls, tokens and prefix-cache
 look at serving stacks with prefix caching, before the harness is redesigned. Phases 2a and 2b and the
 wording test wait for the new set-up.
 
-## Diagnosis 1: the long run never compacted (logged 2026-11-15T13:55Z, before any probe)
+## Diagnosis 1: the long run never compacted (logged 2026-11-15T13:43:34Z, before any probe)
 
 Measured from the stopped run's own driver log and the transcript inside the read-only snapshot. This is
 tuning material only; no recall result is read or claimed.
