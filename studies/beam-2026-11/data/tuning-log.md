@@ -584,6 +584,37 @@ before the first run:
 - This check is criterion 1 only. Criterion 2 (recall after a natural compaction, in one long run) is separate and
   still to come.
 
+## Entry gate criterion 1 on setup `8762312e`: result (logged 2026-11-15T18:16:56Z); verdict awaits the design owner
+
+Runs 2026-11-15 17:52:56Z to 18:15:29Z, in the fixed order: conversation 9, 20, 9; reading exchanges 1 to 3 each, each
+from a fresh copy of the setup's snapshot (its instruction file hash matched in all three).
+
+**The analysis committed before the runs printed NOT MET, and the reason is a defect in that analysis, shown from the
+record.** It counted a reading exchange as any user record carrying the reading-material marker. In the run on
+conversation 20 the session compacted automatically during exchange 3 (97,440 to 18,129 tokens), and the compaction
+summary, a user record marked as such in the transcript, quotes the brief's markers. The analysis counted it as a
+fourth exchange, and its rule then failed the run for not having exactly three. The feed's own log shows three
+exchanges in that run.
+
+**A second version with that one change** (records marked as the compaction summary are not reading exchanges; the
+two versions differ in that line and a comment) counts three exchanges in every run, matching the feed log:
+
+| run | conversation | store-confirmed writes per exchange | exchanges with a confirmed write | per-run result |
+|---|---|---|---|---|
+| 1 | 9 | 4, 4, 2 | 3 of 3 | pass |
+| 2 | 20 | 13, 12, 14 | 3 of 3 | pass |
+| 3 | 9 | 5, 4, 3 | 3 of 3 | pass |
+
+Every write the transcript reports exists in that run's store. The sampled notes carry facts from their own exchange
+(conversation 9: the user's age, place, work, income and a festival adviser's advice; conversation 20: the user's
+patent questions, the search steps, his income and location).
+
+**Both outputs are kept.** The design owner rules which one decides criterion 1. Until then the gate's criterion 1
+stands as *not ruled*, not as met. Criterion 2 (recall after a natural compaction, one long run) has not run.
+
+**A finding for criterion 2:** on conversation 20 the student wrote 12 to 14 notes per exchange, and the session
+compacted naturally within three exchanges. A long run on that text will compact early and often.
+
 ## Running now
 
 - Nothing.
