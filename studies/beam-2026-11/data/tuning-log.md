@@ -230,6 +230,44 @@ BEAM's question types would be tuning to the benchmark, even on an unscored conv
 
 Neither Phase 1 nor Phase 2 counts toward the entry gate, which is re-run on the lean instruction file.
 
+## Phase 2 split into 2a and 2b: a wrap-up before the questions (written before Phase 1 ends, before either is run)
+
+Lei, in session (2026-11-14): "We should at least plan one sleep without fairies at the end of the reading
+phase, before the question taking phase, to allow the full cascade resolution to happen". In ENGRAM a
+cascade is the follow-up work a supersede or retraction leaves on the claims built on the changed one;
+the shipped product resolves cascades during its nightly sleep, not while a user waits (Lei ruled that
+too, the same evening). The design owner accepted the idea with conditions and ruled the test order.
+
+- Both runs start from COPIES of the preserved Phase 1 snapshot; the snapshot itself stays untouched.
+- **Phase 2a**: exactly as written above (no wrap-up message), then the second forced compaction and the
+  20 official questions.
+- **Phase 2b**: the same, except that ONE proctor message is sent after the preserved session resumes and
+  before the second forced compaction. Its wording is Lei's choice; the design owner recommends ordinary
+  user language: "That is the end of the reading for today. Wrap up for the day as you normally would;
+  the questions come afterwards." It is frozen, with its sha256, in this log before either 2a or 2b runs.
+- **As shipped only**: sub-agents are off in every arm, so ENGRAM's sleep runs whatever path the shipped
+  skill takes without them. If that path does not resolve cascades, or cannot finish in the student's
+  window, that is a product finding for the tracker; there is no exam-only sleep variant. If the student
+  does not sleep on the message, that is a result; ENGRAM and its sleep are not named to the student.
+- Logged for 2b: the store before and after the wrap-up (node count, superseded nodes, cascade markers
+  resolved, nodes faded by the turn advance), and the wrap-up's wall time and tokens as their own row.
+- Reported: 2a and 2b side by side, per question and by question type, as a paired look inside one arm
+  at what the wrap-up changes. Process, never a score; not an arm-against-arm number.
+- If GPU time forces a choice, 2a runs first, since it was committed first.
+- The wrap-up enters the pre-registration's procedure (both arms, identical message) only if 2b shows
+  that the shipped sleep runs without sub-agents.
+
+## Disclosures and baselines (2026-11-14, before Phase 1 ends)
+
+- While the long run was in progress, the study lead's quote-verification tool searched the running
+  student's transcript to match a quote for an unrelated record. It displayed only session-start text,
+  nothing from the reading or the questions. No quote verification touches the live sandbox again before
+  the Phase 1 snapshot.
+- Baseline for the per-answer "opened its own transcript" log: in 11 earlier practice sessions (both arms,
+  151 student tool calls), no student tool call named its own transcript's path. The detector catches a
+  read naming the path and misses a path-free search such as listing every transcript file; those runs
+  came before any instruction mentioned the transcript.
+
 ## Running now
 
 - **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
