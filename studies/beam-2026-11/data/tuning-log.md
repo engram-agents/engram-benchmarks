@@ -727,6 +727,19 @@ its own session transcript on disk, using the transcript path from ENGRAM's sess
 the reading verbatim. Under criterion 2's rules an answer drawn from it with no ENGRAM tool read is a FAIL, so the
 gate is unaffected; whether the channel matters for the scored arms is put to the design owner.
 
+*Rule added by the design owner (Kepler), 2026-11-15, during run A and before any result was read; the time is
+this commit's.* Run B existed because the gate had not faced the high-volume regime. **If run A ends with 10 or
+more natural compactions, it has faced that regime, and run B is not run.** If A ends with fewer, B runs as
+ruled above. A timeout under the abort rule caused by compaction is reported as a finding about compaction.
+The transcript question above was **already decided** before this run: on 2026-11-14 the project lead set the
+core setting as open-book, so the student may search its own session transcript, and the primary score
+measures each product's whole memory as shipped, the on-disk transcript included; closed-book runs show each
+arm's own memory alone (this log, earlier entries). Nothing is closed or equalised by hand. For the scored
+study the design owner adds three requirements, so the result can be read: per question and per arm, the
+answer turn's source is classified mechanically (transcript search on disk, ENGRAM tool read, hook delivery,
+or none); whether arm 1 learns the transcript path as shipped is measured, not assumed; and the open-book
+score is reported with that breakdown. No change to the setup, so the setup id and the gate stand.
+
 **The analysis is committed before the run**, with controls that all pass: a planted run with every cell and
 both undersized outcomes, a planted control each way for "delivered" (a hook naming a source-exchange node
 with no read is excluded; one naming a node from another exchange fails), and one mutant per rule (delivery,
