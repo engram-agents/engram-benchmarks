@@ -467,6 +467,48 @@ setting only acts at the compaction.
 file's final placement lands; its hash is taken then, and the note-taking check runs on it before anything
 is scored.
 
+## New setup built: lean instruction file, grant line, window setting (logged 2026-11-15T17:33:39Z)
+
+**Identity by content (design owner's ruling, 2026-11-15).** A commit id is a name; the bytes are the setup. The setup
+is identified by one id, the sha256 of these components sorted:
+
+| component | value |
+|---|---|
+| ENGRAM plugin source tree (`src/engram`, git tree id) | `b11a3b3e9d6d709eac92f1eba0f445b783351676` |
+| the student's `CLAUDE.md` as it reads it (exam line + lean render + grant line), sha256 | `bdeead3dee6f8474…` |
+| the feed script, sha256 (its fixed fact sheet and nudge also hashed separately) | `36abef910d722715…` |
+| the exam line, sha256 | `310da87e27a9b8d0…` |
+| the grant line, sha256 | `79d592a195bcea80…` |
+| window setting | `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072` |
+| install flags | `--no-recall-service --yes --sandbox-untagged --claude-md-profile lean` |
+| Claude Code | 2.1.325 |
+
+**Setup id: `8762312e2b75f953da4e0f12479e99f7bb65eb2d6e7080a4d3364d2dd52e6d78`.**
+
+Two conditions bind it, both set by the design owner: (1) at registration, the merged commit's plugin tree id is shown to
+equal the one above; if any other change has touched the plugin tree by then, the ids differ and the entry gate is met
+again on the new tree. (2) The grant line is part of the hashed file and is quoted here as the benchmark's own setup,
+because the project lead gave it for this purpose:
+
+> Granted by Lei on 2026-11-15: you may write anything to your own ENGRAM, including goals, cornerstones, lessons and
+> axioms, without discussing it with me first. I will not be available during this session.
+
+**How it was built.** A fresh arm-2 home, the same steps as E2 except where named: the installer with the lean profile
+(the instruction file renders at 14,612 bytes; the full template was 36,131), the same six-core-tools patch as E2, then
+the unchanged fixed first session with the window setting, then the exam line at the top and the grant line directly
+under the authority table, where the lean file itself says such lines go. **One difference from E2's install:** the
+lean profile's source is not yet a release tag, so the installer ran with `--sandbox-untagged`, which skips only the
+tag check (and prints a banner); what is installed does not change. E2 was installed from a tagged checkout.
+
+**First readings from the first session (this run only, old practice numbers not compared):** 617 seconds. The student
+named itself differently from E2's first session, which the fixed fact sheet leaves to it. It minted two cornerstones
+during the first session, while the lean file still listed cornerstones as discuss-first and before the grant line was
+added. That is a permission-confusion data point for the design owner's count, recorded here, not tuned away.
+
+**Next.** The tuning run on this setup: capture the actual request (starting with a small streamed smoke request),
+recount permission confusion on this file, and report notes per exchange with a read of the store. Then the entry
+gate's note-taking check on the drawn tuning conversations. Nothing is scored before the gate passes on this setup id.
+
 ## Running now
 
 - Nothing.
