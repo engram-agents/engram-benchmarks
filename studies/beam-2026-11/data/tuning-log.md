@@ -716,6 +716,17 @@ Run B: about 13 compactions, 7 counting questions, about 3 hours. One risk is al
 practice run with a forced compaction, the hook named several reading-phase nodes in every question turn, so
 "undersized by hook delivery" is a live outcome.
 
+*Correction to the expectations, logged 2026-11-15T19:05Z during run A, before any question was asked or any
+result read (only the run's progress lines and compaction records were read).* The projection above was wrong.
+After 8 of 135 exchanges, run A had compacted naturally twice (during exchanges 6 and 8; 98,976 to 19,771 and
+96,816 to 27,417 tokens) and averaged 148 s per exchange, rising. So conversation 9 also compacts every few
+exchanges on this setup, which weakens the contrast with conversation 20 drawn above. Re-projection, again
+unmeasured: about 50 natural compactions and 7 to 9 hours. No rule changes: the run continues under the abort
+rule as written. Also seen in the progress records: before filing a note, the student checks its quotes against
+its own session transcript on disk, using the transcript path from ENGRAM's session-start context. That file holds
+the reading verbatim. Under criterion 2's rules an answer drawn from it with no ENGRAM tool read is a FAIL, so the
+gate is unaffected; whether the channel matters for the scored arms is put to the design owner.
+
 **The analysis is committed before the run**, with controls that all pass: a planted run with every cell and
 both undersized outcomes, a planted control each way for "delivered" (a hook naming a source-exchange node
 with no read is excluded; one naming a node from another exchange fails), and one mutant per rule (delivery,
