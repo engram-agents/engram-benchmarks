@@ -398,9 +398,10 @@ after probe 1 started and before any of its output existed. Because of an error 
 was made on a detached checkout, and the branch push that followed pushed the older tip without
 complaint), `3e7ff83` reached this repository only at 2026-11-15T14:14:27Z, **after** probe 1 had ended
 (14:12:34Z) and after I had read its output. Its content cannot have changed since 13:50:21Z: the commit
-hash pins it, and that hash was published before the result existed, in the author's comment on this
-pull request (2026-11-15T13:50:34Z, GitHub's stamp) and in a message to the design owner
-(2026-11-15T13:50:36Z), who quoted it back at 13:51:02Z.
+hash pins it, and that hash was published before the result existed: in the author's comment on this
+pull request (2026-11-15T13:50:34Z, GitHub's stamp) and in the author's message to the design owner
+(2026-11-15T13:50:36Z, the team channel's own stamp). Those two stamps are the witnesses; the design owner
+did not read that commit and is not one.
 A reader who does not accept that witness can read probe 1 under the earlier rule at `b11f3f0`; the
 verdict below is the same under both.
 
