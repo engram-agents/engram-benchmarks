@@ -340,6 +340,10 @@ wording test wait for the new set-up.
 Measured from the stopped run's own driver log and the transcript inside the read-only snapshot. This is
 tuning material only; no recall result is read or claimed.
 
+**46 or 48 exchanges.** The STOPPED entry above says 46; that count was stale when it was written. The
+driver log shows exchange 48 completed at 2026-11-15T01:38:40Z, before the stop entry (01:43:00Z), and the
+process then exited on the stop signal with no 49th exchange completed. Everything below counts 48.
+
 - **Calls and tokens.** 48 exchanges, 252 model calls, 28.1M input tokens in total. Most exchanges made
   4 calls. Input per call grew by about 5K tokens per exchange and reached the model's window (131,072
   tokens) at exchange 19; from there every call sat at about 130,900.
@@ -366,7 +370,8 @@ Code would have to configure it; it is not a tuning of the ENGRAM arm.
 
 **Probe and pass rule (pre-committed).** One short probe on a COPY of the snapshot, tuning only.
 Pass = a compaction record appears AND no call stops on `max_tokens` with input plus output at the
-window. A pass is evidence the setting works. **A fail is not a verdict:** a session resumed from the
+window. The probe continues for at least three exchanges after the first compaction record, and the rule
+is read over all of them (so a probe that ends one call after compacting cannot pass). A pass is evidence the setting works. **A fail is not a verdict:** a session resumed from the
 snapshot already starts at the window, so the compaction call itself may have no room, which is a
 different cause from the setting being ignored. A fail is therefore followed by a second probe that
 crosses the threshold from below (a fresh session fed past the compaction point).
