@@ -391,9 +391,50 @@ crosses the threshold from below (a fresh session fed past the compaction point)
 The serving-stack question (prefix caching in vLLM or SGLang) moves to second place: the stall was the
 missing compaction, not prompt reprocessing.
 
+## Disclosure: the pass-rule amendment reached this repository late (logged 2026-11-15T14:14:44Z)
+
+The amendment above ("Pass rule, terms defined") was committed as `3e7ff83` at 2026-11-15T13:50:21Z,
+after probe 1 started and before any of its output existed. Because of an error on my side (the commit
+was made on a detached checkout, and the branch push that followed pushed the older tip without
+complaint), `3e7ff83` reached this repository only at 2026-11-15T14:14:27Z, **after** probe 1 had ended
+(14:12:34Z) and after I had read its output. Its content cannot have changed since 13:50:21Z: the commit
+hash pins it, and that hash was published before the result existed, in the author's comment on this
+pull request at about 13:51Z and in a message to the design owner at about 13:51Z, who quoted it back.
+A reader who does not accept that witness can read probe 1 under the earlier rule at `b11f3f0`; the
+verdict below is the same under both.
+
+## Probe 1 result: copy of the stopped run, FAIL in the pre-declared ambiguous way (logged 2026-11-15T14:14:44Z)
+
+Exchanges 49 to 53 of conversation 15, resumed from a copy of the stopped run with
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072`, 13:47:38Z to 14:12:34Z. Read with an analysis script written and
+checked against known data before any output existed. One line per condition:
+
+- **Automatic compaction record:** NO.
+- **Calls at the window (input plus output of 131,000 or more):** not measurable. The only model records
+  were Claude Code's own error messages, with zero usage, so this line carries no information either way.
+- **Input after the first compaction:** not applicable (no compaction).
+- **Exchanges after the first compaction:** 0 of the 3 required.
+- **Verdict: FAIL** (under the amended rule and under the rule at `b11f3f0` alike).
+
+**What the event stream shows.** With the setting, Claude Code tried to compact: 51 "compacting" status
+events and 5 failed compactions, one per exchange, each failing with the same full-window error. The
+stopped run, without the setting, shows no compaction status at all (0 in its event stream; the same
+pattern finds 56 here). So the setting is read and does trigger auto-compaction; the compaction call
+itself had no room, because a session resumed from the snapshot already sits at the window. This is the
+case declared ambiguous before the run, so it is not a verdict on the setting.
+
+## Probe 2: from below (parameters logged before it runs, 2026-11-15T14:14:44Z)
+
+The stopped run's own setup, unchanged (same starting snapshot after the first session, conversation 15
+from exchange 1, same brief and driver), plus only `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072`. Exchanges 1
+to 24: in the stopped run, input per call passed 90K around exchange 15, so the first compaction is
+expected well before exchange 21. The pass rule is the amended one above, read over the whole probe and
+reported one line per condition. If it fails, the setting is judged not to fix compaction on this
+harness (as pre-committed above). Tuning material only; it does not count toward the entry gate.
+
 ## Running now
 
-- Nothing. The long recall run was stopped (see above).
+- Probe 2 (from below), as logged above.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
