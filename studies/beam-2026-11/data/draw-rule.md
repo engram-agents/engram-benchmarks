@@ -120,3 +120,11 @@ output.
    rules cannot change after the round is known. Its output is committed as `draw2-result.json`.
 5. Merge this repository's PRs with a merge commit, never squash or rebase, so every commit named here
    keeps its SHA.
+
+### Draw 2 record
+
+- Round 6642370 was announced in commit `8ab85bf4` (pushed by 2026-11-15T00:01:59Z); the design owner confirmed
+  on PR #4 at 2026-11-15T00:03:03Z that he had read it; the round was emitted at 2026-11-15T00:22:00Z.
+- The draw ran from the live beacon at 2026-11-15T00:22:02Z; its output is [draw2-result.json](draw2-result.json):
+  100K conversations 9 (lower) and 20 (upper); 500K conversations 21 (arm-3 training) and 30 (length-stress
+  tuning); book-closed conversations 12, 16 and 5; 17 conversations scored.

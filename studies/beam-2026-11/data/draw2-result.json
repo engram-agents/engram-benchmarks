@@ -1,0 +1,86 @@
+{
+  "beacon": {
+    "chain_hash": "8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce",
+    "previous_signature": "8e7756109c94ca22a62f317eff3b1bb37b8c898fbf78f80723c834a9847befb9d0e2f5e3c21bbbc086c052288d8bbaa416aac193cb80c906d7deb4015c446a16e5f15de91dada1da3c19c8d3a329bebb4637884f2e7c156b37f4fedf62f5c773",
+    "randomness": "ff0c477abff438a964cd9e122cc72bac15c33604669e2102590e9fd8e6058d4e",
+    "round": 6642370,
+    "signature": "93535635a63ff7c15167dd25f5ced8aca0245893e4dd1576f53479cf99498d65515197b7adfaa0939461fec24fe5f4f10bd5ad983ef0ecce77484b3840d7afb035f90d3e26217d18f474036fd36a08e62fec91f9388a36281f5943ea45204a7a",
+    "source": "api"
+  },
+  "beacon_source": "api",
+  "bls_note": "BLS signature not verified by this script; sha256(signature)==randomness was checked",
+  "bls_signature_verified": false,
+  "book_closed": [
+    "12",
+    "16",
+    "5"
+  ],
+  "draws": [
+    {
+      "conversation_id": "9",
+      "purpose": "entry-gate runs and lean-profile tuning",
+      "split": "100K",
+      "stratum": "lower"
+    },
+    {
+      "conversation_id": "20",
+      "purpose": "entry-gate runs and lean-profile tuning",
+      "split": "100K",
+      "stratum": "upper"
+    },
+    {
+      "conversation_id": "21",
+      "purpose": "arm-3 training",
+      "split": "500K",
+      "stratum": null
+    },
+    {
+      "conversation_id": "30",
+      "purpose": "length-stress tuning",
+      "split": "500K",
+      "stratum": null
+    },
+    {
+      "conversation_id": "12",
+      "purpose": "book-closed second runs (pre-registration section 13)",
+      "split": "100K",
+      "stratum": null
+    },
+    {
+      "conversation_id": "16",
+      "purpose": "book-closed second runs (pre-registration section 13)",
+      "split": "100K",
+      "stratum": null
+    },
+    {
+      "conversation_id": "5",
+      "purpose": "book-closed second runs (pre-registration section 13)",
+      "split": "100K",
+      "stratum": null
+    }
+  ],
+  "python_version": "3.12.3",
+  "round_file_commit": "8ab85bf4b5ae6be5ac89602d978c357c01b3713e",
+  "scored_set_100K": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "10",
+    "11",
+    "12",
+    "13",
+    "14",
+    "16",
+    "17",
+    "18",
+    "19"
+  ],
+  "scored_set_count": 17,
+  "script_sha256": "e3fa44e26324d740f6ad7d481ac7a32d0d9c201040f1e68abee1d3c1218169c8",
+  "seed_int": "115361471886829499708082998353110633719737885073783263930575156855405067734350"
+}

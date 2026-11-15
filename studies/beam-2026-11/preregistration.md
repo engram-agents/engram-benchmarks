@@ -109,8 +109,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 ## 6. Tuning rules (Kepler)
 
 - Tuning conversations are kept apart from scored ones. Conversation 15 of the 100K split, used by
-  every practice run so far, is a tuning conversation and is not scored. More tuning material is
-  drawn by a recorded seed, never chosen by how it looks.
+  every practice run so far, is a tuning conversation and is not scored. More tuning and training
+  material is drawn from a public randomness beacon, never chosen by how it looks; the drawn conversations
+  are listed in section 9.
 - No arm-versus-arm accuracy is computed on anything during tuning. The gate is read off transcripts as
   process (does it write, does it read back); practice questions only show that the pipeline runs.
 - Every change made to get ENGRAM used, to the product or to an instruction, is logged publicly in
@@ -157,12 +158,13 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 
 BEAM 100K split (Hugging Face `Mohammadta/BEAM`, parquet sha256 prefix `c0519be25907`), 20
 conversations, 97,252 to 190,209 Qwen tokens each, 20 probing questions each, CC BY-SA 4.0. Scored set:
-17 conversations, ids 1 to 13 and 17 to 20. Never scored: conversation 15 (tuning, every practice run
-before the draw) and conversations 14 and 16 (drawn for entry-gate runs and lean-profile tuning). From the
-500K split (parquet sha256 prefix `af05921c9793`), conversation 8 (arm-3 training) and conversation 1
-(length-stress tuning). All four were drawn on 2026-11-14 by seed `75f72db7`, the first 8 hex digits of
-the commit that published the draw rule and script; see [data/draw-rule.md](data/draw-rule.md) and
-[data/draw-result.json](data/draw-result.json).
+17 conversations, ids 1 to 8, 10 to 14 and 16 to 19. Never scored: conversation 15 (tuning, every practice
+run before the draw) and conversations 9 and 20 (drawn for entry-gate runs and lean-profile tuning). From the
+500K split (parquet sha256 prefix `af05921c9793`), conversation 21 (arm-3 training) and conversation 30
+(length-stress tuning). Book-closed second runs (section 13): scored conversations 12, 16 and 5. All were
+drawn on 2026-11-15 from drand round 6642370, announced in a published commit before the round existed;
+see [data/draw-rule.md](data/draw-rule.md) and [data/draw2-result.json](data/draw2-result.json). An earlier
+draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 10. Scoring
 
@@ -221,8 +223,8 @@ sandbox graph and the licence item is closed; the originals stay private, with t
 ## 13. Repeats and book-closed looks
 
 Claude Code cannot pass a sampling seed to the server, so each (conversation, arm) cell is one sample.
-Three scored conversations, drawn by a published seed before the first scored run, run a second time
-per arm with the BOOK CLOSED (Lei, 2026-11-14): the student is told not to open its own session
+Three scored conversations, drawn from the public beacon (section 9: conversations 12, 16 and 5), run a
+second time per arm with the BOOK CLOSED (Lei, 2026-11-14): the student is told not to open its own session
 transcript. Closed means the student's own tool calls (read, search, shell) do not open the transcript
 file or a copy of it; what ENGRAM's server does inside its own tools is arm 2's memory and is allowed, and
 arm 1's own notes are allowed. A run in which the student opens its transcript is flagged and reported
@@ -268,7 +270,6 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   (texts and counts in section 4; the lean profile ships once engram#4802 merges).
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - Network for the shell: blocked, or logged and flagged (section 7). GPU-seconds method (section 12).
-- The three book-closed conversations drawn by a published seed (section 13).
 - Isolation: whether arm 2 needs its own OS user for ENGRAM's recall service to run as for a real user.
 - Judge named after the cost pilot; licence handling for published transcripts.
 - How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
