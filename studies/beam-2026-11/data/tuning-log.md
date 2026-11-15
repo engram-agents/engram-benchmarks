@@ -509,6 +509,32 @@ added. That is a permission-confusion data point for the design owner's count, r
 recount permission confusion on this file, and report notes per exchange with a read of the store. Then the entry
 gate's note-taking check on the drawn tuning conversations. Nothing is scored before the gate passes on this setup id.
 
+## Tuning run T1 on setup `8762312e`: parameters (logged 2026-11-15T17:35:05Z, before it runs)
+
+A tuning run. It counts toward nothing scored and is not the entry gate.
+
+- **Setup:** id `8762312e…` above, from a fresh copy of its snapshot. Design owner: no objection.
+- **Conversation:** draw 2's lower 100K conversation **9** (designated for entry-gate runs and lean-profile tuning),
+  exchanges **1 to 8**, one per user message, no forced compaction, no questions.
+- **Request capture:** a pass-through proxy between the student and the model server records every request body
+  byte for byte. It is part of the harness for this run only. **Smoke test first, rule fixed now:** the same small
+  request, at temperature 0 with a fixed seed, sent directly and through the proxy, must return the same text, and a
+  streamed request through the proxy must complete. If either fails, the run does not start; the proxy would be
+  changing what the student sees.
+- **What is measured, each reported on its own:**
+  1. **Notes per exchange:** successful ENGRAM writes per exchange from the transcript, each confirmed by reading the
+     store after the run (the node exists and carries content from that exchange). A write the transcript claims and
+     the store lacks does not count.
+  2. **Permission confusion, recounted on this file:** the same text search as before over the student's text and
+     thinking (asks an absent human, cites a tell-first or ask-before rule, or declines on those grounds).
+  3. **A separate row, never pooled:** the two cornerstones the student minted in its first session, before the
+     grant line existed, while the lean file listed cornerstones as discuss-first. Whether the student read that
+     row before minting is reported only if a record shows it. The first session was not captured, and the file is
+     loaded into context at start, so "it was in context" is all the record can show unless the transcript shows
+     the student quoting or reasoning about that row.
+  4. **The first prompt's tokens by part** (system text, tool definitions, messages), from the captured first
+     request, to attribute the about 8,300 tokens not yet attributed.
+
 ## Running now
 
 - Nothing.
