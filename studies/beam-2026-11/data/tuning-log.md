@@ -335,9 +335,48 @@ step is a diagnosis of where the time goes (model calls, tokens and prefix-cache
 look at serving stacks with prefix caching, before the harness is redesigned. Phases 2a and 2b and the
 wording test wait for the new set-up.
 
+## Diagnosis 1: the long run never compacted (logged 2026-11-15T13:55Z, before any probe)
+
+Measured from the stopped run's own driver log and the transcript inside the read-only snapshot. This is
+tuning material only; no recall result is read or claimed.
+
+- **Calls and tokens.** 48 exchanges, 252 model calls, 28.1M input tokens in total. Most exchanges made
+  4 calls. Input per call grew by about 5K tokens per exchange and reached the model's window (131,072
+  tokens) at exchange 19; from there every call sat at about 130,900.
+- **No compaction.** There were zero natural compactions in the 48 exchanges (the transcript and the
+  driver's event log agree).
+- **The "output" error was a full window.** 142 calls stopped on `max_tokens`. On every one of them, input
+  plus output came to between 131,068 and 131,072 tokens, and the output itself was only 1 to 1,375
+  tokens: the window was full, so the model had no room to write. Claude Code then printed its generic
+  message, "exceeded the 32000 output token maximum". That ended every exchange from 20 to 48 (29
+  exchanges, not only the last one), and those 29 took 9,163 of the run's 11,353 seconds (81%).
+  Exchanges 1 to 19 took 2,190 seconds. **Correction to our own earlier reading:** the message does not
+  mean the replies were long, and raising the output cap would not have helped.
+- **Why there was no compaction (measured offline).** Claude Code 2.1.325 does not recognise the model
+  name and says so in its debug log: it "assumes a context window of 1m tokens", and its auto-compact
+  effective window is 980,000. With `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072` the warning is gone and the
+  effective window is 111,072. The variable name is the one Claude Code itself prints: "set
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS to its real window". The offline check reached no model, so it shows
+  the configuration only, not that compaction fires in time.
+
+**New setup (approved by the design owner):** `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072`, identical in both
+arms, with a new setup hash. Every earlier practice number is labelled old-setup and is not compared
+across. The setting belongs to the harness default, as any user running a local model through Claude
+Code would have to configure it; it is not a tuning of the ENGRAM arm.
+
+**Probe and pass rule (pre-committed).** One short probe on a COPY of the snapshot, tuning only.
+Pass = a compaction record appears AND no call stops on `max_tokens` with input plus output at the
+window. A pass is evidence the setting works. **A fail is not a verdict:** a session resumed from the
+snapshot already starts at the window, so the compaction call itself may have no room, which is a
+different cause from the setting being ignored. A fail is therefore followed by a second probe that
+crosses the threshold from below (a fresh session fed past the compaction point).
+
+The serving-stack question (prefix caching in vLLM or SGLang) moves to second place: the stall was the
+missing compaction, not prompt reprocessing.
+
 ## Running now
 
-- **Long recall run** (pre-committed above): started 2026-11-14T22:29:27Z.
+- Nothing. The long recall run was stopped (see above).
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
