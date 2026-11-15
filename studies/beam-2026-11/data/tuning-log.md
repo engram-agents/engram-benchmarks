@@ -535,6 +535,36 @@ A tuning run. It counts toward nothing scored and is not the entry gate.
   4. **The first prompt's tokens by part** (system text, tool definitions, messages), from the captured first
      request, to attribute the about 8,300 tokens not yet attributed.
 
+## Tuning run T1 result (logged 2026-11-15T17:50:01Z)
+
+Run 2026-11-15 17:36:20Z to 17:46:34Z on setup `8762312e…`, conversation 9, exchanges 1 to 8. One run; tuning only.
+
+- **Capture smoke test: PASS.** The same request at temperature 0 returned the same text directly and through the
+  proxy, and a streamed request through the proxy completed. **Capture complete:** the proxy recorded 19 model requests
+  and the student's transcript records exactly 19 model calls.
+- **Notes per exchange:** **17 of 17** write calls confirmed in the store after the run (each node exists): 3 in
+  exchange 1, then 2 in each of exchanges 2 to 8. **Every exchange carried a confirmed write.** The student also kept a
+  plain notes file beside ENGRAM, writing both each exchange.
+- **Permission confusion on this file:** **0.** The same text search as before found 7 hits in 30 of the student's
+  text and thinking blocks; all 7 are the student deliberating with itself about what to record, none asks an absent
+  person, cites a tell-first rule, or declines.
+- **The separate row (the two cornerstones minted in the first session, before the grant line):** the student minted
+  them at the steps where the first-session skill says to (its own reasoning names the step). Its first-session text,
+  reasoning and tool input mention the authority table's discuss-first row **0** times. So the record shows it followed
+  the skill and never reasoned about that row; it does **not** show it read the row and wrote anyway. Both the full and
+  the lean template list cornerstones as discuss-first, while the first-session skill asks for a naming cornerstone
+  inside the conversation with the user. Which text governs in the first session is a question for the profile's
+  authors, not a finding against the model.
+- **The first request by part** (measured input 24,197 tokens; the model's own tokenizer attributes 23,900):
+  tool definitions 12,327 (the six ENGRAM tools 5,024), the session-start hook's context 5,650, the student's
+  instruction file 3,566, the system prompt 1,301, the exam brief 919, another reminder 137; 297 left for the chat
+  template's wrapping. The hook context is the one part the transcript does not record as a message, so it is the
+  likely home of the roughly 8,300 tokens left unattributed earlier; likely, not shown, because that earlier number
+  was measured on the old setup.
+- **Time:** about 10 minutes for 8 exchanges, 48 to 127 seconds each. Not compared with old-setup numbers.
+
+**Next:** the entry gate's note-taking check (three short runs) on this setup id, with its rule as written above.
+
 ## Running now
 
 - Nothing.
