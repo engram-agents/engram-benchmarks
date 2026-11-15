@@ -741,6 +741,17 @@ answer turn's source is classified mechanically (transcript search on disk, ENGR
 or none); whether arm 1 learns the transcript path as shipped is measured, not assumed; and the open-book
 score is reported with that breakdown. No change to the setup, so the setup id and the gate stand.
 
+*Ruling by the design owner (Kepler), 2026-11-15, during run A and before any result was read; the time is this
+commit's.* **Run A does not count as the registered entry-gate run:** the setup's plugin tree (`src/engram` at the
+lean-profile pull request's head, `b11a3b3e`) was measured against `dev` during the run and differs in 19 files,
+so no merged commit can carry it, and by the condition logged with the setup the gate is met again on the new tree.
+Run A finishes and is reported under its pre-logged rules as gate **evidence** for setup `8762312e`. Two conditions
+bind the rebuild: (1) it is built from a commit that will not move under it, namely merged `dev` after the
+lean-profile pull request lands, preferably the next release commit, and this log names that commit and its
+`src/engram` tree hash; (2) before the re-run, the new setup's plugin tree is diffed against that commit and zero
+differing files are logged, and a nonzero count stops the run. Nothing official runs before the project lead has
+seen run A's result and the note-volume finding.
+
 **The analysis is committed before the run**, with controls that all pass: a planted run with every cell and
 both undersized outcomes, a planted control each way for "delivered" (a hook naming a source-exchange node
 with no read is excluded; one naming a node from another exchange fails), and one mutant per rule (delivery,
@@ -750,7 +761,8 @@ one. sha256 prefixes: analysis `2a338912c2c8dd46`, controls `cd5549b2eb5f5df6`, 
 
 ## Running now
 
-- Nothing.
+- Entry gate criterion 2, run A (whole conversation 9) on setup `8762312e`, started 2026-11-15T18:39:07Z.
+  Gate evidence only (see the design owner's ruling above).
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
