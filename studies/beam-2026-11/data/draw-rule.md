@@ -35,6 +35,7 @@ scored.
 
 | conversation_id | tokens | group |
 |---|---|---|
+| 15 | 97,252 | TUNING (excluded from both draws; every practice run) |
 | 4 | 106,945 | lower |
 | 8 | 110,625 | lower |
 | 14 | 112,110 | lower |
