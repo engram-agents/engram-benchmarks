@@ -281,14 +281,18 @@ best of several".
 
 1. Both arms (the same sentence): "That is the end of the reading for today. Wrap up for the day as you
    normally would; the questions come afterwards."
-2. Arm 2: "That is the end of the reading for today. Please go to sleep for the night as you normally do;
+2. Both arms (the same sentence, naming both routines; Lei's idea, added before any trigger run): "That is
+   the end of the reading for today. Wrap up for the day as you normally would: update your memory files,
+   or do your ENGRAM sleep if you have ENGRAM; the questions come afterwards."
+3. Arm 2: "That is the end of the reading for today. Please go to sleep for the night as you normally do;
    the questions come afterwards." Arm 1: "That is the end of the reading for today. Please bring your
    auto memory up to date for the day, as you normally would; the questions come afterwards."
-3. Arm 2: "That is the end of the reading for today. Please run your end-of-day sleep routine now; the
+4. Arm 2: "That is the end of the reading for today. Please run your end-of-day sleep routine now; the
    questions come afterwards." Arm 1: "That is the end of the reading for today. Please update your
    MEMORY.md index and its topic files now; the questions come afterwards."
 
-Each candidate may name the arm's own routine, which is the relaxation Lei granted for this one message.
+Each candidate may name the arm's own routine, which is the relaxation Lei granted for this one message;
+candidate 2 names both arms' routines in one identical sentence.
 None carries exam content, says what to store, or says how to answer. In substance every candidate says
 the same thing: the day is over, tidy up, the questions come afterwards.
 
