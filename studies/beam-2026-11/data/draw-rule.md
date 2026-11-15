@@ -1,5 +1,10 @@
 # Draw rule: tuning and training conversations
 
+**Draw 1 below is VOID** (2026-11-14). Its seed was the SHA of the commit that published it. That SHA could not
+be picked in advance, but its committer could re-roll it by amending, so it was not a seed nobody can choose
+(the design owner's review on PR #4). None of draw 1's picks had been used. The binding draw is draw 2, at the
+end of this file. Draw 1's script and output stay in the repository unchanged, as a record.
+
 ## Purpose
 
 Tuning and training conversations are drawn by a seed nobody can choose,
@@ -95,3 +100,23 @@ output.
   what that commit would have drawn.
 - The git mode's success path was first exercised in a separate throwaway repository with a different
   commit, so no draw for seed `75f72db7` was computed before publication.
+
+## Draw 2 (binding): a seed from the drand public beacon
+
+1. The seed is the `randomness` of one round of the drand default chain (chain hash
+   `8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce`, one signed round every 30 seconds,
+   public at `api.drand.sh`). Nobody can choose or predict a round's value before the round is emitted.
+2. The only choice, the round number, is fixed first: [draw2-round.json](draw2-round.json) names round
+   **6642370**, emitted at 2026-11-15T00:22:00Z, and is committed and published before that time, together
+   with this rule and the script `studies/beam-2026-11/tools/draw-from-beacon.py`. The design owner confirms
+   on PR #4, in a comment GitHub timestamps, that he has read this commit before the round's time.
+3. After the round is emitted, the script fetches it, checks that its randomness is the sha256 of its
+   signature (the BLS signature itself is not verified by the script; anyone can verify it with a drand
+   client), and draws in a fixed order with the whole randomness value as the seed: one 100K conversation
+   from each stratum (entry-gate runs and lean-profile tuning), two 500K conversations (arm-3 training,
+   then length-stress tuning), and three of the remaining 17 scored conversations for the book-closed
+   second runs (pre-registration section 13; they stay scored).
+4. The script refuses if it or the round file differs from the commit that added the round file, so the
+   rules cannot change after the round is known. Its output is committed as `draw2-result.json`.
+5. Merge this repository's PRs with a merge commit, never squash or rebase, so every commit named here
+   keeps its SHA.
