@@ -321,7 +321,7 @@ shows only whether the first half runs, and Phase 2b shows what it changes.
 
 ## Long recall run STOPPED (logged at 2026-11-15T01:43:00Z, before the stop)
 
-Stopped on Lei's decision, in session, after 46 of 136 reading exchanges (about three hours). The reason is
+Stopped on Lei's decision, in session, after 46 of 136 reading exchanges (about three hours). *[Annotation added 2026-11-15: the logs show 48 completed; see "46 or 48 exchanges" in Diagnosis 1 below.]* The reason is
 speed, not anything in the results, none of which has been read: recent exchanges took about 340 seconds
 each and were still rising, which puts one 100K-tier conversation at more than ten hours. That is far too
 slow for the benchmark, and the harness and serving set-up will change before any further run. The
@@ -344,9 +344,10 @@ tuning material only; no recall result is read or claimed.
 driver log shows exchange 48 completed at 2026-11-15T01:38:40Z, before the stop entry (01:43:00Z), and the
 process then exited on the stop signal with no 49th exchange completed. Everything below counts 48.
 
-- **Calls and tokens.** 48 exchanges, 252 model calls, 28.1M input tokens in total. Most exchanges made
-  4 calls. Input per call grew by about 5K tokens per exchange and reached the model's window (131,072
-  tokens) at exchange 19; from there every call sat at about 130,900.
+- **Calls and tokens.** 48 exchanges, 252 driver-reported turns (the transcript holds 238 model calls, 235
+  inside the 48 completed exchanges), 28.1M input tokens in total. Most exchanges took 4 turns. Input per call grew by about 5K tokens per exchange and reached the model's window (131,072
+  tokens) at exchange 19; from there the per-turn average sat at about 130,900. One call in exchange 20 logged
+  145,506 input tokens with no stop reason, above the window; it is noted, not explained.
 - **No compaction.** There were zero natural compactions in the 48 exchanges (the transcript and the
   driver's event log agree).
 - **The "output" error was a full window.** 142 calls stopped on `max_tokens`. On every one of them, input
@@ -356,7 +357,7 @@ process then exited on the stop signal with no 49th exchange completed. Everythi
   exchanges, not only the last one), and those 29 took 9,163 of the run's 11,353 seconds (81%).
   Exchanges 1 to 19 took 2,190 seconds. **Correction to our own earlier reading:** the message does not
   mean the replies were long, and raising the output cap would not have helped.
-- **Why there was no compaction (measured offline).** Claude Code 2.1.325 does not recognise the model
+- **Why there was no compaction (best explanation; the offline check below measures configuration only).** Claude Code 2.1.325 does not recognise the model
   name and says so in its debug log: it "assumes a context window of 1m tokens", and its auto-compact
   effective window is 980,000. With `CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072` the warning is gone and the
   effective window is 111,072. The variable name is the one Claude Code itself prints: "set
@@ -371,7 +372,18 @@ Code would have to configure it; it is not a tuning of the ENGRAM arm.
 **Probe and pass rule (pre-committed).** One short probe on a COPY of the snapshot, tuning only.
 Pass = a compaction record appears AND no call stops on `max_tokens` with input plus output at the
 window. The probe continues for at least three exchanges after the first compaction record, and the rule
-is read over all of them (so a probe that ends one call after compacting cannot pass). A pass is evidence the setting works. **A fail is not a verdict:** a session resumed from the
+is read over all of them (so a probe that ends one call after compacting cannot pass).
+
+**Pass rule, terms defined (amended 2026-11-15T13:50:21Z, after the probe started at 13:47:38Z and before any of its
+output was read; prompted by the PR's review round).** "A compaction record" = an automatic compaction
+(`compact_boundary` with an automatic trigger) in the probe's event stream or transcript; a manual
+`/compact` does not count, and the probe sends none. "At the window" = input plus output of 131,000 tokens
+or more. The rule covers every model call in the probe, including calls before the first compaction, which
+is the strict reading. Added condition: after the first compaction, every call's input stays below
+111,072 tokens (Claude Code's own effective window under the setting). Control: the same state without
+the setting is already on record, r1's exchanges 20 to 48, where 29 of 29 ended at the full window.
+If the from-below probe also fails, the setting is judged not to fix compaction on this harness, and the
+next step is the auto-compact window setting named in Claude Code's own message (`/autocompact`). A pass is evidence the setting works. **A fail is not a verdict:** a session resumed from the
 snapshot already starts at the window, so the compaction call itself may have no room, which is a
 different cause from the setting being ignored. A fail is therefore followed by a second probe that
 crosses the threshold from below (a fresh session fed past the compaction point).
