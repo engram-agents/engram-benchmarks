@@ -305,6 +305,12 @@ compaction, read from the saved store and files, never from what the student say
 
 **Material:** tuning conversations 15, 9 and 20 only. Correctness is not read in this test.
 
+**Logged for candidate 2 (design owner):** because it names the other arm's routine, every arm-1 tool call
+after the message that goes looking for ENGRAM (a search, a skill or tool lookup, a shell probe) is logged
+with its cost. Such a run still counts toward the criterion only if arm 1 also tidied its own memory. If it
+happens in most runs, that is stated beside the frozen wording, since the identical sentence is then not
+costless for arm 1.
+
 **Published before any scored run:** every candidate tried, its trigger count per arm, and the frozen
 pair with its sha256. Section 15 gains a bound: the arms may receive different wrap-up wordings, chosen
 for trigger reliability, so the wording's own effect cannot be separated from the arm's.
