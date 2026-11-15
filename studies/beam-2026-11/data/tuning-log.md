@@ -734,7 +734,8 @@ ruled above. A timeout under the abort rule caused by compaction is reported as 
 The transcript question above was **already decided** before this run: on 2026-11-14 the project lead set the
 core setting as open-book, so the student may search its own session transcript, and the primary score
 measures each product's whole memory as shipped, the on-disk transcript included; closed-book runs show each
-arm's own memory alone (this log, earlier entries). Nothing is closed or equalised by hand. For the scored
+arm's own memory alone (recorded in PROVENANCE.md, 2026-11-14 23:10 to 23:41, and in the pre-registration's
+sections 4, 13 and 15 as merged to main). Nothing is closed or equalised by hand. For the scored
 study the design owner adds three requirements, so the result can be read: per question and per arm, the
 answer turn's source is classified mechanically (transcript search on disk, ENGRAM tool read, hook delivery,
 or none); whether arm 1 learns the transcript path as shipped is measured, not assumed; and the open-book
