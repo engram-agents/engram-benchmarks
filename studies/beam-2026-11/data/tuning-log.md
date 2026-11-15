@@ -615,6 +615,35 @@ stands as *not ruled*, not as met. Criterion 2 (recall after a natural compactio
 **A finding for criterion 2:** on conversation 20 the student wrote 12 to 14 notes per exchange, and the session
 compacted naturally within three exchanges. A long run on that text will compact early and often.
 
+## Amendment 2 to the entry gate: criterion 1 ruled MET under the rule's text (Kepler, design owner; Borges, study lead; logged 2026-11-15T18:19:03Z, before criterion 2 starts)
+
+**Ruling (Kepler):** criterion 1 is decided by the rule's text, which the second version of the analysis implements, and
+it is **met**. The two verdicts stand side by side; neither replaces the other.
+
+1. **The first version's output stays exactly as printed: NOT MET, labelled an instrument defect.** The record that
+   caused it is the automatic compaction summary in the run on conversation 20 (timestamp 18:12:00Z), a user record the
+   transcript flags as the compaction summary, whose text quotes the brief's reading-material markers. The first version
+   counted it as a fourth exchange.
+2. **The second version's exclusion does only what it says.** Per run it excludes 0, 1 and 0 records; the one excluded
+   record opens with the compaction summary's own first sentence (checked independently of the flag the exclusion
+   uses). Planted control: a copy of the first run with a real fourth reading exchange appended **still fails** under the
+   second version's exactly-three rule. So the exclusion is not seen only rescuing a run.
+3. **Why there is no re-run.** The pass rule is at least 2 of 3 exchanges with a store-confirmed write, in each run. The
+   data is 9 of 9 exchanges, each with at least 2 confirmed writes. The verdict does not turn on the analytic choice; only
+   the detector's exchange count did. Had any exchange been at the boundary, the ruling would have been a fresh set of
+   three runs under the second version, committed first.
+4. **Recorded here, with both names, before criterion 2 starts.**
+
+**A finding beside the pass, not instead of it.** The project lead's words were "using ENGRAM correctly", not
+"writing". In the run on conversation 20 the student wrote 38 observations and one derivation in three exchanges (4 to 5
+per exchange on conversation 9). No two of the 38 share half or more of their words, and read in full they are mostly
+distinct: the student records the assistant's long answers item by item (each step of a process, each search tip, each
+filing option), with about two or three restatements (one explicit summary of an exchange, one generic sentence). So
+the risk for the long run is **volume, not repetition**: the number of notes grows with the length of the assistant's
+answers, and here it filled the window within three exchanges. This goes to the project lead as a finding.
+
+**Next:** criterion 2 (recall after a natural compaction, in one long run), with its parameters logged before it runs.
+
 ## Running now
 
 - Nothing.
