@@ -1058,8 +1058,9 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
   [tools/pilot-record-volume.py](../tools/pilot-record-volume.py), outputs
   [run A](pilot-record-volume-runA-1-45.txt) and [K = 3](pilot-record-volume-K3.txt)). ENGRAM claim text per source
   exchange: 541 characters against run A's 2,217 (234 against 464 per observation); quote text 218 against 433.
-- **Finding: at K = 3 the student kept part of its record outside ENGRAM.** From its first round it also wrote notes
-  into the harness's own auto-memory folder: 71 Edit/Write calls (1.58 per source exchange, 1,639 new characters per
+- **Finding: the setup has a second note-taking channel, and this run used it heavily.** The student's environment
+  includes the harness's own auto-memory folder, a place outside ENGRAM where it can keep notes. One occurrence shows
+  the channel is open; it does not show what opens it. At K = 3, from its first round, the student wrote notes there: 71 Edit/Write calls (1.58 per source exchange, 1,639 new characters per
   source exchange), ending at a 44,699-byte notes file and a 3,443-byte index, which it introduced in its own words
   as "the local notes backup and index". Run A, from the same setup snapshot, instruction file and Claude Code version,
   never wrote there: its auto-memory folder is empty after all 135 exchanges, its 24 file writes in the whole run (the
@@ -1067,8 +1068,23 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
   are all text inside quoted strings, not file writes. **The cause is not measured:** one run each, so turns per
   round and run-to-run variation are not separated. What it means for the study: at this k, counting ENGRAM notes
   undercounts what arm 2 kept, and recall in a scored run could come partly from a file the harness arm can also
-  use. The design owner rules on whether this changes anything before K = 5; K = 5's setup stays as logged unless
-  he does.
+  use.
+- **The design owner's ruling on the finding (2026-11-16, before K = 5).** (1) K = 3 not kept stands; the floor is not
+  re-set. (2) The finding is about the setup, not about k, and is written in that order. (3) K = 5 runs as logged, on
+  three conditions: K = 3's auto-memory folder is preserved whole with hashes before anything touches it (done: both
+  files copied, the copy's sha256 equal to the folder's and to the run's own transcript copy); K = 5's auto-memory
+  folder is shown EMPTY at its first exchange from the arm home itself, not from the restore script's intent (the run
+  script now calls [tools/pilot-memcheck.sh](../tools/pilot-memcheck.sh) after the restore and before the first
+  exchange, writes its output into the run's setup record, and stops on any file or an unknown layout; its controls,
+  each with the failing case shown: [pilot-memcheck-controls-output.txt](pilot-memcheck-controls-output.txt), with
+  the setup snapshot at 0 files); and K = 5's entry reports the same measures with
+  [tools/pilot-record-volume.py](../tools/pilot-record-volume.py) unchanged, beside run A on exchanges 1 to 45.
+  (4) A k = 1 re-run on exchanges 1 to 45 runs only if K = 5 shows the habit too, or if the cause is needed later.
+  (5) **No official run starts until the auto-memory folder is ruled on as part of the setup for both arms**
+  (available to both, or to neither), with a new setup id and the entry gate's standing re-examined against it; that
+  is a pre-registration matter, put to the project lead. Until then every pilot entry says that the channel was open.
+  (6) Unchanged: the student is never told about ENGRAM, and never told to avoid the folder either.
+- **The channel was open in this pilot** (the auto-memory folder existed, empty, in the setup snapshot).
 - **Co-load** (65 samples, one a minute). GPU memory at most 28,664 of 32,607 MiB, the student's model; the sampler's
   GPU process list was empty in every sample although the model was loaded, so on this host it does not see
   processes and the memory figure is the check. Host load average 2.6 at the start, then 7.0 to 14.2 throughout. A
@@ -1077,8 +1093,8 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
 
 ## Running now
 
-- Speed pilot P1, K = 5 (setup `8262a444…`) waits for the design owner's two host test runs, scheduled in the gap
-  after K = 3; it starts after his line that both have ended. Run A (entry gate criterion 2, setup `8762312e`)
+- Speed pilot P1, K = 5 (setup `8262a444…`) waits for the design owner's host test runs, scheduled in the gap after
+  K = 3; it starts after his line that all of them have ended, with the auto-memory start check above. Run A (entry gate criterion 2, setup `8762312e`)
   finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
