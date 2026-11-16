@@ -1179,6 +1179,11 @@ the purpose sentence ([pilot-K5-input-evidence.txt](pilot-K5-input-evidence.txt)
 - **The P1 decision across k = 3 and 5:** neither k is kept, so the rule recommends no k, and k = 1 stays the setting.
   Both failed on the notes floor, not on coverage, and both were faster than run A by well over the 25 percent bar.
   The floor is not re-set after the data.
+  **What the floor does not count** (design owner's ruling, 2026-11-16, written beside the verdict, which stands):
+  the notes floor counts ENGRAM notes only, and in both pilots the student put a large share of its note-taking into
+  a channel the floor does not count, the harness's auto-memory folder: 1,639 new characters per source exchange at
+  K = 3 and 1,532 at K = 5. So "failed on the notes floor" is true by the rule and is not evidence that batching
+  makes the student keep less. P1 is undecided on its merits until the channel question is ruled.
 - **Record volume** (context, not part of the rule; [tools/pilot-record-volume.py](../tools/pilot-record-volume.py)
   unchanged, output [pilot-record-volume-K5.txt](pilot-record-volume-K5.txt)). ENGRAM claim text per source exchange:
   301 characters, against 541 at K = 3 and 2,217 in run A (181 per observation, against 234 and 464); quote text 189,
@@ -1186,10 +1191,23 @@ the purpose sentence ([pilot-K5-input-evidence.txt](pilot-K5-input-evidence.txt)
 - **The auto-memory channel was used again.** From the first round (first write 19:27:10Z, last 20:18:52Z) the student
   wrote 47 Edit/Write calls into the harness's auto-memory folder (1.04 per source exchange, 1,532 new characters per
   source exchange; a notes file written 39 times and an index written 8 times), ending at a 30,658-byte notes file and
-  a 2,850-byte index; the folder is preserved with hashes. So two of two pilots used the channel and run A did not.
-  Its cause is still not measured: k, run-to-run variation and anything else that differs are not separated by two
-  runs. The design owner's condition (4) for a k = 1 re-run on exchanges 1 to 45 ("only if K = 5 shows the habit too")
+  a 2,850-byte index; the folder is preserved with hashes. Both pilots used the channel and run A did not; the
+  record below shows the habit is not specific to batched rounds. The design owner's condition (4) for a k = 1 re-run on exchanges 1 to 45 ("only if K = 5 shows the habit too")
   is now met; when it runs is the design owner's call, after the sampler change below is logged.
+- **The auto-memory record across every run we have** (read from each arm home's folder and transcripts after
+  K = 5; no new runs). Arm 2 left files there after: long run r1 (setup E3, one exchange per round, from 2026-11-14
+  22:31Z), compaction probe 2 (setup E3 with the window setting, one exchange per round, 2026-11-15 14:17Z to
+  14:38Z), one session not yet identified between the lean setup's snapshot (taken 17:32:19Z with the folder empty)
+  and entry-gate run 1 (files written 17:37Z to 17:45Z), K = 3 and K = 5. Arm 2 left none after: entry-gate writing
+  runs 1 to 3 and run A (lean setup, one exchange per round). So on the lean setup, four one-per-round runs did not
+  use the folder and both batched pilots did, while on the earlier setup one-per-round runs did. Arm 1 (the plain
+  harness): three practice runs on 2026-11-14 (20:12Z to 20:35Z, one to two minutes each) wrote no file there; each
+  kept notes in a file in its working directory. All three came before arm 1's adopted memory-practice text, and no
+  arm-1 run has been made since. That adopted text makes the auto-memory folder arm 1's long-term memory ("You have an
+  auto memory directory that persists across sessions"), so making the folder available to neither arm would remove
+  arm 1's designated memory, not only a side channel of arm 2. Claude Code's default, from its official memory
+  documentation: "Auto memory is on by default in local sessions"; it is turned off by `autoMemoryEnabled: false` or
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, and no arm home in this study sets either.
 - **The channel was open in this pilot** (the auto-memory folder existed, empty, in the setup snapshot). Ruling (5)
   stands: no official run starts until that folder is ruled on as part of the setup for both arms.
 - **One redirect-like shell match, not a file write:** `print(">>USER::")` inside a Python program passed on standard
