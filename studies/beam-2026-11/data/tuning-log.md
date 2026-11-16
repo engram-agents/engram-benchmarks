@@ -802,10 +802,16 @@ not a history.
   3. **Ambiguity:** text that occurs in more than one exchange of the same round credits none of them and is counted
      as ambiguous.
   Coverage is reported overall and **by position within the round (1st to k-th)**, since a compaction inside a round
-  would drop the late positions first. Controls, committed with the attribution code before the first pilot runs:
+  would drop the late positions first. The decision uses the 40-character minimum; the result entry also prints
+  coverage at 20 and 80 characters beside it, so the instrument's sensitivity to that setting is visible. Controls, committed with the attribution code before the first pilot runs:
   a planted node per exchange is credited; a node quoting only exchange j is not credited to j + 1; a node quoting
   text shared by j and j + 1 is credited to neither. For run A, exchanges 1 to 45 are reported under both the old
   created-during rule and this one, so the instrument's own effect on the number is visible.
+- **Run A first (existing data, not a pilot).** Run A's coverage under this rule on exchanges 1 to 45 is computed
+  and logged here **before the first pilot runs**. The two-thirds threshold below was set for criterion 1 under the
+  old attribution rule, and this rule is stricter. If run A itself falls below two thirds, no pilot runs until the
+  threshold is re-set with the design owner and logged with run A's number beside it. Re-setting it then is not post
+  hoc, because no pilot data exists yet; re-setting it after a pilot would be.
 - **Decision rule, fixed now.** Among k in {3, 5}, keep those with coverage at least two thirds of source exchanges
   (criterion 1's writing threshold) AND notes per source exchange at least half of run A's on the same span. A kept k
   is recommended only if its wall seconds per source exchange are **at least 25 percent below** run A's on the same
@@ -830,6 +836,10 @@ lives in that issue, not here.
   the study.
 - **Run:** as P1, with k fixed at P1's outcome, once with the default response and once with the compact one, both
   on the same span.
+- **Pass rule, fixed now:** P1's two floors (coverage and notes per source exchange) apply to both P2 runs. The
+  compact reply is recommended only if its wall seconds per source exchange are **at least 25 percent below** the
+  default-response run at the same k on the same span; a smaller gain is logged as no detectable gain. Like k, a
+  recommended compact reply is **provisional** until its setup passes both entry criteria again.
 - **Duplicate guard, fixed now:** the similar-node block exists to stop duplicates, so P2 also counts, per source
   exchange, writes whose response carried the top similarity tier (duplicate or possible duplicate). The compact reply
   **fails** if that count exceeds the default-response run's on the same span by more than **0.10 per source
