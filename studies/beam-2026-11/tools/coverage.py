@@ -212,7 +212,12 @@ def run(a):
     old = sum(1 for e in per_old if per_old[e] > 0)
     print(f"notes per source exchange (store-confirmed observations created in the span): "
           f"{len(nodes)}/{span} = {len(nodes) / span:.2f}")
-    print(f"OLD rule (any node created during the exchange): {old}/{span} = {old / span:.3f}")
+    if k == 1:
+        print(f"OLD rule (any node created during the exchange): {old}/{span} = {old / span:.3f}")
+    else:
+        print(f"OLD rule at the ROUND level (any node created during the exchange's round; with k = {k} every exchange "
+              f"of a round gets the round's nodes, so this is trivially high and not comparable with k = 1): "
+              f"{old}/{span} = {old / span:.3f}")
     for m in (20, 40, 80):
         q, c, amb = coverage(rounds, texts, nodes, m)
         cov = sum(1 for e in q if q[e] > 0)

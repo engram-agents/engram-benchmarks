@@ -785,8 +785,10 @@ stream's result events gives 156 results (135 + the forced compaction + 20 quest
 matching the committed analysis. **Exchanges 1 to 45 are run A's mildest regime** (late exchanges ran 452 s and nearly
 one compaction each), which is one reason the decision rule below is provisional. **Co-load during run A:** its
 records carry no log of other work on the GPU or the host. The only trace is one host-memory reservation for a
-test-suite run, made three minutes after run A started; the reservation list keeps current entries only, so it is
-not a history.
+test-suite run, stamped 2026-11-15T23:42:18Z, about five hours into run A; its process has since ended without
+releasing it, so the reservation list still shows it, and how long that run overlapped run A is not recorded.
+*(Corrected 2026-11-16 before any pilot ran: this sentence first said the reservation was made three minutes after
+run A started, from a file time read in local time, UTC-5.)*
 
 ### P1. Turns per round (the project lead's suggestion). First.
 
@@ -953,8 +955,8 @@ declared as a component, or the build fails. Output in [setup-id-output.txt](set
 **The pilot setups.** Same snapshot, rendered `CLAUDE.md`, exam line, grant line, plugin tree, window setting, install
 flags and Claude Code version (2.1.325, read at build time) as `8762312e`; the feed script is `feed4.py`, the imported
 `feed.py` is a component, and the turns per round are named:
-- **K = 3: `a684c54f1f0eed63ef6c8e26d117a387277a524c57af808320428ca9fb96c773`**
-- **K = 5: `1439d221a55c3382cb9a62124e8cbe2b3c6244f37c52ead3ce131564a3f1c2fc`**
+- K = 3: `a684c54f1f0eed63ef6c8e26d117a387277a524c57af808320428ca9fb96c773` *(superseded below: `feed4.py` changed)*
+- K = 5: `1439d221a55c3382cb9a62124e8cbe2b3c6244f37c52ead3ce131564a3f1c2fc` *(superseded below: `feed4.py` changed)*
 
 **The pinned reference, checkable from this repository.** The runs' `feed.py` cannot be published byte for byte: it
 names the local model endpoint twice, which this repository's privacy scan refuses, and any edit would change the
@@ -976,6 +978,48 @@ per source exchange, 20 compactions (0.44 per exchange), and 0 exchanges covered
 [gate-input-evidence.py](../tools/gate-input-evidence.py) now prints where each run's planned count came from.
 
 **Next.** K = 3 runs after the design owner's line on this commit; then K = 5.
+
+## Speed pilots: before K = 3 runs, the design owner's five points (logged 2026-11-16, before any pilot runs)
+
+**1. The pilot runs the files its id hashes.** `feed4.py --expect-components FILE` hashes the `feed4.py` and `feed.py` it
+actually loaded (from their own file paths), prints both, and refuses (exit 3) unless they equal the setup's component
+lines; a run without that file is refused. The check runs before anything else, so a refusal starts nothing and
+unloads no model (a first version reached the model unload on refusal; caught by the controls, fixed before this
+commit). Per-K component files: [pilot-setup-K3.txt](pilot-setup-K3.txt), [pilot-setup-K5.txt](pilot-setup-K5.txt).
+After a run, `gate-input-evidence.py --plan` compares the received reading messages with the plan `feed4.py
+--dump-plan` wrote from the same files before the run, byte for byte. Controls in
+[pilot-preflight-controls-output.txt](pilot-preflight-controls-output.txt): matching components proceed; one differing
+hash is refused; no component file is refused; run A against a K = 1 plan of its 135 exchanges passes 135/135; against
+a K = 3 plan it fails. The runner is the study lead's local script (sha256 `10c9711d75493abc…`): a fresh copy of the
+setup snapshot, the plan dump, the run, the co-load sampler, then the evidence and coverage commands into the run
+directory; its hash is printed in each run's setup record.
+
+**Final pilot ids** (changed from the previous entry because `feed4.py` changed for point 1, as the id scheme requires):
+- **K = 3: `7b73fe7b4a53b24f2a70c3b6ee8d6eafc942490c7d74fa95e1c7aa3ac6433597`**
+- **K = 5: `8262a44456f4b1a22f269594109868c773944069a880355d12c2818c7a73f5d2`**
+
+**2. A known confound, stated before the run.** The brief, unchanged for the pilot so that K is the only variable,
+still tells the student the conversation arrives one exchange at a time and to take notes after each exchange. At
+K > 1 that is false for the student. So a drop in late-position coverage may come from that mismatch rather than from
+batching itself. If a K is recommended, the brief's wording for K > 1 is decided for the gate re-pass setup, which is a
+new setup anyway.
+
+**3. Co-load.** [tools/coload-sampler.sh](../tools/coload-sampler.sh) runs beside each pilot for its whole length and
+writes, every 60 seconds, the GPU's memory and utilisation, its compute processes, the host load average and the host
+reservation lists to `coload.txt` in the run directory. That file stays local (it lists other users' commands); the
+result entry reports its summary. K = 3 starts only after the design owner says in the Office that his merge-gate test
+run on this host has ended, so the pilot's wall time is not measured under that load.
+
+**4.** At K > 1, `coverage.py` labels the old created-during line as round-level, trivially high and not comparable with
+K = 1.
+
+**5. The setup text is unchanged.** `feed4.py`'s FACT_SHEET and NUDGE source segments hash to
+`1f2da5a0fe2ca6c81f666de4d14fd250666baf7374e86793b266b71ed5fbf090` and
+`933c9a1d930ea27b80be3e97a58f83faa8c0c2306745ed2f1a883ece7803fa6e`, equal to the gate feed script's. The pilot sends no
+setup message: it starts from the setup snapshot, taken after the first session.
+
+**A limit, stated once.** The import walk sees import statements; it does not see dynamic imports or data files a
+feed script reads.
 
 ## Running now
 

@@ -90,6 +90,25 @@ class Student:
             self.p.kill()
 
 
+def check_loaded(path):
+    """Refuse unless the feed4.py and feed.py actually loaded (their own file paths) hash to the setup's lines."""
+    import hashlib, re, feed as _feed
+    if not path:
+        print("REFUSE: a run needs --expect-components (the setup's component file)", file=sys.stderr); return 3
+    want = {}
+    for line in open(path, encoding="utf-8"):
+        m = re.fullmatch(r"([0-9a-f]{64})  (feed4\.py|imported module: feed\.py)", line.rstrip("\n"))
+        if m:
+            want["feed4.py" if m.group(2) == "feed4.py" else "feed.py"] = m.group(1)
+    got = {"feed4.py": hashlib.sha256(open(os.path.abspath(__file__), "rb").read()).hexdigest(),
+           "feed.py": hashlib.sha256(open(os.path.abspath(_feed.__file__), "rb").read()).hexdigest()}
+    for k in ("feed4.py", "feed.py"):
+        print(f"loaded {k}: {got[k]}  (setup: {want.get(k, 'MISSING')})", file=sys.stderr, flush=True)
+    if any(want.get(k) != got[k] for k in got):
+        print("REFUSE: the loaded feeder does not match the setup's components", file=sys.stderr); return 3
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm-home", required=True); ap.add_argument("--out", required=True)
@@ -104,6 +123,8 @@ def main():
     ap.add_argument("--env", action="append", default=[], help="extra KEY=VALUE for the student (e.g. a harness setting)")
     ap.add_argument("--per-round", type=int, default=1, help="v4: consecutive exchanges per user message (K)")
     ap.add_argument("--dump-plan", action="store_true", help="v4: print the planned messages as JSON and exit")
+    ap.add_argument("--expect-components", help="v4: the setup's component file (setup-id.py output); the run "
+                    "refuses unless the feed4.py and feed.py it loaded hash to the lines there (required to run)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     conv = next(c for c in pq.read_table(data_path()).to_pylist() if str(c["conversation_id"]) == str(args.conv))
@@ -166,6 +187,12 @@ def main():
 
 if __name__ == "__main__":
     _model = next((sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--model"), "qwen3.8:27b-128k")
+    # v4: the loaded-file check runs FIRST, outside the unload wrapper, so a refusal touches nothing (no model unload).
+    _exp = next((sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a == "--expect-components"), None)
+    if _exp or "--dump-plan" not in sys.argv:
+        _rc = check_loaded(_exp)
+        if _rc:
+            sys.exit(_rc)
     if "--dump-plan" in sys.argv:  # v4: a dry plan dump never touches the model server
         sys.exit(main())
     try:
