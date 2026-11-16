@@ -1371,6 +1371,55 @@ transcript), from the answering session's tool calls. The transcript-read line, 
 The brief's "one exchange at a time" sentence is still false for the student at k above 1. This measures note-taking and
 retrieval together, as a scored run does. Conversation 9 is a tuning conversation and stays out of the scored set.
 
+## Correction to the P1 answering pre-log above (logged 2026-11-16, before any answer exists)
+
+The entry above was committed (2db3ba7) minutes before two rulings of the design owner reached the study lead. It stays as
+written; where it differs from this note, this note governs. Nothing has been answered.
+
+1. **Count.** Facts are counted per clause (design owner's ruling: his same-sentence rule was wrong for this text). The
+   writer's first two thirds gave 33 facts in exchanges 1 to 15 and 25 in exchanges 16 to 30 (at most four per exchange),
+   plus abstention items; at that rate all 45 exchanges give roughly 85 to 100 questions. The target of 155 is out of reach
+   on 45 exchanges; the margin is not loosened. The final count is set from the writer's list before any answer exists, and
+   the error rates below are re-simulated at that count, by the same script and seeds, before any answer.
+2. **Unit and interval.** Facts from one exchange are not independent (the student notes an exchange or does not), so the
+   EXCHANGE is the unit. The statistic is the mean over the 45 exchanges of the within-exchange accuracy difference (k minus
+   k = 1). Its bounds come from a cluster bootstrap over the exchanges (1,000 resamples, seeded, logged), taken at the
+   **4th and 96th percentiles**, nominal one-sided 95 percent. The question-level Newcombe interval of the entry above is
+   printed beside it and decides nothing.
+3. **Three outcomes** (design owner's ruling):
+   - **ACCEPTED:** the lower bound is at or above -10 points, AND the last-position guard holds (point estimate at or above
+     -20, resting on 15 exchanges at k = 3 and 9 at k = 5), AND k = 1's accuracy is at or above the validity floor.
+   - **WORSE:** the upper bound is below zero. That is evidence of a loss, and the k is rejected on it.
+   - **INCONCLUSIVE:** anything else, including a split between the overall bound and the guard (the entry says which half).
+     It is not evidence of a loss. k = 1 stays for the time being; the next step is a larger instrument (more exchanges read
+     at each k), designed and logged before it runs. The same questions are never re-asked to look for a different answer.
+4. **Error rates, simulated before any answer, and the bar they did not meet.** At 110 questions in 45 exchanges
+   (20 x 3 + 25 x 2), base accuracy 0.75, discordant share D 0.15 to 0.35, within-exchange correlation 0.2 and 0.6,
+   4,000 trials per cell (Run 2 below): a truly equal k lands in WORSE at most **5.6 percent**, and a true 10-point loss
+   lands in ACCEPTED at most **6.4 percent**, against the nominal 5 percent; both are worst in the corner where the two runs
+   agree most (D 0.15). **The design owner's acceptance bar, "at or under 5 percent across the grid", was NOT met.** The
+   reason: with 45 clusters both bootstrap intervals run about a point liberal somewhere in the grid (the studentized
+   bootstrap-t of Run 3 misses on the other side: equal k in WORSE up to 6.5 percent). The design owner chose the 4th and
+   96th percentiles over a further percentile step, so that the rule is not tuned to the simulation. For a truly equal k
+   the three-way split is: ACCEPTED 0.40 to 0.80, WORSE 0.04 to 0.06, INCONCLUSIVE 0.15 to 0.55. The question-level
+   interval, had it decided, would let a true 10-point loss through up to about 10 percent at high within-exchange
+   correlation.
+5. **Runs, seeds and scripts** ([tools/p1-answering-power-clustered.py](../tools/p1-answering-power-clustered.py), output
+   [p1-answering-power-clustered-output.txt](p1-answering-power-clustered-output.txt)). Run 1: percentile bounds 5/95, seed
+   20261120, 2,000 trials, superseded as slightly liberal. Run 2: 4/96, seed 20261121, 4,000 trials, the rule's bounds.
+   Run 3: studentized, seed 20261122, 4,000 trials, not adopted. Runs 1 and 2 were produced by the script at sha256
+   cfc2138032a04fa2 and Run 3 by 73c8fccafd463429 (the committed version; it adds the studentized option and leaves the
+   percentile path unchanged).
+6. **Hand-over receipts.** The writer's receipt of the hand-over file (sha256 2790174b...) is in Office crossing 31037; the
+   checker's in 31024. The writer's first third, under the per-clause rule, has sha256
+   ef6d6193c127d509f1697f55cf6202eabffd0484b7937a22b2cf693daaa20818 (Office thing 1f2fa33d-0e26-4e40-a9c2-328becea6372);
+   her two earlier first-third hashes are void. The second third has sha256
+   52a6776c065faf43e01702bf7304ecb7a8bbd6d025b779d020b1de1e28db5ac3.
+7. **Unchanged from the entry above:** the validity floor (50 percent), one fixed question order drawn with a logged seed
+   after the freeze, a missing answer counts as incorrect, facts dropped not mended, D measured from the answers and
+   reported with the verdict, the per-fact channel and per-answer source reported beside the verdict, the speed bar, and
+   any acceptance provisional on one run per k.
+
 ## Running now
 
 - The k = 1 re-run (setup `d18b5d26…`), started 2026-11-16T20:35:28Z; its end state becomes the k = 1 reference for the
