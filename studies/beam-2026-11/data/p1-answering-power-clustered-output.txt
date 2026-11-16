@@ -1,4 +1,4 @@
-# tools/p1-answering-power-clustered.py output. Each TABLE line names its seed, trials, resamples and bound method. Runs 1 and 2 were produced by script sha256 cfc2138032a04fa2 (before the --method option); Run 3 by 73c8fccafd463429 (adds --method studentized; the percentile path is unchanged).
+# tools/p1-answering-power-clustered.py output. Each TABLE line names its seed, trials, resamples and bound method. Runs 1 and 2 were produced by script sha256 cfc2138032a04fa2 (before the --method option); Run 3 by 73c8fccafd463429 (adds --method studentized; the percentile path is unchanged); Run 4 by 9f5631f45cfcdeaa (adds --counts; the default layout and the percentile path are byte-identical to the previous script).
 ## Run 1: percentile bounds 5/95 (superseded: slightly liberal at 45 clusters)
 TABLE seed 20261120, trials 2000 per cell, bootstrap 1000, base accuracy 0.75, margin 0.1, 45 exchanges, 110 questions (20 x 3 + 25 x 2), bounds at percentiles 5.0/95.0 (nominal one-sided 95%)
 each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
@@ -26,3 +26,12 @@ rho=0.2 D=0.35 | loss 0.00: 0.492 / 0.566 / worse 0.058 | loss 0.05: 0.186 / 0.2
 rho=0.6 D=0.15 | loss 0.00: 0.737 / 0.823 / worse 0.062 | loss 0.05: 0.304 / 0.411 / worse 0.333 | loss 0.10: 0.054 / 0.090 / worse 0.738
 rho=0.6 D=0.25 | loss 0.00: 0.530 / 0.657 / worse 0.065 | loss 0.05: 0.213 / 0.322 / worse 0.228 | loss 0.10: 0.051 / 0.097 / worse 0.511
 rho=0.6 D=0.35 | loss 0.00: 0.423 / 0.577 / worse 0.045 | loss 0.05: 0.161 / 0.264 / worse 0.179 | loss 0.10: 0.051 / 0.097 / worse 0.390
+## Run 4: percentile bounds 4/96 at the freeze-candidate question set (76 counting questions in 38 exchanges; the freeze is the commit of the final file), whole grid
+TABLE seed 20261121, trials 4000 per cell, bootstrap 1000, base accuracy 0.75, margin 0.1, 38 exchanges, 76 questions (1 x 4 + 11 x 3 + 13 x 2 + 13 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.613 / 0.719 / worse 0.053 | loss 0.05: 0.263 / 0.312 / worse 0.253 | loss 0.10: 0.061 / 0.064 / worse 0.587
+rho=0.2 D=0.25 | loss 0.00: 0.426 / 0.531 / worse 0.048 | loss 0.05: 0.179 / 0.241 / worse 0.178 | loss 0.10: 0.051 / 0.065 / worse 0.402
+rho=0.2 D=0.35 | loss 0.00: 0.341 / 0.446 / worse 0.051 | loss 0.05: 0.144 / 0.200 / worse 0.145 | loss 0.10: 0.045 / 0.065 / worse 0.304
+rho=0.6 D=0.15 | loss 0.00: 0.592 / 0.699 / worse 0.051 | loss 0.05: 0.237 / 0.324 / worse 0.246 | loss 0.10: 0.054 / 0.077 / worse 0.566
+rho=0.6 D=0.25 | loss 0.00: 0.404 / 0.544 / worse 0.053 | loss 0.05: 0.161 / 0.254 / worse 0.154 | loss 0.10: 0.056 / 0.097 / worse 0.379
+rho=0.6 D=0.35 | loss 0.00: 0.309 / 0.447 / worse 0.052 | loss 0.05: 0.134 / 0.233 / worse 0.135 | loss 0.10: 0.045 / 0.098 / worse 0.287

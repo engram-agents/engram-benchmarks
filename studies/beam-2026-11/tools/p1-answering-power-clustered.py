@@ -12,9 +12,11 @@ Deciding statistic (design owner's proposal, 2026-11-16): the mean over exchange
 within the exchange; cluster bootstrap over exchanges (B resamples, seeded); pass if the 5th percentile >= -MARGIN.
 WORSE (design owner's ruling): the one-sided 95 percent UPPER bound (95th percentile) is below zero.
 Reported beside it, not deciding: Newcombe's question-level paired interval (method 10) on the same data.
-usage: p1-answering-power-clustered.py [--trials N] [--boot B] [--seed S]
+usage: p1-answering-power-clustered.py [--trials N] [--boot B] [--seed S] [--counts n1,n2,...]
+--counts: questions per exchange, one positive integer per exchange that has questions (default: 20 x 3 + 25 x 2).
 """
 import argparse, math
+from collections import Counter
 import numpy as np
 from scipy.stats import norm, multivariate_normal
 from scipy.optimize import brentq
@@ -65,15 +67,29 @@ def cell(rng, counts, p, loss, d, rho, margin, trials, boot, lo_pct=5.0, hi_pct=
         if newcombe10_lower(a, b, cc, dd) >= -margin: pass_nc += 1
     return pass_cl / trials, pass_nc / trials, worse / trials
 
+def parse_counts(text):
+    try:
+        vals = [int(x) for x in text.split(",")]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--counts needs comma-separated integers, got {text!r}")
+    if not vals or any(v <= 0 for v in vals):
+        raise argparse.ArgumentTypeError(f"--counts entries must be positive integers, got {text!r}")
+    return vals
+
+def layout(counts):
+    m = Counter(counts)
+    return " + ".join(f"{m[k]} x {k}" for k in sorted(m, reverse=True))
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--trials", type=int, default=2000); ap.add_argument("--boot", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=20261120); ap.add_argument("--p", type=float, default=0.75); ap.add_argument("--margin", type=float, default=0.10)
     ap.add_argument("--lo-pct", type=float, default=5.0, help="percentile for the lower bound (ACCEPTED)"); ap.add_argument("--hi-pct", type=float, default=95.0, help="percentile for the upper bound (WORSE)")
     ap.add_argument("--method", choices=["percentile", "studentized"], default="percentile")
+    ap.add_argument("--counts", type=parse_counts, default=[3] * 20 + [2] * 25, help="comma-separated questions per exchange (default: 20 x 3 + 25 x 2)")
     a = ap.parse_args(); rng = np.random.default_rng(a.seed)
-    counts = [3] * 20 + [2] * 25   # 45 exchanges, 110 questions (the per-clause yield of the first third, about 2.4 per exchange)
+    counts = a.counts   # default 45 exchanges, 110 questions (the per-clause yield of the first third, about 2.4 per exchange)
     print(f"TABLE seed {a.seed}, trials {a.trials} per cell, bootstrap {a.boot}, base accuracy {a.p}, margin {a.margin}, "
-          f"45 exchanges, {sum(counts)} questions (20 x 3 + 25 x 2), " + (f"bounds at percentiles {a.lo_pct}/{a.hi_pct}" if a.method == "percentile" else "studentized (bootstrap-t) bounds") + " (nominal one-sided 95%)")
+          f"{len(counts)} exchanges, {sum(counts)} questions ({layout(counts)}), " + (f"bounds at percentiles {a.lo_pct}/{a.hi_pct}" if a.method == "percentile" else "studentized (bootstrap-t) bounds") + " (nominal one-sided 95%)")
     print("each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)")
     for rho in (0.2, 0.6):
         for d in (0.15, 0.25, 0.35):
