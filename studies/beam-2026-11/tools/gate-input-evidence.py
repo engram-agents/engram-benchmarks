@@ -57,6 +57,7 @@ def main():
         exs = feed.exchanges(next(c for c in rows if str(c["conversation_id"]) == conv))
         got = received(run, feed.BEGIN)
         n = turns or a.turns_if_unrecorded
+        count_from = "setup.txt" if turns else "--turns-if-unrecorded (the run script's value)"
         if not n:
             sys.exit(f"{run}: setup.txt records no turn count; pass --turns-if-unrecorded from its run script")
         want = [feed.BRIEF + "\n\n" + exs[0]] + exs[1:n]
@@ -66,7 +67,8 @@ def main():
         ok &= good
         print(f"{'PASS' if good else 'FAIL'}  {os.path.basename(os.path.normpath(run))}: conversation {conv}, "
               f"{len(got)} reading messages received, {len(want)} planned, {same} byte-identical; "
-              f"message 1 opens with the brief and carries the purpose sentence: {first_ok}")
+              f"message 1 opens with the brief and carries the purpose sentence: {first_ok}; "
+              f"planned count from {count_from}")
         if not good:
             i = next((i for i, (x, y) in enumerate(zip(got, want)) if x != y), None)
             if i is not None:

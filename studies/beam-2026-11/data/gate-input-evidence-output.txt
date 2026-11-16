@@ -1,16 +1,14 @@
 ## the runs' own feed.py (unchanged since 2026-11-14T21:28:02Z)
 feed.py sha256 d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4; purpose sentence in BRIEF: True
-PASS  run1-conv9: conversation 9, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
-PASS  run2-conv20: conversation 20, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
-PASS  run3-conv9: conversation 9, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
-RESULT: every run matches
-feed.py sha256 d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4; purpose sentence in BRIEF: True
-PASS  A-conv9: conversation 9, 135 reading messages received, 135 planned, 135 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
+PASS  run1-conv9: conversation 9, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True; planned count from --turns-if-unrecorded (the run script's value)
+PASS  run2-conv20: conversation 20, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True; planned count from --turns-if-unrecorded (the run script's value)
+PASS  run3-conv9: conversation 9, 3 reading messages received, 3 planned, 3 byte-identical; message 1 opens with the brief and carries the purpose sentence: True; planned count from --turns-if-unrecorded (the run script's value)
+PASS  A-conv9: conversation 9, 135 reading messages received, 135 planned, 135 byte-identical; message 1 opens with the brief and carries the purpose sentence: True; planned count from setup.txt
 RESULT: every run matches
 ## CONTROL: the port's source feed.py (no purpose sentence) must fail
 feed.py sha256 c757ea9244b18f21523b6c57557f466d282042117a179fe096f1d46220525474; purpose sentence in BRIEF: False
-FAIL  run1-conv9: conversation 9, 3 reading messages received, 3 planned, 2 byte-identical; message 1 opens with the brief and carries the purpose sentence: False
+FAIL  run1-conv9: conversation 9, 3 reading messages received, 3 planned, 2 byte-identical; message 1 opens with the brief and carries the purpose sentence: False; planned count from --turns-if-unrecorded (the run script's value)
       first difference at message 1
-FAIL  A-conv9: conversation 9, 135 reading messages received, 135 planned, 134 byte-identical; message 1 opens with the brief and carries the purpose sentence: False
+FAIL  A-conv9: conversation 9, 135 reading messages received, 135 planned, 134 byte-identical; message 1 opens with the brief and carries the purpose sentence: False; planned count from setup.txt
       first difference at message 1
 RESULT: MISMATCH

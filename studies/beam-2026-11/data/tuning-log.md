@@ -933,6 +933,50 @@ probe, the long recall run, T1) are not re-checked here.
 walks the feed script's study-local imports and fails if any is not a component (design owner's ruling). The
 registered gate rebuild takes the imported `feed.py` as a component as well.
 
+## Speed pilots: the feeder, the setup ids, and the instrument fixes (logged 2026-11-16, before any pilot runs)
+
+**The feeder.** [tools/feed4.py](../tools/feed4.py) is the gate runs' feed script plus `--per-round K`: K consecutive
+exchanges in one message, each rendered exactly as at K = 1, the brief only before the first round, and every logged
+row naming the exchanges it carried. It imports the corrected [tools/feed.py](../tools/feed.py). Checked: its K = 1
+plan of conversation 9, exchanges 1 to 45, is byte-identical to the 45 reading messages run A's student received; its
+K = 3 rounds are exactly the K = 1 messages joined by a blank line. `--dump-plan` prints the plan and starts nothing.
+
+**Setup ids, with the import walk.** [tools/setup-id.py](../tools/setup-id.py) builds the id by the 8762312e rule (sha256
+of the sorted component lines) and walks the feed script's imports: every study-local module it reaches must be
+declared as a component, or the build fails. Output in [setup-id-output.txt](setup-id-output.txt):
+- control 0: the old rule, walk off, on the gate runs' feed script reproduces `8762312e…` exactly;
+- control 1: walk on, the imported `feed.py` undeclared: FAIL;
+- control 2: walk on, `feed.py` declared: `797ba450…`, the id 8762312e would have had with the brief covered;
+- control 3: one changed byte in the imported `feed.py` changes the K = 3 id (`a684c54f…` to `362862ce…`); mutant,
+  walk off: the same byte change leaves the id unchanged (`0cc7f042…` both times).
+
+**The pilot setups.** Same snapshot, rendered `CLAUDE.md`, exam line, grant line, plugin tree, window setting, install
+flags and Claude Code version (2.1.325, read at build time) as `8762312e`; the feed script is `feed4.py`, the imported
+`feed.py` is a component, and the turns per round are named:
+- **K = 3: `a684c54f1f0eed63ef6c8e26d117a387277a524c57af808320428ca9fb96c773`**
+- **K = 5: `1439d221a55c3382cb9a62124e8cbe2b3c6244f37c52ead3ce131564a3f1c2fc`**
+
+**The pinned reference, checkable from this repository.** The runs' `feed.py` cannot be published byte for byte: it
+names the local model endpoint twice, which this repository's privacy scan refuses, and any edit would change the
+hash it is pinned by. [pinned-runs-feed.json](pinned-runs-feed.json) carries its sha256 and its student-visible
+components, and `check-port-identity.py PORTED_DIR` compares a copy against them (anyone can run it). With a reference
+directory, the reference must hash to the pinned file's value or the check refuses; `--reference-sha` overrides with a
+printed warning. Output in [port-check-controls-output.txt](port-check-controls-output.txt), regenerated.
+
+**Instrument fixes in [tools/coverage.py](../tools/coverage.py)** (design owner's two catches): the content of an exchange
+is parsed against `feed.py`'s own wrapper constants and any other shape raises an error (control 6, mutant: one extra
+header line, refused); rule 2 reads `quote_verified` from the store and prints how many nodes it excluded (on a scratch
+copy of run A's store with one node marked unverified, it excluded 1). Control 5 now runs on `feed.render`'s real
+output; control 7 ([pilot-render-check-output.txt](pilot-render-check-output.txt)) checks, on the K = 1, 3 and 5 plans,
+that every exchange's render sits verbatim in its round and strips to the user's and assistant's text whole. The run
+command takes any K (rounds from the logged rows) and adds coverage by position in the round, wall seconds and input
+tokens per source exchange, compactions inside rounds, and covered exchanges credited only by text the conversation
+showed earlier. Run A's earlier lines are unchanged; its new lines: by position 45/45, 259.4 s and 322,163 input tokens
+per source exchange, 20 compactions (0.44 per exchange), and 0 exchanges covered only by repeated text.
+[gate-input-evidence.py](../tools/gate-input-evidence.py) now prints where each run's planned count came from.
+
+**Next.** K = 3 runs after the design owner's line on this commit; then K = 5.
+
 ## Running now
 
 - Nothing. Run A (entry gate criterion 2, whole conversation 9, setup `8762312e`) finished at

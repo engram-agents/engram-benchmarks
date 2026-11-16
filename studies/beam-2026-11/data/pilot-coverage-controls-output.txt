@@ -6,6 +6,8 @@ INFO  min-1 variant of control 2 (expected NOT to flip, see comment): exchange 2
 PASS  control 4, short coincidental match: got 0, want 0  (a 14-character coincidence credits nothing at 40)
 PASS  mutant of control 4 (min match 10): got True, want True  (at a 10-character minimum the same coincidence credits exchange 6: 1)
 PASS  quote-first check (claim-only node): got 0, want 0  (a claim-only match never counts toward the quote column)
-PASS  control 5, wrapper-only quote: got 0, want 0  (a quote of the rendered header credits nothing)
+PASS  control 5, wrapper-only quote: got 0, want 0  (a quote of the rendered session line credits nothing)
 PASS  mutant of control 5 (wrapper kept): got True, want True  (matching the rendered text credits it: 1)
+PASS  control 6, parser accepts a real render: got False, want False  (feed.render's own output parses)
+PASS  mutant of control 6 (an extra header line): got True, want True  (a render changed by one line fails loud)
 CONTROLS: ALL PASS

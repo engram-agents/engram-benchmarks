@@ -2,12 +2,16 @@
 """Check that a ported copy of the exam harness shows the student exactly what a reference copy shows.
 This file is the study's harness, not shipped product code.
 
-usage: check-port-identity.py --reference-sha SHA256 REFERENCE_DIR PORTED_DIR
+usage: check-port-identity.py PORTED_DIR                   (anyone: compare against the pinned components)
+       check-port-identity.py REFERENCE_DIR PORTED_DIR     (full check against a copy that must be the pinned one)
+       [--reference-sha SHA256]                            (override the pin; prints a warning)
 
---reference-sha is REQUIRED: the sha256 of the feed.py the runs actually used, as the setup record pins it. The
-check refuses (exit 2) a reference whose feed.py has any other hash. Added 2026-11-16: on 2026-11-14 this check
-passed against the copy the port was made FROM, while the runs used a later copy with one more sentence in the
-brief; comparing two files proves nothing about which file ran.
+The pin is read from data/pinned-runs-feed.json (committed): the sha256 of the feed.py the runs actually used and its
+student-visible components. With one directory, the ported copy's components are compared with the pinned ones.
+With two, the reference's feed.py must hash to the pinned sha256 or the check refuses (exit 2), and then the full
+comparison runs (components and every string literal). Added 2026-11-16: on 2026-11-14 this check passed against
+the copy the port was made FROM, while the runs used a later copy with one more sentence in the brief; comparing
+two files proves nothing about which file ran, and a pin the caller types certifies only the caller.
 
 Each directory holds feed.py and feed2.py. Per directory (in its own subprocess, so the two copies
 never share the module name `feed`) this computes sha256 of:
@@ -107,12 +111,46 @@ def literals(path):
         and n.value not in HOST_CONFIG_EXACT and not any(m in n.value for m in HOST_CONFIG_MARKERS))
 
 
+def check_against_pin(pin, port):
+    """Compare a ported copy's student-visible components with the committed pin. Needs only this repository."""
+    p = subprocess.run([sys.executable, "-B", "-I", os.path.abspath(__file__), "--emit", port],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        print(f"could not load {port}: {p.stderr[-800:]}", file=sys.stderr); return 2
+    got = json.loads(p.stdout)
+    bad = 0
+    for k, v in pin["components"].items():
+        same = got.get(k) == v
+        print(f"{'same  ' if same else 'DIFFER'}  {k}")
+        bad += not same
+    print("RESULT (against the pinned components):", "identical" if not bad else f"{bad} difference(s)")
+    return 1 if bad else 0
+
+
 def main(argv):
     if len(argv) == 3 and argv[1] == "--emit":
         emit(argv[2]); return 0
-    if len(argv) != 5 or argv[1] != "--reference-sha":
+    args = argv[1:]
+    override = None
+    if "--reference-sha" in args:
+        i = args.index("--reference-sha")
+        if i + 1 >= len(args):
+            print(__doc__, file=sys.stderr); return 2
+        override = args[i + 1].lower(); del args[i:i + 2]
+    pin_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "pinned-runs-feed.json")
+    try:
+        pin = json.load(open(pin_path))
+    except (OSError, ValueError) as e:
+        print(f"cannot read the pin file {pin_path}: {e}", file=sys.stderr); return 2
+    if len(args) == 1:
+        return check_against_pin(pin, args[0])
+    if len(args) != 2:
         print(__doc__, file=sys.stderr); return 2
-    pinned, ref, port = argv[2].lower(), argv[3], argv[4]
+    pinned = pin["feed.py sha256"]
+    if override:
+        print(f"WARNING: the pin is overridden by the caller ({override}); the committed pin is {pinned}")
+        pinned = override
+    ref, port = args
     try:
         got = hashlib.sha256(open(os.path.join(ref, "feed.py"), "rb").read()).hexdigest()
     except OSError as e:
