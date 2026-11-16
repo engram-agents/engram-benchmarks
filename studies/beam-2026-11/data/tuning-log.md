@@ -1027,11 +1027,59 @@ setup message: it starts from the setup snapshot, taken after the first session.
 **A limit, stated once.** The import walk sees import statements; it does not see dynamic imports or data files a
 feed script reads.
 
+## Speed pilot P1, K = 3: result (logged 2026-11-16, after the run)
+
+Setup `7b73fe7b…`, benchmarks commit `76df0353`, conversation 9, exchanges 1 to 45 in 15 rounds, arm 2 only. Started
+2026-11-16T17:11:49Z, ended 18:16:42Z, exit 0, all 15 rounds completed. Both loaded-file hashes matched the setup before the
+run. **Input evidence: PASS**, 15 of 15 reading messages byte-identical to the plan, message 1 opening with the brief
+and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-evidence.txt)). Coverage output:
+[pilot-K3-coverage.txt](pilot-K3-coverage.txt).
+
+| per source exchange, exchanges 1 to 45 | run A (k = 1) | K = 3 |
+| --- | --- | --- |
+| wall seconds | 259.4 | **86.5** (67% below) |
+| automatic compactions | 0.44 (20) | 0.18 (8, each beginning inside a round; 8 of 15 rounds had one) |
+| input tokens, summed over model calls | about 322K | 145K |
+| notes (store-confirmed observations) | **4.78** (215) | **2.31** (104) |
+| coverage at 40 characters (20 / 80) | 45/45 (45/45, 42/45) | 45/45 (45/45, 42/45) |
+
+- **Coverage detail.** By position in the round: 15/15 at the 1st, 2nd and 3rd, so the compactions that began inside
+  rounds did not drop late positions. Ambiguous nodes 4; 12 nodes credit nothing at 40 characters; rule 2 excluded 0
+  nodes (every observation in this store is marked verified); covered exchanges credited only by text the
+  conversation repeats from an earlier exchange: 0. Quote length: median 95 characters (p25 71, p75 112; 7 under
+  40), against run A's median 85. Real-data negative control (every node attributed five rounds late): 1/45. The
+  round-level old rule gives 45/45, which is trivially high at k = 3 and not comparable with k = 1.
+- **Against the decision rule, as fixed before the run:** coverage at least two thirds: **met** (45/45). Notes per
+  source exchange at least half of run A's on the same span (at least 2.39): **not met** (2.31; 104 notes where 108
+  were needed). **K = 3 is not kept.** Its speed gain would have passed the 25 percent bar, but the rule recommends
+  only a kept k. The floor is not re-set after the data. Run A sits at the coverage ceiling (45/45), so coverage
+  could only show a drop and showed none; the notes floor is the measure that moved.
+- **The notes are fewer AND shorter, not consolidated** (context, not part of the rule;
+  [tools/pilot-record-volume.py](../tools/pilot-record-volume.py), outputs
+  [run A](pilot-record-volume-runA-1-45.txt) and [K = 3](pilot-record-volume-K3.txt)). ENGRAM claim text per source
+  exchange: 541 characters against run A's 2,217 (234 against 464 per observation); quote text 218 against 433.
+- **Finding: at K = 3 the student kept part of its record outside ENGRAM.** From its first round it also wrote notes
+  into the harness's own auto-memory folder: 71 Edit/Write calls (1.58 per source exchange, 1,639 new characters per
+  source exchange), ending at a 44,699-byte notes file and a 3,443-byte index, which it introduced in its own words
+  as "the local notes backup and index". Run A, from the same setup snapshot, instruction file and Claude Code version,
+  never wrote there: its auto-memory folder is empty after all 135 exchanges, its 24 file writes in the whole run (the
+  first about nine hours in) all went to a temporary directory, and the 5 redirect-like matches in its shell commands on exchanges 1 to 45
+  are all text inside quoted strings, not file writes. **The cause is not measured:** one run each, so turns per
+  round and run-to-run variation are not separated. What it means for the study: at this k, counting ENGRAM notes
+  undercounts what arm 2 kept, and recall in a scored run could come partly from a file the harness arm can also
+  use. The design owner rules on whether this changes anything before K = 5; K = 5's setup stays as logged unless
+  he does.
+- **Co-load** (65 samples, one a minute). GPU memory at most 28,664 of 32,607 MiB, the student's model; the sampler's
+  GPU process list was empty in every sample although the model was loaded, so on this host it does not see
+  processes and the memory figure is the check. Host load average 2.6 at the start, then 7.0 to 14.2 throughout. A
+  test-suite run by another user of the host held a 6 GB host-memory reservation in 41 of 65 samples, from
+  17:35:51Z to the end. Run A has no co-load log, so the two runs' host load is not compared.
+
 ## Running now
 
-- Speed pilot P1, K = 3 (setup `7b73fe7b…`, conversation 9, exchanges 1 to 45, arm 2 only), started
-  2026-11-16T17:11:49Z after the design owner's line that his host test run had ended. Run A (entry gate criterion
-  2, setup `8762312e`) finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
+- Speed pilot P1, K = 5 (setup `8262a444…`) waits for the design owner's two host test runs, scheduled in the gap
+  after K = 3; it starts after his line that both have ended. Run A (entry gate criterion 2, setup `8762312e`)
+  finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
