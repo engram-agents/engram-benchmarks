@@ -788,7 +788,9 @@ records carry no log of other work on the GPU or the host. The only trace is one
 test-suite run, stamped 2026-11-15T23:42:18Z, about five hours into run A; its process has since ended without
 releasing it, so the reservation list still shows it, and how long that run overlapped run A is not recorded.
 *(Corrected 2026-11-16 before any pilot ran: this sentence first said the reservation was made three minutes after
-run A started, from a file time read in local time, UTC-5.)*
+run A started, from a file time read in local time, UTC-5.)* Read off run A's own stamps: exchange 45 ended
+2026-11-15T21:53:41Z, before the reservation, so the P1 baseline span (exchanges 1 to 45) did not overlap it; the
+reservation began during exchange 67, in the middle third (307 s per exchange), for an unrecorded time.
 
 ### P1. Turns per round (the project lead's suggestion). First.
 
@@ -834,9 +836,13 @@ run A started, from a file time read in local time, UTC-5.)*
 ### P2. Compact write response (ruled by the design owner).
 
 On `dev` today nothing controls the size of `engram_add_observation`'s response: the similar-node block is rendered
-by severity tier with its guidance text, with no configuration key. The design owner files the product issue (a
-compact reply keeps the tier and the node ids and drops the guidance prose; default unchanged); the setting's design
-lives in that issue, not here.
+by severity tier with its guidance text, with no configuration key. **The product shape is decided in its own issue,
+not here.** #4424 (closed by #4463) chose ONE layout and NO setting, with a test asserting the renderer reads no
+configuration. So the shape is open between a shorter single layout for every agent (consistent with #4463; then P2
+measures the default as released, and the scored-run conditions below are moot) and a setting (which would reverse
+#4463). *(Corrected 2026-11-16 before any P2 run: this paragraph first said the design owner files an issue for a
+setting with the default unchanged, written before #4424 and #4463 were found.)* **P2 does not run until that issue
+is settled; P1 is not affected.**
 - **As a pilot,** a non-default setting is allowed: pilots count toward nothing.
 - **In a scored run** the setting may be in the setup only if all three hold: it is merged and in the release the
   scored setup pins; it is documented for users as an option with a stated use (small context windows), not as a
@@ -1023,9 +1029,9 @@ feed script reads.
 
 ## Running now
 
-- Nothing. Run A (entry gate criterion 2, whole conversation 9, setup `8762312e`) finished at
-  2026-11-16T08:14:58Z with exit 0; it is gate evidence only (see the design owner's ruling above). Its result
-  entry is not yet in this log; the study lead owes it.
+- Speed pilot P1, K = 3 (setup `7b73fe7b…`, conversation 9, exchanges 1 to 45, arm 2 only), started
+  2026-11-16T17:11:49Z after the design owner's line that his host test run had ended. Run A (entry gate criterion
+  2, setup `8762312e`) finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
