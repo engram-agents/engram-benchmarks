@@ -783,8 +783,8 @@ not a history.
 
 ### P1. Turns per round (the project lead's suggestion). First.
 
-- **Change:** the feeder sends k consecutive exchanges as one user message, each still carrying its reading-material
-  marker and its exchange number. k is a setup parameter, so each value is a new setup by content hash, identical in
+- **Change:** the feeder sends k consecutive exchanges as one user message, each rendered exactly as at k = 1 (its
+  own reading-material wrapper; the exchange number is not shown to the student at any k, as in run A). k is a setup parameter, so each value is a new setup by content hash, identical in
   every arm when adopted. Values: **k = 3 and k = 5** (k = 1 is run A).
 - **Run:** arm 2 (fresh ENGRAM) only; conversation 9, exchanges 1 to 45 (15 or 9 rounds); fresh copy of the setup
   snapshot; no questions; abort rule as in criterion 2 (a dead process or a timed-out turn flags the run, reported as
@@ -795,7 +795,8 @@ not a history.
   (after its first model call and before its result), per k.
 - **Coverage guard** (needed because k > 1 breaks "a node's source exchange is the exchange during which it was
   created"). A source exchange is **covered** if at least one store-confirmed node created in its round carries text
-  that occurs in that exchange, under three rules fixed now:
+  that occurs in that exchange's **content** (the user's and the assistant's text, never the rendered wrapper), under
+  three rules fixed now:
   1. **Minimum match: 40 characters** after normalising whitespace and case; a shorter shared string credits nothing.
   2. **Quote first:** credit is given on the node's verified quote. A match on the claim text alone is reported in a
      separate, weaker column and never counts toward the guard.
@@ -852,6 +853,34 @@ and context-length variant. If the larger window does not fit with headroom, P3 
 
 **Order:** P1 (k = 3, then k = 5), then P2, then P3 if it fits. Each pilot gets a parameters entry here before it runs
 and a result entry after; the setup hash of each value is logged with it.
+
+## Speed pilots: run A first, and the attribution controls (logged 2026-11-16, before any pilot runs)
+
+Existing data, not a pilot. Code: [tools/coverage.py](../tools/coverage.py) (sha256 `4fbf2b19285f363c…`); its output
+here: [pilot-coverage-controls-output.txt](pilot-coverage-controls-output.txt) and
+[pilot-coverage-runA-1-45.txt](pilot-coverage-runA-1-45.txt). The design owner read an earlier version's output (without control 5 and
+before matching was restricted to content); this version's output goes to him before any pilot runs.
+
+- **Controls, all pass, each with a mutant that makes it fail:** a planted node per exchange is credited once (1);
+  a quote of exchange j only is not credited to j + 1 (2); text shared by j and j + 1 credits neither and counts as
+  ambiguous (3; mutant: the ambiguity rule off credits both); a 14-character coincidence with an exchange of the round
+  credits nothing at 40 characters (4; mutant: a 10-character minimum credits it); a claim-only match never counts
+  toward the quote column; a quote of the rendered wrapper credits nothing (5; mutant: matching the rendered text
+  credits it). A lowered minimum does not make control 2 fail, because the ambiguity rule already blocks that path;
+  that variant is kept in the output as INFO, and control 4 is the one that tests the minimum.
+- **Run A, exchanges 1 to 45 (k = 1):** 215 store-confirmed observations, **4.78 notes per source exchange**.
+  Coverage under the old created-during rule 45/45; under the new rule **45/45 at 40 characters** (45/45 at 20, 42/45
+  at 80). 25 nodes credit nothing: 22 quote fewer than 40 characters (headings and short phrases) and 3 quote only the
+  session line the feeder renders on every exchange (session number and the dataset's time anchor, e.g. "conversation
+  session 1, time anchor March-15-2024"): real information, but not evidence of reading that particular exchange. Quote length: median 85 characters (p25 63, p75 113). **The two-thirds threshold stands; no
+  re-set.**
+- **Shift control (real data):** with every node attributed five exchanges late, coverage falls to **5/45**; the 6
+  nodes still credited quote conversation text that also occurs in their own exchange (material the conversation
+  repeats), none a match to the shifted exchange alone. The first version of the code matched the rendered exchange,
+  wrapper included; its shift control credited 7/45, and one of those was a node quoting only the session/time-anchor
+  header, which occurs in every exchange. Matching was changed to content only and control 5 added, before any pilot.
+- **For the result entry:** run A is at the ceiling (45/45), so this guard can only show a drop; coverage also depends
+  on quote length, so the quote-length distribution is reported per k beside it.
 
 ## Running now
 
