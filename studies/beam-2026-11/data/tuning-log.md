@@ -1149,12 +1149,76 @@ does not count as the registered entry-gate run because its setup's plugin tree 
   [tools/pilot-run.sh](../tools/pilot-run.sh), which reads every host location from the environment and refuses
   to start without them. K = 3 ran on the earlier local runner (sha256 `10c9711d…`, logged above).
 
+## Speed pilot P1, K = 5: result (logged 2026-11-16, after the run)
+
+Setup `8262a444…`, benchmarks commit `60662ee1`, runner [tools/pilot-run.sh](../tools/pilot-run.sh), conversation 9,
+exchanges 1 to 45 in 9 rounds, arm 2 only. Started 2026-11-16T19:21:34Z, ended 20:19:29Z, exit 0, all 9 rounds
+completed. Both loaded-file hashes matched the setup before the run, and the setup record reads "auto-memory start
+state: 0 file(s) in 1 folder(s)", taken from the arm home after the restore and before the first exchange. **Input
+evidence: PASS**, 9 of 9 reading messages byte-identical to the plan, message 1 opening with the brief and carrying
+the purpose sentence ([pilot-K5-input-evidence.txt](pilot-K5-input-evidence.txt)). Coverage output:
+[pilot-K5-coverage.txt](pilot-K5-coverage.txt).
+
+| per source exchange, exchanges 1 to 45 | run A (k = 1) | K = 3 | K = 5 |
+| --- | --- | --- | --- |
+| wall seconds | 259.4 | 86.5 (67% below) | **77.2** (70% below) |
+| automatic compactions | 0.44 (20) | 0.18 (8) | 0.13 (6, each beginning inside a round; 6 of 9 rounds had one) |
+| input tokens, summed over model calls | about 322K | 145K | 106K |
+| notes (store-confirmed observations) | **4.78** (215) | **2.31** (104) | **1.67** (75) |
+| coverage at 40 characters (20 / 80) | 45/45 (45/45, 42/45) | 45/45 (45/45, 42/45) | 41/45 (41/45, 34/45) |
+
+- **Coverage detail.** By position in the round: 9/9 at the 1st and 2nd, 8/9 at the 3rd and 4th, 7/9 at the 5th, so
+  at k = 5 the last positions of a round are the ones that go uncovered. Ambiguous nodes 3; 9 nodes credit nothing at
+  40 characters; rule 2 excluded 0 nodes (every observation in this store is marked verified); covered exchanges
+  credited only by text the conversation repeats from an earlier exchange: 0. Quote length: median 100 characters
+  (p25 69, p75 159; 5 under 40). Real-data negative control (every node attributed five rounds late): 1/45. The
+  round-level old rule gives 45/45, trivially high at k = 5 and not comparable with k = 1.
+- **Against the decision rule, as fixed before the run:** coverage at least two thirds: **met** (41/45). Notes per
+  source exchange at least half of run A's on the same span (at least 2.39): **not met** (1.67; 75 notes where 108
+  were needed). **K = 5 is not kept.**
+- **The P1 decision across k = 3 and 5:** neither k is kept, so the rule recommends no k, and k = 1 stays the setting.
+  Both failed on the notes floor, not on coverage, and both were faster than run A by well over the 25 percent bar.
+  The floor is not re-set after the data.
+- **Record volume** (context, not part of the rule; [tools/pilot-record-volume.py](../tools/pilot-record-volume.py)
+  unchanged, output [pilot-record-volume-K5.txt](pilot-record-volume-K5.txt)). ENGRAM claim text per source exchange:
+  301 characters, against 541 at K = 3 and 2,217 in run A (181 per observation, against 234 and 464); quote text 189,
+  against 218 and 433. As at K = 3, the notes are fewer and shorter, not consolidated.
+- **The auto-memory channel was used again.** From the first round (first write 19:27:10Z, last 20:18:52Z) the student
+  wrote 47 Edit/Write calls into the harness's auto-memory folder (1.04 per source exchange, 1,532 new characters per
+  source exchange; a notes file written 39 times and an index written 8 times), ending at a 30,658-byte notes file and
+  a 2,850-byte index; the folder is preserved with hashes. So two of two pilots used the channel and run A did not.
+  Its cause is still not measured: k, run-to-run variation and anything else that differs are not separated by two
+  runs. The design owner's condition (4) for a k = 1 re-run on exchanges 1 to 45 ("only if K = 5 shows the habit too")
+  is now met; when it runs is the design owner's call, after the sampler change below is logged.
+- **The channel was open in this pilot** (the auto-memory folder existed, empty, in the setup snapshot). Ruling (5)
+  stands: no official run starts until that folder is ruled on as part of the setup for both arms.
+- **One redirect-like shell match, not a file write:** `print(">>USER::")` inside a Python program passed on standard
+  input.
+- **Reads of the student's own session transcript** (context, not part of the rule). Counted as tool calls whose input
+  names a `.jsonl` file, deduplicated by call id; the count misses a read that never names the path. K = 5: 8 calls,
+  19:52:39Z to 20:13:48Z, checking candidate quotes against the transcript and twice pulling earlier exchanges' text.
+  K = 3: 0. Run A, the whole run: 178 calls, all before its last reading exchange (07:15:22Z) and none during the 20
+  questions (07:24:45Z to 08:13:28Z); the sampled calls check quotes before filing.
+- **Co-load** (58 samples, one a minute). GPU memory at most 28,713 of 32,607 MiB, the student's model. Host load
+  average 3.2 at the start, rising with the pilot (as at K = 3, where it went from 2.6 to 9.5 in the first minute with
+  no other run reported), at most 12.1. The load average cannot separate other users' runs from the pilot's. The
+  reservation list shows one 6 GB reservation in every sample; that is presence only (see the K = 3 entry): by its
+  owner's own record that run ended at 17:36:47Z, before K = 5 started. Other runs during K = 5, from their owners'
+  own reports and not measured by the sampler: one whole-suite test run, single process and without a reservation,
+  from about 19:12Z until its owner stopped it at 19:26Z on reading the design owner's request that seats keep large
+  runs off the host until K = 5's end was posted; and three single-process test runs of one user, ending 19:25:49Z
+  (68 s), 19:34:18Z (0.2 s) and 19:42:34Z (66 s). No large run after that request was reported; the sampler cannot
+  show whether the request held. So K = 3's and K = 5's wall times are both taken under small, partly unmeasured
+  co-load, and this log does not separate the difference between them (86.5 against 77.2 seconds) from it.
+- **Instrument change before the next run** (design owner's ruling, 2026-11-16): the co-load sampler will mark each
+  reservation live or dead by checking its process, and add the top few processes by CPU each minute with owner and
+  short command. It is logged as one instrument change, with the old and new output shown on one sample, before any
+  further run. K = 5 ran on the instrument it started with.
+
 ## Running now
 
-- Speed pilot P1, K = 5 (setup `8262a444…`, benchmarks commit `60662ee1`, runner `tools/pilot-run.sh`), started
-  2026-11-16T19:21:34Z after the design owner's line that the gap was over. Its setup record reads "auto-memory start
-  state: 0 file(s) in 1 folder(s)", taken from the arm home after the restore and before the first exchange. Run A (entry gate criterion 2, setup `8762312e`)
-  finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
+Nothing. The GPU is handed back. Before any further pilot run: the sampler change above is logged, and the
+design owner gives the line for the k = 1 re-run.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
