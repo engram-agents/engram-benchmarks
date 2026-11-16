@@ -1,0 +1,15 @@
+import walk: feed -> feed.py
+components:
+1f2da5a0fe2ca6c81f666de4d14fd250666baf7374e86793b266b71ed5fbf090  feed4.py:FACT_SHEET (source segment)
+310da87e27a9b8d06ece9f85acc842ce9b6fefda2944866e2b496cb6dbf2323a  exam-line.txt
+79d592a195bcea80b10e387420845c5022a5ad7ce736b48558b5b8af359bd209  grant-line (no trailing newline)
+933c9a1d930ea27b80be3e97a58f83faa8c0c2306745ed2f1a883ece7803fa6e  feed4.py:NUDGE (source segment)
+9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c  imported module: feed.py
+bdeead3dee6f84749c7c1aa49be3a9500a5bca57e6276906dd9acef070f5b7e0  .claude/CLAUDE.md
+c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b  feed4.py
+claude code:  2.1.325
+install flags:      --no-recall-service --yes --sandbox-untagged --claude-md-profile lean
+plugin src tree:    b11a3b3e9d6d709eac92f1eba0f445b783351676
+turns per round:    1
+window setting:     CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072
+SETUP ID (sha256 of the sorted components): d18b5d262039d7201cd9e9da72f8979a3bd97fb74658fdaa1d7751f944b59bfd

@@ -1,0 +1,26 @@
+# coload-sampler.sh instrument change, controls (2026-11-16, before the next run). One sample each, INTERVAL 60, killed after the first.
+# Control reservation folder: one entry whose pid is a live 'sleep 120' started for the control, one whose pid does not exist, one with no pid.
+# CPU-line owners are replaced by <owner> here (account names); the run's own coload.txt stays local, as before.
+# old sampler sha256 627a2e7748502c15  new sampler sha256 d7c94cdadf120385
+## OLD sampler, control folder
+=== 2026-11-16T20:32:53Z
+gpu: 1538 MiB, 32607 MiB, 2 %
+loadavg: 1.25 1.58 4.56 3/3425 3592843
+entry: claims/3592833.claim: 3592833 1000 ctl-user 0 sleep 120 
+entry: claims/4194000.claim: 4194000 1000 ctl-user 0 finished-job 
+entry: claims/zz.txt: nopid-entry 
+## NEW sampler, control folder
+=== 2026-11-16T20:33:01Z
+gpu: 1536 MiB, 32607 MiB, 1 %
+loadavg: 1.29 1.58 4.53 3/3411 3593586
+cpu: <owner> 163.2% python
+cpu: <owner> 4.5% claude
+cpu: <owner> 4.5% claude
+cpu: <owner> 1.0% claude
+cpu: <owner> 0.5% openclaw-gatewa
+cpu: <owner> 0.5% dockerd
+entry: claims/3592833.claim: [live] 3592833 1000 ctl-user 0 sleep 120 
+entry: claims/4194000.claim: [dead] 4194000 1000 ctl-user 0 finished-job 
+entry: claims/zz.txt: nopid-entry 
+## NEW sampler, the real reservation folder: one entry, the reservation behind the K = 3 correction, now marked [dead] (owner and command elided)
+entry: claims/2982495.claim: [dead] 2982495 6442450944 <owner> <time> <command elided>

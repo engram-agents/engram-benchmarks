@@ -1233,10 +1233,40 @@ the purpose sentence ([pilot-K5-input-evidence.txt](pilot-K5-input-evidence.txt)
   short command. It is logged as one instrument change, with the old and new output shown on one sample, before any
   further run. K = 5 ran on the instrument it started with.
 
+## Speed pilots: the sampler change and the k = 1 re-run (logged 2026-11-16, before the run)
+
+**Instrument change** (design owner's ruling, 2026-11-16). [tools/coload-sampler.sh](../tools/coload-sampler.sh) now
+(a) marks each reservation-list entry that starts with a process id `[live]` or `[dead]`, by whether that process
+exists at the sample, because a reservation file can outlive its job (the K = 3 correction above); and (b) adds up to
+six lines `cpu: <owner> <%CPU> <command>`, the top processes by CPU over a 2-second window, with owner and short command
+name only (no arguments or paths). Each sample takes about 2 s longer. Old and new output on one sample, with a live, a
+dead and a no-pid control entry: [coload-sampler-change-controls.txt](coload-sampler-change-controls.txt). The run's own
+`coload.txt` stays local, as before. Every earlier run used the old sampler.
+
+**The k = 1 re-run** (design owner's ruling, 2026-11-16). Purpose: separate "batched rounds open the auto-memory
+habit" from "run A happened not to". Setup `d18b5d26…` ([pilot-setup-K1.txt](pilot-setup-K1.txt)): the same
+components as K = 3 and K = 5 with turns per round 1 (same lean snapshot and instruction file, grant line, window
+setting, plugin tree, Claude Code version and feeder; the K = 5 component file was rebuilt from the same arguments and
+reproduced byte for byte before this one was made). The feeder's k = 1 plan was shown earlier to equal run A's first 45
+reading messages byte for byte. Conversation 9, exchanges 1 to 45, arm 2 only, `pilot-run.sh 1` at the commit that adds
+this entry, under one GPU lease. Same measures and scripts as the pilots: the memcheck at the start (stop on any file),
+the folder archived with hashes at the end, the record-volume and transcript-read lines, the co-load line on the new
+sampler.
+
+**What each outcome means, fixed now, and read against the whole auto-memory record above, not against run A alone.**
+"Uses the folder" means the run writes at least one file there.
+- If it uses the folder: one-exchange-per-round runs on the lean setup stand at 1 of 5 (entry-gate runs 1 to 3 and run
+  A at 0), so the habit is not tied to batching and run A's empty folder is run-to-run variation, not a property of
+  k = 1. The channel question is then about the setup, at any k.
+- If it does not: one-exchange-per-round runs on the lean setup stand at 0 of 5 and batched runs at 2 of 2. That is
+  seven runs and is said as seven runs: consistent with batching opening the habit, not established by it, and the
+  earlier setup's one-exchange-per-round runs did use the folder.
+- Either way, its notes, coverage and wall time are reported beside run A's same span as a repeat measurement of
+  k = 1; no k decision changes on this run.
+
 ## Running now
 
-Nothing. The GPU is handed back. Before any further pilot run: the sampler change above is logged, and the
-design owner gives the line for the k = 1 re-run.
+Nothing yet. The k = 1 re-run starts after this entry is committed; the start is posted in the Office.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
