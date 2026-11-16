@@ -1103,7 +1103,13 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
   and the host load average shows no step when it appears. So how long that run overlapped K = 3 is not
   measured.
   *(Corrected 2026-11-16 while K = 5 ran: this sentence first said the run "held a 6 GB host-memory reservation
-  in 41 of 65 samples", which reads as the run being alive for that time; the sampler cannot show that.)* Run A has no co-load log, so the two runs' host load is not compared.
+  in 41 of 65 samples", which reads as the run being alive for that time; the sampler cannot show that.)*
+  What that user reports from their own session transcript (their record, not the sampler's): the reserved run
+  lasted 62 s, about 17:35:44Z to 17:36:47Z, and their only other run during K = 3 was one single-process test run
+  of 65 s ending 17:51:41Z. So about two minutes of K = 3's 65 overlapped that user's runs.
+  The load average of 7 to 14 comes from the pilot itself: it rose from 2.6 to 9.5 in the first minute, with no
+  other run reported. The load average cannot separate other seats' runs from the pilot's, so it does not show
+  whether they added to it later. Run A has no co-load log, so the two runs' host load is not compared.
 
 ## Entry gate, criterion 2, run A: result (gate EVIDENCE for setup `8762312e`, not the registered gate run; logged 2026-11-16)
 
