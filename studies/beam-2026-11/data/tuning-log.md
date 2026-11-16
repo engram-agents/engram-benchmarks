@@ -485,6 +485,13 @@ is identified by one id, the sha256 of these components sorted:
 
 **Setup id: `8762312e2b75f953da4e0f12479e99f7bb65eb2d6e7080a4d3364d2dd52e6d78`.**
 
+*Annotation, 2026-11-16 (see "Correction: the brief in the published harness"):* this id did not cover the brief.
+The feed script takes the brief, the proctor marker, the per-exchange line and `render()` from a second module
+(`feed.py`), which was not a component, although the design owner's identity ruling names the brief. That module's
+sha256 is `d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4`; it was last changed
+2026-11-14T21:28:02Z, before every run on this id, and every gate run on this id is shown below to have received
+exactly the messages it builds.
+
 Two conditions bind it, both set by the design owner: (1) at registration, the merged commit's plugin tree id is shown to
 equal the one above; if any other change has touched the plugin tree by then, the ids differ and the entry gate is met
 again on the new tree. (2) The grant line is part of the hashed file and is quoted here as the benchmark's own setup,
@@ -881,6 +888,50 @@ before matching was restricted to content); this version's output goes to him be
   header, which occurs in every exchange. Matching was changed to content only and control 5 added, before any pilot.
 - **For the result entry:** run A is at the ceiling (45/45), so this guard can only show a drop; coverage also depends
   on quote length, so the quote-length distribution is reported per k beside it.
+
+## Correction: the brief in the published harness (logged 2026-11-16, before any pilot runs)
+
+**What was wrong.** The published [tools/feed.py](../tools/feed.py) lacked the brief's purpose sentence (change 5,
+E3): "Later, after your context has been compacted, I will ask you questions about this conversation, so keep
+whatever record you will need to answer them." E3 and every gate run on `8762312e` were fed by a copy that has it. Found by the study
+lead while building the speed-pilot feeder; confirmed independently by the design owner from the public file.
+
+**Cause, measured (from the session record and both repositories), not inferred.**
+- 2026-11-14T21:26:22Z: a coding sub-agent was briefed to port the harness from an earlier practice copy (the one
+  the E3 copy was then made from). That copy never had the sentence.
+- 2026-11-14T21:28:02Z: for E3 the study lead made a new copy from that same practice copy and added the sentence
+  to its brief. Nothing carried it to the port.
+- 21:30:54Z and 21:49:29Z: the two port commits. Neither contains the sentence; it was never in this repository,
+  so nothing removed it.
+- The E3 copy's `feed2.py` also logs each turn's end time (`utc_end`); not student-visible. Also absent from the port.
+
+**Why the identity check passed.** [check-port-identity.py](../tools/check-port-identity.py) compares two copies
+(brief, proctor marker, per-exchange line, fact sheet, nudge, rendering, and every string literal). It was run
+against the copy the port was made FROM, and the two were identical. It compared the right things against the
+wrong reference: nothing tied its reference to the copy the runs used. **Fixed:** the reference must now hash to a
+pinned sha256 (the copy the runs used, as the setup record pins it) or the check refuses. Controls, output in
+[port-check-controls-output.txt](port-check-controls-output.txt): pinned to the runs' copy, the corrected port is
+identical (exit 0); the uncorrected port, one sentence apart, fails on the brief (exit 1); the port's source as
+reference is refused (exit 2); and the checker as it was on 2026-11-14, with no pin, passes that source against the
+uncorrected port (exit 0), which is the original failure reproduced.
+
+**Corrected.** `tools/feed.py` now carries the sentence at the same place; `tools/feed2.py` logs `utc_end` as the
+runs' copy does. Against the runs' copy, the port check now reports identical.
+
+**Does the entry gate on `8762312e` stand? Shown, not argued.** [tools/gate-input-evidence.py](../tools/gate-input-evidence.py)
+rebuilds each run's reading messages from the runs' own `feed.py` (sha256 `d2abfd38…`) as the run's feed script
+does, and compares them with every reading message in the run's own transcripts. Output in
+[gate-input-evidence-output.txt](gate-input-evidence-output.txt):
+- criterion 1, three runs (conversations 9, 20, 9): 3/3 messages byte-identical each;
+- criterion 2, run A (conversation 9 whole): **135/135** byte-identical;
+- in every run, message 1 opens with the brief and carries the purpose sentence.
+Control: with the port's source `feed.py` (no sentence) the same check fails at message 1 (run A 134/135). So the
+gate results on `8762312e` stand: its content did not change, its id was incomplete. Other practice runs (the talk
+probe, the long recall run, T1) are not re-checked here.
+
+**From here.** Pilot setup ids add the imported `feed.py`'s sha256 and the turns-per-round value, and the build
+walks the feed script's study-local imports and fails if any is not a component (design owner's ruling). The
+registered gate rebuild takes the imported `feed.py` as a component as well.
 
 ## Running now
 

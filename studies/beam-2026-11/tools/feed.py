@@ -50,6 +50,8 @@ How messages are marked:
 After each exchange, take whatever notes you think you need, in whatever way you choose, then end
 your reply with the single word NEXT. When the conversation is over, I will tell you, and then ask
 you questions about it.
+Later, after your context has been compacted, I will ask you questions about this conversation, so
+keep whatever record you will need to answer them.
 
 If something is wrong with the exam environment itself (a tool fails, a file is missing, these
 instructions are unclear), you may ask me with the shell command:

@@ -2,7 +2,12 @@
 """Check that a ported copy of the exam harness shows the student exactly what a reference copy shows.
 This file is the study's harness, not shipped product code.
 
-usage: check-port-identity.py REFERENCE_DIR PORTED_DIR
+usage: check-port-identity.py --reference-sha SHA256 REFERENCE_DIR PORTED_DIR
+
+--reference-sha is REQUIRED: the sha256 of the feed.py the runs actually used, as the setup record pins it. The
+check refuses (exit 2) a reference whose feed.py has any other hash. Added 2026-11-16: on 2026-11-14 this check
+passed against the copy the port was made FROM, while the runs used a later copy with one more sentence in the
+brief; comparing two files proves nothing about which file ran.
 
 Each directory holds feed.py and feed2.py. Per directory (in its own subprocess, so the two copies
 never share the module name `feed`) this computes sha256 of:
@@ -105,9 +110,18 @@ def literals(path):
 def main(argv):
     if len(argv) == 3 and argv[1] == "--emit":
         emit(argv[2]); return 0
-    if len(argv) != 3:
+    if len(argv) != 5 or argv[1] != "--reference-sha":
         print(__doc__, file=sys.stderr); return 2
-    ref, port = argv[1], argv[2]
+    pinned, ref, port = argv[2].lower(), argv[3], argv[4]
+    try:
+        got = hashlib.sha256(open(os.path.join(ref, "feed.py"), "rb").read()).hexdigest()
+    except OSError as e:
+        print(f"cannot read the reference feed.py: {e}", file=sys.stderr); return 2
+    if got != pinned:
+        print(f"REFUSE: the reference feed.py has sha256 {got}, not the pinned {pinned} (the copy the runs used)",
+              file=sys.stderr)
+        return 2
+    print(f"reference feed.py sha256 {got} == pinned")
     results = []
     for d in (ref, port):
         for f in ("feed.py", "feed2.py"):

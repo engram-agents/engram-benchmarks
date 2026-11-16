@@ -133,7 +133,7 @@ def main():
                 i += 1
                 ev = st.ask(text, args.turn_timeout)
                 u = ev.get("usage", {}) or {}
-                row = {"i": i, "kind": kind, "wall_s": ev.get("_wall_s", ev.get("wall_s")),
+                row = {"i": i, "kind": kind, "utc_end": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(), "wall_s": ev.get("_wall_s", ev.get("wall_s")),
                        "is_error": ev.get("is_error"), "num_turns": ev.get("num_turns"),
                        "in_tok": u.get("input_tokens"), "out_tok": u.get("output_tokens"),
                        "tools": ev.get("_tools", ev.get("tools")), "eof": ev.get("eof"), "timeout": ev.get("timeout"),

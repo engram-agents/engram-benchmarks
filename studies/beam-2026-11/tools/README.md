@@ -108,5 +108,5 @@ Checks that a ported copy of `feed.py`/`feed2.py` shows the student exactly what
 shows: sha256 of the brief, proctor marker, per-exchange line, setup fact sheet and nudge, and of
 `render()` and `exchanges()` output on a small synthetic conversation, the question prompt prefix, plus
 a comparison of every string literal in the source as a multiset in both directions (so a change to one
-of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py REFERENCE_DIR PORTED_DIR`. Exit 0 =
+of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py --reference-sha SHA256 REFERENCE_DIR PORTED_DIR`; the reference's feed.py must hash to the pinned sha256 of the copy the runs used, or the check refuses (exit 2). Exit 0 =
 identical.
