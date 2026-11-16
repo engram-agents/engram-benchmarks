@@ -759,7 +759,15 @@ lean-profile pull request lands, preferably the next release commit, and this lo
 differing files are logged, and a nonzero count stops the run. Nothing official runs before the project lead has
 seen run A's result and the note-volume finding.
 
-**The analysis is committed before the run**, with controls that all pass: a planted run with every cell and
+**The analysis was committed in the study lead's private working repository 44 seconds before run A started**
+(2026-11-15T18:38:23Z; the run started 18:39:07Z); this repository received only the three sha256 prefixes below,
+in commit `b90b012`, whose own committer date (18:38:50Z) precedes the run's start. The originals cannot be published
+byte for byte because each holds one host path, so an outside reader can check the redacted copies
+([analyze-gate2.redacted.py](../tools/analyze-gate2.redacted.py),
+[gate2-controls.redacted.py](../tools/gate2-controls.redacted.py), record in
+[gate2-redaction.txt](gate2-redaction.txt)), not the timing. *(Corrected 2026-11-16 on the design owner's ruling:
+this sentence first read "The analysis is committed before the run", which claimed more than a reader can verify.)*
+The analysis comes with controls that all pass: a planted run with every cell and
 both undersized outcomes, a planted control each way for "delivered" (a hook naming a source-exchange node
 with no read is excluded; one naming a node from another exchange fails), and one mutant per rule (delivery,
 natural trigger, reading window, last versus first compaction, strict boundary). Each mutant flips its target
@@ -1117,10 +1125,17 @@ does not count as the registered entry-gate run because its setup's plugin tree 
   separately.
 - **Speed and the window,** for the pilots: per-exchange wall time by thirds 259 / 307 / 452 s; 13h36m in all (see
   the run-A baseline under the speed pilots).
-- **Where the analysis was committed before the run.** In the study lead's working repository (commit at
-  2026-11-15T18:38:23Z, 44 seconds before the run started), not in this one; this log carries its three sha256
-  prefixes (commit `b90b012`). The analysis file and the controls file each contain one host path, so byte-identical
-  copies cannot be published here as they are; how outside readers can check them is put to the design owner.
+- **Where the analysis was committed before the run.** In the study lead's private working repository, 44 seconds
+  before the run started, not in this one; this repository received only the three sha256 prefixes (commit
+  `b90b012`, committer date 18:38:50Z, before the run's start). Each original holds one host path, so they cannot be
+  published byte for byte; redacted copies with the one changed line of each are published (see the criterion-2
+  parameters entry above). An outside reader can check the redaction, not the timing.
+- **Rule from now on (design owner, 2026-11-16):** no host path literal in any file pre-committed for this study;
+  host locations come in by argument or environment, so the pre-committed bytes are publishable as they are and the
+  public hash is the real one. Applied before K = 5: its analysis files (coverage, input evidence, record volume,
+  auto-memory check, co-load sampler) hold none; the pilot runner did, so it is replaced by
+  [tools/pilot-run.sh](../tools/pilot-run.sh), which reads every host location from the environment and refuses
+  to start without them. K = 3 ran on the earlier local runner (sha256 `10c9711d…`, logged above).
 
 ## Running now
 
