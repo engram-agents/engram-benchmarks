@@ -1139,8 +1139,9 @@ does not count as the registered entry-gate run because its setup's plugin tree 
 
 ## Running now
 
-- Speed pilot P1, K = 5 (setup `8262a444…`) waits for the design owner's host test runs, scheduled in the gap after
-  K = 3; it starts after his line that all of them have ended, with the auto-memory start check above. Run A (entry gate criterion 2, setup `8762312e`)
+- Speed pilot P1, K = 5 (setup `8262a444…`, benchmarks commit `60662ee1`, runner `tools/pilot-run.sh`), started
+  2026-11-16T19:21:34Z after the design owner's line that the gap was over. Its setup record reads "auto-memory start
+  state: 0 file(s) in 1 folder(s)", taken from the arm home after the restore and before the first exchange. Run A (entry gate criterion 2, setup `8762312e`)
   finished 2026-11-16T08:14:58Z with exit 0; its result entry is not yet in this log.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
