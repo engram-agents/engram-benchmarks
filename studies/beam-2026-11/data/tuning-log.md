@@ -1091,6 +1091,37 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
   test-suite run by another user of the host held a 6 GB host-memory reservation in 41 of 65 samples, from
   17:35:51Z to the end. Run A has no co-load log, so the two runs' host load is not compared.
 
+## Entry gate, criterion 2, run A: result (gate EVIDENCE for setup `8762312e`, not the registered gate run; logged 2026-11-16)
+
+Logged after the project lead had seen run A's result and the note-volume finding. **Status, in one sentence:** run A
+does not count as the registered entry-gate run because its setup's plugin tree was measured to differ from `dev` in
+19 files, so the gate is met again on a rebuilt setup under the two conditions logged above.
+
+- **Run.** Conversation 9, all 135 reading exchanges, then the proctor's `/compact`, then the 20 official questions,
+  one session. Started 2026-11-15T18:39:07Z, ended 2026-11-16T08:14:58Z, exit 0; no error, no timed-out turn, so the
+  abort rule did not fire. Input evidence: 135 of 135 reading messages byte-identical to the plan (logged above).
+- **Analysis:** the pre-logged one, unchanged (sha256 prefix `2a338912c2c8dd46`, re-hashed today; its controls
+  `cd5549b2eb5f5df6` and runner `a3e7695d8c9bde35` also unchanged). Output:
+  [gate2-runA-analysis-output.txt](gate2-runA-analysis-output.txt), the transcript's host path on line 1 replaced by
+  its file name.
+- **Writing: HOLDS**, 135 of 135 reading exchanges with a store-confirmed write (needed 90); 683 reading-phase nodes.
+- **Natural compactions during the reading: 84** (two during exchange 111), plus 3 automatic compactions during the
+  questions. The projection logged before the run said 4 to 5; the correction logged during it said about 50.
+- **Recall: MET.** 17 counting questions (Q1 and Q2 are abstention questions and Q16 has no source ids, so 3 do not
+  count); 0 excluded as hook-delivered; **17 of 17 PASS**, needed 9. Of the 17, 12 are "delivered and read" (the hook
+  named a source-exchange node AND the student read one with a tool) and 5 are "read" (a tool read only). k, the
+  natural compactions after a question's latest source exchange, runs from 4 to 83.
+- **Run B is not run**, by the rule logged during run A: run A ended with 10 or more natural compactions.
+- **What PASS measures:** the retrieval path (a tool read, in the question's own turn, of a node written during the
+  question's source exchanges), not whether the answer is right. Answer quality is outside criterion 2 and is graded
+  separately.
+- **Speed and the window,** for the pilots: per-exchange wall time by thirds 259 / 307 / 452 s; 13h36m in all (see
+  the run-A baseline under the speed pilots).
+- **Where the analysis was committed before the run.** In the study lead's working repository (commit at
+  2026-11-15T18:38:23Z, 44 seconds before the run started), not in this one; this log carries its three sha256
+  prefixes (commit `b90b012`). The analysis file and the controls file each contain one host path, so byte-identical
+  copies cannot be published here as they are; how outside readers can check them is put to the design owner.
+
 ## Running now
 
 - Speed pilot P1, K = 5 (setup `8262a444…`) waits for the design owner's host test runs, scheduled in the gap after
