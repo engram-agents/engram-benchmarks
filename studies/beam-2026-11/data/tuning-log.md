@@ -1095,9 +1095,15 @@ and carrying the purpose sentence ([pilot-K3-input-evidence.txt](pilot-K3-input-
 - **The channel was open in this pilot** (the auto-memory folder existed, empty, in the setup snapshot).
 - **Co-load** (65 samples, one a minute). GPU memory at most 28,664 of 32,607 MiB, the student's model; the sampler's
   GPU process list was empty in every sample although the model was loaded, so on this host it does not see
-  processes and the memory figure is the check. Host load average 2.6 at the start, then 7.0 to 14.2 throughout. A
-  test-suite run by another user of the host held a 6 GB host-memory reservation in 41 of 65 samples, from
-  17:35:51Z to the end. Run A has no co-load log, so the two runs' host load is not compared.
+  processes and the memory figure is the check. Host load average 2.6 at the start, then 7.0 to 14.2 throughout. The
+  host-memory reservation list shows one 6 GB reservation for another user's test-suite run in 41 of 65 samples,
+  from 17:35:51Z to the end. That is the reservation FILE being present, not the run being alive: the memory gate
+  removes a finished run's reservation only when it is next called, and the sampler does not check
+  whether the reserving process is alive. The same reservation is still listed at 20:15Z with its process gone,
+  and the host load average shows no step when it appears. So how long that run overlapped K = 3 is not
+  measured.
+  *(Corrected 2026-11-16 while K = 5 ran: this sentence first said the run "held a 6 GB host-memory reservation
+  in 41 of 65 samples", which reads as the run being alive for that time; the sampler cannot show that.)* Run A has no co-load log, so the two runs' host load is not compared.
 
 ## Entry gate, criterion 2, run A: result (gate EVIDENCE for setup `8762312e`, not the registered gate run; logged 2026-11-16)
 
