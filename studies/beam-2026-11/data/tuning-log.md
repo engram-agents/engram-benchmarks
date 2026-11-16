@@ -1264,9 +1264,118 @@ sampler.
 - Either way, its notes, coverage and wall time are reported beside run A's same span as a repeat measurement of
   k = 1; no k decision changes on this run.
 
+## Speed pilot P1 decided by what the student can answer: instrument and rule (logged 2026-11-16, before any question exists)
+
+**What changed and why.** The project lead ruled on 2026-11-16 (relayed by the design owner) that Claude Code's built-in
+memory folder stays on in both arms, with the setup as launched and no new setup id; the design owner's earlier condition
+that no official run starts until the folder is ruled is therefore closed. The lead proposed, and the design owner adopted,
+that P1 (turns per round) is decided by what the student can ANSWER, not by an ENGRAM note count, because the note floor
+counts one of the two channels the student uses. The retired rule stays in this log with its reason, and "not kept under the
+rule as logged" stays reported for K = 3 and K = 5. The speed bar (at least 25 percent faster) is unchanged.
+
+**a. Key-fact list.** For conversation 9, exchanges 1 to 45, written from the conversation text only by a seat that has
+seen no run's notes, store or transcript: about two facts per exchange, each with its source exchange and the exact
+supporting span. A second such seat checks every fact against its span. A FACT the checker marks not supported or only
+partly supported is dropped with its question, never mended. A QUESTION whose fact is supported but whose wording asks for
+more or less than the fact may be corrected by the writer before the freeze, and the change is recorded in the checker's
+table. If drops take the set below about 80 questions, the entry says so and the pass rates in (e) are re-simulated at the
+real number before anything is answered. Neither seat is the study lead or the design owner. The list states which exchanges are at the LAST position of a
+round at k = 3 (exchanges 3, 6, ..., 45: 15) and at k = 5 (exchanges 5, 10, ..., 45: 9).
+
+**The hand-over, the only material the writer and the checker received.** The writer is Clio and the checker is Luria;
+each answered no, with the checks they ran, to having seen any student note, store, built-in memory file or transcript
+(Office crossings 31012 and 31013). On 2026-11-16 the study lead gave both the SAME Office thing, "Key-fact handover:
+BEAM conv 9 ex 1-45" (thing id b0361270-8989-4f37-b81f-48d196bdf1e7), one file, beam-conv9-ex1-45-and-question-styles.md,
+227,820 bytes, sha256 2790174b188a13495a6365d61e27de60194b5fa848b8463312e5ded19ac6d013 (Office crossings 31022 to Clio
+and 31023 to Luria). It holds conversation 9's exchanges 1 to 45 from the registered dataset, numbered as the study
+numbers them, each with its session and time anchor; all 45 were checked against the text in the K = 5 run's own plan
+(45 of 45 present; exchange 46, the control, absent). It also holds one official example per question category, taken
+from conversation 20 so that none of conversation 9's own questions is shown. The checker's receipt
+(Office crossing 31024): the downloaded file's sha256 equals the above; the writer's receipt is pending at this commit and is added in a dated note when it arrives.
+
+**b. Questions.** One question per fact in the official BEAM question styles, gold answer = the fact, plus six abstention
+items (questions whose answer is not in exchanges 1 to 45), written by the same seat. The list, the questions and the
+gold answers are committed and hashed in this repository before any answer exists. After the freeze, ONE question order
+is drawn with a logged seed and used for every end state, so a question sits at the same position in every answering
+session.
+
+**c. Answering.** On the end states already preserved: K = 3 (setup 7b73fe7b), K = 5 (setup 8262a444) and the k = 1
+re-run (setup d18b5d26) when it ends. For each: a fresh copy of the preserved arm home; the run's own session resumed;
+the proctor's compaction as in the official protocol; then all questions in that one session, with both memory channels
+(ENGRAM and the built-in folder) and the transcript exactly as the run left them (open book, as ruled on 2026-11-14). No
+new reading runs. Before any answering, each preserved home is shown intact: done 2026-11-16 for K = 3 and K = 5 (store
+content hash over every non-virtual table equal to the run-end copy, 21 tables, 1,024 and 778 rows, with a one-row change
+shown to change the hash; auto-memory files equal to the hashes taken at run end). The answering harness is built and its
+controls shown (resume lands in the run's session; the compaction happens; every question is delivered once) before it
+touches a preserved home. Its controls include two planted facts on a disposable copy of a preserved home: one answerable
+only from the built-in folder and one only from ENGRAM, each asked after the resume and the compaction, so both channels are
+shown to survive them before any real answering.
+
+**d. Grading.** By the judge arrangement already ruled (the official BEAM judge prompt on the agreed judge model), with the
+question supplied to the judge, blind to k (answers shuffled across k with k removed), rubric and judge settings logged
+before the first grade. Abstention items are graded and reported separately; they are not in the accuracy below.
+
+**e. The rule** (fixed now, co-signed before any answer exists). Accuracy = share of the non-abstention questions graded
+correct. Questions are paired across k (the same question set for every end state).
+- **Missing answers:** a question with no answer (an error, a timeout, an empty reply) counts as incorrect and is listed.
+  If more than 5 are missing for one end state, that end state is asked once more from a fresh copy and BOTH attempts are
+  reported; the decision uses the first attempt unless the design owner rules otherwise in the entry, never the better
+  one chosen silently.
+- **Validity floor:** the rule decides only if k = 1's accuracy is at least **50 percent**. Below that, no k decision is
+  made and the entry says the instrument did not discriminate (a batch size must not be accepted because nothing could be
+  answered at any k). Run A's hand grade on conversation 9's official questions was 72.8 percent, so 50 percent sits well
+  below what k = 1 has shown it can do.
+- **Overall:** a k is accepted if the one-sided 95 percent lower bound of (accuracy at k) minus (accuracy at k = 1),
+  by Newcombe's score interval for paired proportions (1998, method 10, two-sided 90 percent), is at or above
+  **-10 percentage points**.
+- **Last position of a round** (where K = 5's coverage dropped): the point estimate of the same difference on those
+  questions is at or above **-20 points**, and its interval is reported. This guards only against a large loss: with 18
+  (k = 5) or 30 (k = 3) questions no margin can show equivalence.
+- A k must pass both. **On a split verdict (the overall test passes and the last-position guard fails, or the reverse)
+  the k is NOT accepted** (design owner's ruling), and the entry says which half failed. A kept k is recommended only if
+  it also clears the unchanged speed bar. Any recommendation is provisional (one run per k).
+
+**Honest resolution, measured before logging, and the question count it sets** ([tools/p1-answering-power.py](../tools/p1-answering-power.py);
+every table, with its own seed and trial count, in [p1-answering-power-output.txt](p1-answering-power-output.txt)). Each
+question's paired outcome is drawn from an exact joint distribution set by base accuracy 0.75 (run A's hand grade was
+72.8 percent), the true loss, and the discordant share D, the share of questions the two runs answer differently.
+
+- **The margin is -10 points (design owner's ruling, 2026-11-16).** A batch size wrongly accepted handicaps the scored
+  runs; one wrongly rejected only costs time. So the margin is not loosened to buy power; the instrument is made larger.
+- **The question count is set by a target fixed now:** the smallest count at which a truly equal k passes at least 80
+  percent of the time at D = 0.25, with a true 10-point loss still passing about 5 percent. Pinned with 10,000 trials
+  (Table 3): 140 questions 0.763, 145 0.780, 150 0.795, **155 0.807**; the 10-point row 0.051 to 0.059. **Target: 155
+  questions.** The final count is set from the writer's yield after the first third, before any answer exists: up to 180
+  if the text gives that many well-supported distinct facts, never more than four per exchange. If the text cannot reach
+  155, the margin is NOT loosened: the entry prints the pass rates at the count obtained, and a "not accepted" is then
+  reported with the sentence saying how often a truly equal batch size would have failed.
+- **At 155 questions** (Table 1): D 0.15 / 0.25 / 0.35 -> a truly equal k passes 0.94 / 0.80 / 0.69; a true 5-point loss
+  0.49 / 0.35 / 0.29; a true 10-point loss 0.06 / 0.06 / 0.05. **The target holds only if the runs agree on about three
+  questions in four or better (D at or below 0.25).** D is measured from the answers, not assumed, and reported with the
+  verdict. This instrument cannot resolve a loss smaller than about 10 points, and the entry says so.
+- **The rejected alternative, for the record** (Table 2): a -15 margin at 90 questions passes a truly equal k 0.79 to
+  0.97 but lets a true 10-point loss through 0.21 to 0.39.
+- **A correction kept visible:** the first draft of this entry, and the study lead's messages to the design owner,
+  printed "a truly equal k passes 70 to 97 percent" at 90 questions. That came from a draft model whose parameter was a
+  copy probability described as "the share answered alike"; it implied a discordant share of only about 0.06 to 0.19 and
+  overstated the pass rate. The clean figure at 90 questions is 0.49 to 0.80 (Table 1).
+- **The last-position guard** stays a point-estimate guard (-20), not this test. At the final count its subsets grow
+  (about 51 questions at k = 3 and 31 at k = 5 if the count is 155); the entry prints their one-sided half-width at the
+  final count.
+
+**f. Reported beside it, not deciding.** For each fact: whether it is in the student's notes, and in which channel (an
+ENGRAM node, the built-in folder, both, neither). For each answer: where it came from (an ENGRAM read, the folder, the
+transcript), from the answering session's tool calls. The transcript-read line, as in every entry.
+
+**g. Bounds.** One run per k, and the k = 1 reference is itself one run, so run-to-run variation is not separated from k.
+The brief's "one exchange at a time" sentence is still false for the student at k above 1. This measures note-taking and
+retrieval together, as a scored run does. Conversation 9 is a tuning conversation and stays out of the scored set.
+
 ## Running now
 
-Nothing yet. The k = 1 re-run starts after this entry is committed; the start is posted in the Office.
+- The k = 1 re-run (setup `d18b5d26…`), started 2026-11-16T20:35:28Z; its end state becomes the k = 1 reference for the
+  answering rule above.
+- The key-fact list for the answering rule, being written and checked.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
