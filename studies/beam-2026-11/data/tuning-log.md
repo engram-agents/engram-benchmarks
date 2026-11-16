@@ -759,10 +759,95 @@ natural trigger, reading window, last versus first compaction, strict boundary).
 case. Shape checks also ran on two real transcripts: one with an automatic compaction and one with a forced
 one. sha256 prefixes: analysis `2a338912c2c8dd46`, controls `cd5549b2eb5f5df6`, runner `a3e7695d8c9bde35`.
 
+## Speed pilots on the ENGRAM student: parameters (logged before any pilot runs)
+
+Proposed by Borges (study lead), 2026-11-16, after run A; read and amended by Kepler (design owner) the same day,
+before anything ran. Each pilot is a tuning run: it counts toward nothing scored and reports no arm-versus-arm
+accuracy. **Conversation 9 is outside the scored set:** it is draw 2's lower 100K pick (drand round 6642370; record in
+[draw2-result.json](draw2-result.json), whose `scored_set_100K` lists 17 conversations and not 9), drawn for entry-gate
+runs and lean-profile tuning.
+
+**Baseline: run A (setup `8762312e`, conversation 9 whole), from its own records.** 135 reading exchanges, 13h36m wall;
+259 / 307 / 452 s per exchange by thirds; 84 automatic compactions during reading (0.62 per exchange). Fixed overhead
+about 23,200 tokens per context window (18% of 131,072); the window grows about 76K tokens per cycle, mostly from the
+student's own write churn: `engram_add_observation` responses are 87% of all tool-result tokens (688 calls, mean 2,258
+tokens). **Exchanges 1 to 45** (the span P1 re-reads): mean 259.4 s per exchange, 20 automatic compactions (0.44 per
+exchange), 4.84 write calls per exchange (attempted calls from the transcript, not yet confirmed against the store),
+322K input tokens per exchange summed over model calls. Instrument check: mapping compactions to exchanges by the
+stream's result events gives 156 results (135 + the forced compaction + 20 questions) and 84 reading compactions,
+matching the committed analysis. **Exchanges 1 to 45 are run A's mildest regime** (late exchanges ran 452 s and nearly
+one compaction each), which is one reason the decision rule below is provisional. **Co-load during run A:** its
+records carry no log of other work on the GPU or the host. The only trace is one host-memory reservation for a
+test-suite run, made three minutes after run A started; the reservation list keeps current entries only, so it is
+not a history.
+
+### P1. Turns per round (the project lead's suggestion). First.
+
+- **Change:** the feeder sends k consecutive exchanges as one user message, each still carrying its reading-material
+  marker and its exchange number. k is a setup parameter, so each value is a new setup by content hash, identical in
+  every arm when adopted. Values: **k = 3 and k = 5** (k = 1 is run A).
+- **Run:** arm 2 (fresh ENGRAM) only; conversation 9, exchanges 1 to 45 (15 or 9 rounds); fresh copy of the setup
+  snapshot; no questions; abort rule as in criterion 2 (a dead process or a timed-out turn flags the run, reported as
+  it stands). **Co-load is logged:** before, every 60 s during, and after each run, the GPU's process and memory list,
+  the host load average, and the host-memory reservation list.
+- **Measures, per SOURCE exchange so k values compare:** (1) wall seconds; (2) automatic compactions; (3) notes:
+  store-confirmed ENGRAM writes; (4) input tokens summed over model calls; (5) **compactions that begin inside a round**
+  (after its first model call and before its result), per k.
+- **Coverage guard** (needed because k > 1 breaks "a node's source exchange is the exchange during which it was
+  created"). A source exchange is **covered** if at least one store-confirmed node created in its round carries text
+  that occurs in that exchange, under three rules fixed now:
+  1. **Minimum match: 40 characters** after normalising whitespace and case; a shorter shared string credits nothing.
+  2. **Quote first:** credit is given on the node's verified quote. A match on the claim text alone is reported in a
+     separate, weaker column and never counts toward the guard.
+  3. **Ambiguity:** text that occurs in more than one exchange of the same round credits none of them and is counted
+     as ambiguous.
+  Coverage is reported overall and **by position within the round (1st to k-th)**, since a compaction inside a round
+  would drop the late positions first. Controls, committed with the attribution code before the first pilot runs:
+  a planted node per exchange is credited; a node quoting only exchange j is not credited to j + 1; a node quoting
+  text shared by j and j + 1 is credited to neither. For run A, exchanges 1 to 45 are reported under both the old
+  created-during rule and this one, so the instrument's own effect on the number is visible.
+- **Decision rule, fixed now.** Among k in {3, 5}, keep those with coverage at least two thirds of source exchanges
+  (criterion 1's writing threshold) AND notes per source exchange at least half of run A's on the same span. A kept k
+  is recommended only if its wall seconds per source exchange are **at least 25 percent below** run A's on the same
+  span; a smaller gain is logged as no detectable gain, since each k is one run against one baseline run. Of the
+  recommended values, the fastest is proposed. **Any recommended k is provisional** until its setup passes both entry
+  criteria again on a whole tuning conversation with questions: the 45-exchange span is the mildest regime and asks
+  no questions, so it cannot show whether batched notes recall worse. If no k is recommended, k = 1 stays and P1 is
+  reported as negative.
+
+### P2. Compact write response (ruled by the design owner).
+
+On `dev` today nothing controls the size of `engram_add_observation`'s response: the similar-node block is rendered
+by severity tier with its guidance text, with no configuration key. The design owner files the product issue (a
+compact reply keeps the tier and the node ids and drops the guidance prose; default unchanged); the setting's design
+lives in that issue, not here.
+- **As a pilot,** a non-default setting is allowed: pilots count toward nothing.
+- **In a scored run** the setting may be in the setup only if all three hold: it is merged and in the release the
+  scored setup pins; it is documented for users as an option with a stated use (small context windows), not as a
+  benchmark switch; and the setup record and every report name it as non-default. Such a report never says "default
+  configuration"; it says "ENGRAM as released, with this one documented setting". If the pilot shows the compact
+  reply is better for every agent, changing the default is a product decision through its own issue, separate from
+  the study.
+- **Run:** as P1, with k fixed at P1's outcome, once with the default response and once with the compact one, both
+  on the same span.
+- **Duplicate guard, fixed now:** the similar-node block exists to stop duplicates, so P2 also counts, per source
+  exchange, writes whose response carried the top similarity tier (duplicate or possible duplicate). The compact reply
+  **fails** if that count exceeds the default-response run's on the same span by more than **0.10 per source
+  exchange**, whatever its speed.
+
+### P3. Window size. Only if the GPU fits it.
+
+No run before the card's memory is measured at the current 131,072 setting and at the next size, with the same model
+and context-length variant. If the larger window does not fit with headroom, P3 is dropped and logged as such.
+
+**Order:** P1 (k = 3, then k = 5), then P2, then P3 if it fits. Each pilot gets a parameters entry here before it runs
+and a result entry after; the setup hash of each value is logged with it.
+
 ## Running now
 
-- Entry gate criterion 2, run A (whole conversation 9) on setup `8762312e`, started 2026-11-15T18:39:07Z.
-  Gate evidence only (see the design owner's ruling above).
+- Nothing. Run A (entry gate criterion 2, whole conversation 9, setup `8762312e`) finished at
+  2026-11-16T08:14:58Z with exit 0; it is gate evidence only (see the design owner's ruling above). Its result
+  entry is not yet in this log; the study lead owes it.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
