@@ -35,8 +35,14 @@ def notes(arm_home):
     return [p for p in memory_dir(arm_home).iterdir() if p.name not in ("MEMORY.md", "feedback_old.md")]
 
 
+def dummy(tmp_path):
+    """A real, unrelated directory standing in for a preserved home (R3-2: P1_PROTECTED entries must exist)."""
+    d = tmp_path / "preserved-dummy"; d.mkdir(exist_ok=True)
+    return str(d)
+
+
 def go(arm_home, tmp_path, *extra, **kw):
-    kw.setdefault("protected", "/nonexistent-protected-home")
+    kw.setdefault("protected", dummy(tmp_path))
     if not kw.pop("embeddings", False):
         extra = (*extra, "--no-embeddings")  # most cells are about the files, not the embedder (R2-3 has its own)
     return run_tool(arm_home, tmp_path / "evidence", *extra, **kw)
@@ -88,7 +94,7 @@ def test_refuses_without_the_disposable_marker(arm_home, tmp_path):
 
 
 def test_refuses_a_home_under_p1_protected(arm_home, tmp_path):
-    r = go(arm_home, tmp_path, protected=f"/somewhere/else:{tmp_path}")
+    r = go(arm_home, tmp_path, protected=f"{dummy(tmp_path)}:{tmp_path}")
     assert r.returncode == 2 and "P1_PROTECTED" in r.stderr + r.stdout
     untouched(arm_home)
 
@@ -101,7 +107,7 @@ def test_refuses_when_p1_protected_is_unset(arm_home, tmp_path):
 
 def test_refuses_evidence_dir_inside_work(arm_home, tmp_path):
     ev = arm_home / "work" / "notes"; ev.mkdir()
-    r = run_tool(arm_home, ev, protected="/nonexistent-protected-home")
+    r = run_tool(arm_home, ev, protected=dummy(tmp_path))
     assert r.returncode == 2 and "work" in (r.stderr + r.stdout).lower()
     untouched(arm_home)
     assert list(ev.iterdir()) == []
@@ -110,7 +116,7 @@ def test_refuses_evidence_dir_inside_work(arm_home, tmp_path):
 def test_refuses_evidence_dir_reached_through_a_symlink_into_work(arm_home, tmp_path):
     (arm_home / "work" / "notes").mkdir()
     link = tmp_path / "linked"; link.symlink_to(arm_home / "work" / "notes")
-    r = run_tool(arm_home, link, protected="/nonexistent-protected-home")
+    r = run_tool(arm_home, link, protected=dummy(tmp_path))
     assert r.returncode == 2 and "work" in (r.stderr + r.stdout).lower()
     untouched(arm_home)
     assert list((arm_home / "work" / "notes").iterdir()) == []
@@ -416,7 +422,7 @@ def run_stub(arm_home, tmp_path, mode, *extra):
            "--home", str(arm_home), "--builtin-fact", BUILTIN, "--engram-fact", ENGRAM, "--absent-fact", ABSENT,
            "--evidence-dir", str(tmp_path / "evidence"), *extra]
     return subprocess.run(cmd, capture_output=True, text=True,
-                          env={"PATH": os.environ["PATH"], "P1_PROTECTED": "/nonexistent-protected-home"})
+                          env={"PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path)})
 
 
 def embedded(arm_home):
@@ -455,7 +461,7 @@ def test_an_inherited_no_embeddings_variable_is_not_silently_honoured_by_default
     cmd = [sys.executable, TOOL, "--home", str(arm_home), "--builtin-fact", BUILTIN, "--engram-fact", ENGRAM,
            "--absent-fact", ABSENT, "--evidence-dir", str(tmp_path / "evidence")]
     r = subprocess.run(cmd, capture_output=True, text=True, env={
-        "PATH": os.environ["PATH"], "P1_PROTECTED": "/nonexistent-protected-home", "ENGRAM_NO_EMBEDDINGS": "1"})
+        "PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path), "ENGRAM_NO_EMBEDDINGS": "1"})
     assert r.returncode == 2 and "embed" in (r.stderr + r.stdout).lower()
     untouched(arm_home)
 
@@ -489,3 +495,196 @@ def test_the_checks_read_the_store_without_changing_recall_counters(arm_home, tm
     assert len(obs) == 1
     assert all(v in (0, None) for v in after.values()), after
     assert {k: v for k, v in after.items() if k in before} == before
+
+
+
+# ================================================================ ROUND 3 (contract-first)
+def snap(root):
+    """{path: content hash | ('link', target) | 'dir'} for everything under root (symlinks are recorded, not followed)."""
+    out = {}
+    for r, ds, fs in os.walk(root):
+        for n in ds + fs:
+            q = os.path.join(r, n)
+            if os.path.islink(q):
+                out[q] = ("link", os.readlink(q))
+            elif os.path.isfile(q):
+                out[q] = hashlib.sha256(open(q, "rb").read()).hexdigest()
+            else:
+                out[q] = "dir"
+    return out
+
+
+def plant(home, ev, protected):
+    return run_tool(home, ev, "--no-embeddings", protected=protected)
+
+
+def said(r):
+    return r.stderr + r.stdout
+
+
+# ---- R3-2: every P1_PROTECTED entry must exist
+def test_refuses_when_a_protected_entry_does_not_exist(arm_home, tmp_path):
+    r = go(arm_home, tmp_path, protected=f"{dummy(tmp_path)}:/nonexistent-protected-home")
+    assert r.returncode == 2 and "does not exist" in said(r) and "/nonexistent-protected-home" in said(r), said(r)
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence")
+
+
+def test_refuses_when_the_only_protected_entry_does_not_exist(arm_home, tmp_path):
+    r = go(arm_home, tmp_path, protected="/nonexistent-protected-home")
+    assert r.returncode == 2 and "does not exist" in said(r), said(r)
+    untouched(arm_home)
+
+
+# ---- R3-1: a protected path INSIDE the home (the under(p, home) branch)
+def test_refuses_when_a_protected_path_is_inside_the_home(arm_home, tmp_path):
+    inside = arm_home / "preserved-inside"; inside.mkdir()
+    r = go(arm_home, tmp_path, protected=str(inside))
+    assert r.returncode == 2 and "P1_PROTECTED" in said(r), said(r)
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence")
+
+
+# ---- R3-1: a symlink that carries a write target into a protected dir
+def test_refuses_a_memory_dir_that_is_a_symlink_into_a_protected_dir(arm_home, tmp_path):
+    prot = tmp_path / "preserved"; (prot / "memory").mkdir(parents=True)
+    (prot / "memory" / "MEMORY.md").write_text(MEMORY_INDEX)
+    m = memory_dir(arm_home); shutil.rmtree(m); m.symlink_to(prot / "memory")
+    before = snap(prot)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 2 and "P1_PROTECTED" in said(r) and "memory" in said(r), said(r)
+    assert snap(prot) == before
+    assert not os.listdir(tmp_path / "evidence") and table_counts(arm_home)["nodes"] == 1
+
+
+def test_refuses_an_engram_dir_that_is_a_symlink_into_a_protected_dir(arm_home, tmp_path):
+    prot = tmp_path / "preserved"; prot.mkdir()
+    shutil.move(str(arm_home / ".engram"), str(prot / ".engram"))
+    (arm_home / ".engram").symlink_to(prot / ".engram")
+    before = snap(prot)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 2 and "P1_PROTECTED" in said(r), said(r)
+    assert snap(prot) == before
+    assert not os.listdir(tmp_path / "evidence")
+
+
+@pytest.mark.parametrize("ev_kind", ["inside", "link", "ancestor"])
+def test_refuses_an_evidence_dir_under_or_above_a_protected_dir(arm_home, tmp_path, ev_kind):
+    root = tmp_path / "evroot"; prot = root / "preserved"; prot.mkdir(parents=True)
+    ev = {"inside": prot / "evidence", "link": tmp_path / "evlink", "ancestor": root}[ev_kind]
+    if ev_kind == "link":
+        ev.symlink_to(prot)
+    before = snap(root)
+    r = plant(arm_home, ev, str(prot))
+    assert r.returncode == 2 and "P1_PROTECTED" in said(r) and "evidence" in said(r).lower(), said(r)
+    assert snap(root) == before  # nothing created under, or beside, the protected dir
+    untouched(arm_home)
+
+
+# ---- R3-1: every write target must resolve UNDER the home (a symlink out of it, to a dir that is not protected)
+def _relocate(path, outside):
+    """Move `path` (a file or dir) to `outside` and leave an absolute symlink behind."""
+    shutil.move(str(path), str(outside))
+    os.symlink(str(outside), str(path))
+
+
+@pytest.mark.parametrize("target", ["memdir", "index", "note", "engramdir", "db", "wal", "shm", "plugin"])
+def test_refuses_a_write_target_that_resolves_outside_the_home(arm_home, tmp_path, target):
+    out = tmp_path / "outside"; out.mkdir()
+    eng = arm_home / ".engram"
+    note = hashlib.sha256(BUILTIN.encode()).hexdigest()[:8]
+    if target == "memdir":
+        _relocate(memory_dir(arm_home), out / "memory")
+    elif target == "index":
+        _relocate(memory_dir(arm_home) / "MEMORY.md", out / "MEMORY.md")
+    elif target == "note":
+        os.symlink(str(out / "note.md"), str(memory_dir(arm_home) / f"reference_note_{note}.md"))  # dangling
+    elif target == "engramdir":
+        _relocate(eng, out / ".engram")
+    elif target == "db":
+        _relocate(eng / "knowledge.db", out / "knowledge.db")
+    elif target in ("wal", "shm"):
+        (out / target).write_text("")
+        os.symlink(str(out / target), str(eng / f"knowledge.db-{target}"))
+    elif target == "plugin":
+        _relocate(eng / "marketplace" / "plugins" / "engram", out / "engram")
+    before = snap(out)
+    r = plant(arm_home, tmp_path / "evidence", dummy(tmp_path))
+    assert r.returncode == 2 and "outside the home" in said(r), (target, said(r))
+    assert snap(out) == before, target  # nothing was written through the link
+    assert not os.listdir(tmp_path / "evidence")
+
+
+# ---- R3-1: a hard link is the same inode as another copy: refuse
+def test_refuses_a_hardlinked_copy_of_a_protected_home(arm_home, tmp_path):
+    disposable = tmp_path / "disposable"
+    subprocess.run(["cp", "-al", str(arm_home), str(disposable)], check=True)  # cp -al: every file hard-linked
+    before = snap(arm_home)
+    r = plant(disposable, tmp_path / "evidence", str(arm_home))
+    assert r.returncode == 2 and "st_nlink" in said(r), said(r)
+    assert snap(arm_home) == before
+    assert not os.listdir(tmp_path / "evidence")
+
+
+@pytest.mark.parametrize("which", ["index", "memfile", "db", "wal", "shm"])
+def test_refuses_when_one_file_has_a_second_hard_link(arm_home, tmp_path, which):
+    eng = arm_home / ".engram"
+    if which == "index":
+        victim = memory_dir(arm_home) / "MEMORY.md"
+    elif which == "memfile":
+        victim = memory_dir(arm_home) / "stray.md"; victim.write_text("---\nname: s\n---\nbody\n")
+    elif which == "db":
+        victim = eng / "knowledge.db"
+    else:
+        victim = eng / f"knowledge.db-{which}"; victim.write_text("")
+    os.link(victim, tmp_path / "second-name")
+    idx = (memory_dir(arm_home) / "MEMORY.md").read_text()
+    r = plant(arm_home, tmp_path / "evidence", dummy(tmp_path))
+    assert r.returncode == 2 and "st_nlink" in said(r) and victim.name in said(r), said(r)
+    assert (memory_dir(arm_home) / "MEMORY.md").read_text() == idx
+    assert not [p for p in memory_dir(arm_home).iterdir() if p.name.startswith("reference_note_")]
+    assert not os.listdir(tmp_path / "evidence") and table_counts(arm_home)["nodes"] == 1
+
+
+# ---- R3-1: the real layout is ACCEPTED: .engram/tools and .engram/hooks are absolute symlinks into the home's own plugin dir
+def test_a_home_whose_engram_tools_is_an_absolute_symlink_into_itself_is_accepted(arm_home, tmp_path):
+    plug = arm_home / ".engram" / "marketplace" / "plugins" / "engram"
+    assert (plug / "tools").is_dir()
+    for name in ("tools", "hooks"):
+        if (plug / name).is_dir():
+            os.symlink(str(plug / name), str(arm_home / ".engram" / name))  # ABSOLUTE, pointing inside the home
+    assert os.path.isabs(os.readlink(arm_home / ".engram" / "tools"))
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 0, said(r)
+    assert len(notes(arm_home)) == 1
+
+
+# ---- R3-7: the ImportError branch, and the 'imported from outside the arm home' check
+def test_refuses_when_a_plugin_module_exists_but_cannot_be_imported(arm_home, tmp_path):
+    (arm_home / ".engram" / "marketplace" / "plugins" / "engram" / "engram_query.py").write_text("def broken(:\n")
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 2 and "cannot be imported" in said(r), said(r)
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence")
+
+
+PREIMPORT = (
+    "import os, runpy, sys\n"
+    "outside, scratch, tool = sys.argv[1:4]\n"
+    "os.environ['ENGRAM_HOME'] = scratch; os.environ['ENGRAM_NO_DB_GUARDS'] = '1'; os.environ['ENGRAM_NO_EMBEDDINGS'] = '1'\n"
+    "sys.path.insert(0, outside)\n"
+    "import engram_core, engram_observation, engram_query\n"  # cached BEFORE the tool inserts the arm home's plugin
+    "sys.argv = [tool] + sys.argv[4:]\n"
+    "runpy.run_path(tool, run_name='__main__')\n")
+
+
+def test_refuses_when_the_engram_modules_come_from_outside_the_arm_home(arm_home, tmp_path):
+    outside = os.environ["P1_ENGRAM_PLUGIN"]
+    scratch = tmp_path / "scratch-engram"; scratch.mkdir()
+    cmd = [sys.executable, "-c", PREIMPORT, outside, str(scratch), TOOL,
+           "--home", str(arm_home), "--builtin-fact", BUILTIN, "--engram-fact", ENGRAM, "--absent-fact", ABSENT,
+           "--evidence-dir", str(tmp_path / "evidence"), "--no-embeddings"]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       env={"PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path)})
+    assert r.returncode == 2 and "not from the arm home's plugin" in said(r), said(r)
+    untouched(arm_home)

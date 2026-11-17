@@ -151,6 +151,10 @@ def check_question_args(ap, args):
         ap.error("--question-file cannot be combined with --setup-only")
     if args.first_session:
         ap.error("--question-file cannot be combined with --first-session")
+    if args.turns != 0:
+        ap.error("--question-file requires --turns 0 (an answering run reads nothing)")
+    if args.start != ap.get_default("start"):
+        ap.error("--question-file cannot be combined with --start (an answering run reads nothing)")
     try:
         return load_question_file(args.question_file)
     except ValueError as e:

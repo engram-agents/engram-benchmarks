@@ -21,6 +21,9 @@ ENG_I = "mcp__plugin_engram_engram__engram_inspect"
 ENG_W = "mcp__plugin_engram_engram__engram_add_observation"
 
 
+ENG_HIT = f'{{"results":[{{"summary":"{T_ENGRAM}"}}]}}'  # an ENGRAM read result that carries the engram token
+
+
 def call(name, inp, result):
     return {"name": name, "input": inp, "result": result}
 
@@ -127,26 +130,26 @@ def test_an_engram_write_call_is_not_a_read(tmp_path):
 
 def test_engram_fails_when_the_folder_file_was_read(tmp_path):
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, "{}"), call("Read", {"file_path": FOLDER_FILE}, "text")]))
+        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": FOLDER_FILE}, "text")]))
     # the folder file is named on the folder control; the engram control must still not touch it
     assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder file" in r.stdout.lower()
 
 
 def test_engram_fails_when_the_evidence_file_was_read(tmp_path):
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, "{}"), call("Read", {"file_path": EVID_FILE}, T_ENGRAM)]))
+        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": EVID_FILE}, T_ENGRAM)]))
     assert verdicts(r.stdout)["c-engram"] == "FAIL" and "evidence" in r.stdout.lower()
 
 
 def test_engram_fails_when_a_grep_touched_the_evidence_file_by_name(tmp_path):
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, "{}"), call("Bash", {"command": "grep -r code /ev/9f2c0a7e1b.txt"}, "x")]))
+        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Bash", {"command": "grep -r code /ev/9f2c0a7e1b.txt"}, "x")]))
     assert verdicts(r.stdout)["c-engram"] == "FAIL"
 
 
 def test_engram_fails_when_a_non_engram_tool_result_shows_the_token(tmp_path):
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, "{}"), call("Bash", {"command": "grep -r code /ev"}, f"/ev/x.txt: {T_ENGRAM}")]))
+        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Bash", {"command": "grep -r code /ev"}, f"/ev/x.txt: {T_ENGRAM}")]))
     assert verdicts(r.stdout)["c-engram"] == "FAIL"
 
 
@@ -239,3 +242,94 @@ def test_fails_on_an_unreadable_input(tmp_path):
     out = subprocess.run([sys.executable, TOOL, "--events", str(tmp_path / "nope"), "--turns", str(tmp_path / "nope2"),
                           "--controls", str(c)], capture_output=True, text=True)
     assert out.returncode == 1
+
+
+# ================================================================ ROUND 3 (contract-first)
+# ---- R3-3: the engram channel needs a pinned-server ENGRAM read whose OWN result holds the token
+def test_engram_fails_when_the_engram_read_result_does_not_hold_the_token(tmp_path):
+    """False pass 1: an ENGRAM read returned {} and the answer happens to carry the token."""
+    r = run_check(tmp_path, engram_run(calls=[call(ENG_Q, {"query": "vault"}, "{}")]))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+    assert "engram read" in r.stdout.lower() and "token" in r.stdout.lower()
+
+
+def test_engram_passes_when_a_later_engram_read_holds_the_token(tmp_path):
+    r = run_check(tmp_path, engram_run(calls=[call(ENG_Q, {"query": "a"}, "{}"), call(ENG_I, {"node_id": "ob_1"}, ENG_HIT)]))
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+
+
+@pytest.mark.parametrize("name", ["mcp__other__engram_query", "mcp__plugin_engram_other__engram_query",
+                                  "engram_query", "mcp__plugin_engram_engram__engram_query_x",
+                                  "xmcp__plugin_engram_engram__engram_query"])
+def test_engram_fails_when_the_read_is_not_on_the_pinned_server(tmp_path, name):
+    """False pass 3: a different mcp server's (or an unprefixed, or a longer) engram_* tool never counts."""
+    r = run_check(tmp_path, engram_run(calls=[call(name, {"query": "vault"}, ENG_HIT)]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", (name, r.stdout)
+
+
+# ---- R3-3: the folder channel needs a Read of the folder file, or a token-bearing result of a call touching it
+@pytest.mark.parametrize("c", [
+    call("Bash", {"command": f"stat {FOLDER_FILE}"}, "File: reference_note_dd439b25.md\n Size: 120"),
+    call("Write", {"file_path": FOLDER_FILE, "content": "x"}, "File created successfully"),
+    call("Edit", {"file_path": FOLDER_FILE, "old_string": "a", "new_string": "b"}, "updated"),
+    call("Bash", {"command": f"ls -l {FOLDER_FILE}"}, "-rw-r--r-- 1 u u 120 reference_note_dd439b25.md"),
+])
+def test_folder_fails_when_the_file_is_only_stat_listed_or_written(tmp_path, c):
+    """False pass 2: stat, ls, or a Write/Edit naming the file is not a read."""
+    r = run_check(tmp_path, folder_run(calls=[c]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout
+
+
+@pytest.mark.parametrize("c", [
+    call("Write", {"file_path": FOLDER_FILE, "content": "x"}, f"wrote {T_FOLDER}"),
+    call("Edit", {"file_path": FOLDER_FILE, "old_string": "a", "new_string": "b"}, f"snippet {T_FOLDER}"),
+    call("Bash", {"command": f"stat {FOLDER_FILE}"}, f"{T_FOLDER}"),
+    call("Bash", {"command": f"ls {FOLDER_FILE}"}, f"{T_FOLDER}"),
+])
+def test_a_write_edit_stat_or_ls_never_counts_even_when_its_result_shows_the_token(tmp_path, c):
+    r = run_check(tmp_path, folder_run(calls=[c]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_a_read_of_the_folder_file_counts_without_the_token_in_the_result(tmp_path):
+    r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": FOLDER_FILE}, "(truncated view)")]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+@pytest.mark.parametrize("path", ["/elsewhere/reference_note_dd439b25.md",
+                                  "/arm/.claude/projects/-w/memory/../memory/reference_note_dd439b25.md"])
+def test_a_read_matches_by_resolved_path_or_basename(tmp_path, path):
+    r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": path}, "x")]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+def test_a_read_of_another_file_is_not_a_folder_read(tmp_path):
+    r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": "/arm/.claude/projects/-w/memory/MEMORY.md"}, T_FOLDER)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout
+
+
+def test_a_grep_tool_result_from_a_call_touching_the_folder_file_counts_when_it_holds_the_token(tmp_path):
+    r = run_check(tmp_path, folder_run(calls=[call("Grep", {"pattern": "code", "path": FOLDER_FILE}, f"line 4: {T_FOLDER}")]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+# ---- R3-4: a turn row's result text must equal the k-th result event's text
+def test_fails_when_a_turn_rows_result_text_is_swapped(tmp_path):
+    r = good_run()
+    r.turns[1]["result"], r.turns[2]["result"] = r.turns[2]["result"], r.turns[1]["result"]
+    out = run_check(tmp_path, r)
+    assert out.returncode == 1 and "align" in out.stdout.lower() and "result" in out.stdout.lower(), out.stdout
+
+
+def test_fails_when_a_turn_row_has_no_result_text_but_its_event_has_one(tmp_path):
+    r = good_run(); r.turns[2]["result"] = None
+    out = run_check(tmp_path, r)
+    assert out.returncode == 1 and "align" in out.stdout.lower()
+
+
+def test_an_empty_result_event_aligns_with_the_rows_last_assistant_text(tmp_path):
+    """feed4 logs `ev.get('result') or last assistant text`; an empty result event must still align with that."""
+    r = good_run()
+    r.events[-1] = {"type": "result", "result": ""}  # the last turn's result event is empty; its assistant text stays
+    out = run_check(tmp_path, r)
+    assert out.returncode == 0, out.stdout

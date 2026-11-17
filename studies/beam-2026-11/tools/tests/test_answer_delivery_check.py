@@ -105,3 +105,21 @@ def test_unreadable_turn_file_is_a_failure_not_a_pass(tmp_path):
 
 def test_empty_turn_file_is_a_failure(tmp_path):
     fail(tmp_path, [], "compact")
+
+
+# ---- R3-5: a compact or question row that errored, timed out or hit EOF is not a delivery
+@pytest.mark.parametrize("flag", ["is_error", "timeout", "eof"])
+@pytest.mark.parametrize("which", [0, 2])  # the compact row, a question row
+def test_a_delivery_row_with_an_error_flag_fails(tmp_path, flag, which):
+    rows = good(); rows[which][flag] = True
+    fail(tmp_path, rows, flag)
+
+
+@pytest.mark.parametrize("flag", ["is_error", "timeout", "eof"])
+def test_false_or_null_flags_pass(tmp_path, flag):
+    rows = good()
+    for r in rows:
+        r[flag] = False
+    rows[1][flag] = None
+    r = check(tmp_path, rows)
+    assert r.returncode == 0, r.stdout

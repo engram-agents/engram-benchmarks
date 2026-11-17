@@ -89,6 +89,27 @@ def test_question_file_requires_resume_and_refuses_setup_flags(arrow_python, syn
     assert "unrecognized arguments" not in r.stderr and "--question-file" in r.stderr and word in r.stderr, r.stderr
 
 
+@pytest.mark.parametrize("name,extra,word", [
+    ("--turns 3", ["--turns", "3"], "--turns"),
+    ("--start 2", ["--turns", "0", "--start", "2"], "--start"),
+])
+def test_question_file_refuses_a_reading_window(arrow_python, synthetic_parquet, tmp_path, name, extra, word):
+    """R3-6: an answering run reads nothing, so --turns other than 0 or --start other than its default is refused."""
+    qf = write_json(tmp_path / "q.json", QS)
+    r = run_feed4(arrow_python, synthetic_parquet, tmp_path, "--resume", "S", "--force-compact",
+                  "--question-file", qf, "--dump-plan", *extra)
+    assert r.returncode == 2, (name, r.returncode, r.stderr)
+    assert r.stdout == ""
+    assert "unrecognized arguments" not in r.stderr and "--question-file" in r.stderr and word in r.stderr, r.stderr
+
+
+def test_question_file_accepts_the_explicit_defaults(arrow_python, synthetic_parquet, tmp_path):
+    qf = write_json(tmp_path / "q.json", QS)
+    r = run_feed4(arrow_python, synthetic_parquet, tmp_path, "--turns", "0", "--start", "1", "--resume", "S",
+                  "--force-compact", "--question-file", qf, "--dump-plan")
+    assert r.returncode == 0, r.stderr
+
+
 def test_refusal_not_json_and_missing_file(arrow_python, synthetic_parquet, tmp_path):
     bad = tmp_path / "bad.json"; bad.write_text("{not json")
     for path in (str(bad), str(tmp_path / "absent.json")):

@@ -7,7 +7,8 @@ feed4.py --question-file, and prints PASS only if ALL of these hold:
   2. exactly one compact turn exists and it precedes the first question turn;
   3. every id in the question file appears exactly once, in file order;
   4. there are no other question turns (an id not in the file, or a practice question);
-  5. there are no reading turns (exchange or setup): an answering run resumes, compacts, then asks.
+  5. there are no reading turns (exchange or setup): an answering run resumes, compacts, then asks;
+  6. no compact or question turn has is_error, timeout or eof true.
 Every failure is printed. Exit 0 on PASS, 1 on any failure (including an unreadable input).
 
 usage: answer-delivery-check.py --turns RUN/turns.jsonl --questions QUESTIONS.json --session SESSION_ID
@@ -71,6 +72,12 @@ def check(rows, question_ids, session):
     expect = [q for q in question_ids if q in seen]
     if seen != expect:
         bad.append(f"ids out of file order: delivered {seen}, file order {expect}")
+    # rule 6: a compact or question turn that errored, timed out or hit EOF is not a delivery
+    for r in rows:
+        if r.get("kind") in ("compact", "question"):
+            for flag in ("is_error", "timeout", "eof"):
+                if r.get(flag):
+                    bad.append(f"{r.get('kind')} turn i={r.get('i')} has {flag} true (not a delivery)")
     # rule 5: no reading turns
     for r in rows:
         if r.get("kind") in ("exchange", "setup"):

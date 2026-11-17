@@ -23,6 +23,13 @@ After planting it prints and enforces (exit 0 only if every line passes, else 1)
   cross-absence (the ENGRAM fact in no file of the memory folder; the built-in fact not in the ENGRAM store);
   absent fact (in neither channel, no transcript); row counts per table before and after, failing if any table other
   than those ENGRAM's observation write touches changed.
+Round 3 (write-target safety): every write target (the memory folder, the note file, MEMORY.md, HOME/.engram,
+knowledge.db and its -wal/-shm, the plugin dir that is imported, the evidence dir and file) is resolved with realpath
+BEFORE anything is written. Each target but the evidence ones must resolve UNDER the realpath of HOME (so an absolute
+symlink that points back INTO the home, like the arm homes' .engram/tools and .engram/hooks, is fine, and one that
+points out of it is refused); none may be under, or an ancestor of, a P1_PROTECTED entry's realpath; and MEMORY.md,
+any file in the memory folder, and knowledge.db (and -wal/-shm) must have st_nlink 1 (a hard link is the same inode
+as another copy, e.g. after cp -al, and a write would change that copy). Every P1_PROTECTED entry must exist.
 Run it with the python of the arm home's own ENGRAM venv (the plugin's dependencies live there).
 
 Round 2: the built-in note is also listed in the folder's MEMORY.md (the index the student finds the folder
@@ -54,6 +61,32 @@ def refuse(msg):
 def under(path, root):
     path, root = os.path.realpath(path), os.path.realpath(root)
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def related(a, b):
+    """True if the realpath of `a` is under, equal to, or an ancestor of the realpath of `b`."""
+    return under(a, b) or under(b, a)
+
+
+def refuse_unsafe_targets(home, protected, in_home, anywhere):
+    """Refuse (exit 2) before any write. `in_home` = [(label, path)] that must resolve UNDER the realpath of `home`;
+    `anywhere` = [(label, path)] that may resolve anywhere; every target must also be unrelated (neither under nor an
+    ancestor of) to every P1_PROTECTED entry."""
+    for label, path in in_home + anywhere:
+        rp = os.path.realpath(path)
+        for prot in protected:
+            if related(rp, prot):
+                refuse(f"the {label} ({path}) resolves to {rp}, which is under or above a P1_PROTECTED path ({prot})")
+        if (label, path) in in_home and not under(rp, home):
+            refuse(f"the {label} ({path}) resolves to {rp}, outside the home ({home}): a symlink leads out of it")
+
+
+def refuse_hard_links(paths):
+    """Refuse (exit 2) if any existing file in `paths` has st_nlink > 1 (another name for the same inode)."""
+    for path in paths:
+        if os.path.exists(path) and os.stat(path).st_nlink > 1:
+            refuse(f"{path} has st_nlink {os.stat(path).st_nlink} > 1 (a hard link, e.g. from cp -al): "
+                   "writing it would change another copy")
 
 
 def find_memory_dirs(home):
@@ -227,6 +260,9 @@ def main():
     if not protected:
         refuse("P1_PROTECTED is not set (colon-separated preserved homes); refusing to guess what is protected")
     for p in protected:
+        if not os.path.exists(p):
+            refuse(f"the P1_PROTECTED entry {p} does not exist (every entry must be a real path; refusing to guess)")
+    for p in protected:
         if under(home, p) or under(p, home):
             refuse(f"the home is inside, or contains, a protected path from P1_PROTECTED ({p})")
     mems = find_memory_dirs(home)
@@ -258,6 +294,16 @@ def main():
             refuse(f"the arm home's plugin lacks {need} at {os.path.relpath(plug, home)}")
     if not os.path.isfile(db):
         refuse("the arm home has no .engram/knowledge.db")
+    # R3-1: every write target resolved with realpath, before anything is written or imported
+    body = (a.engram_fact + "\n").encode()
+    epath = os.path.join(ev, hashlib.sha256(body).hexdigest() + ".txt")
+    eng = os.path.join(home, ".engram")
+    refuse_unsafe_targets(home, protected, [
+        ("memory folder", memdir), ("note file", os.path.join(memdir, note_name)), ("MEMORY.md", index_path),
+        ("ENGRAM dir", eng), ("knowledge.db", db), ("knowledge.db-wal", db + "-wal"), ("knowledge.db-shm", db + "-shm"),
+        ("plugin dir", plug)], [("evidence dir", ev), ("evidence file", epath)])
+    # files_under(memdir) includes MEMORY.md (it lives in the memory folder), so the index is covered here
+    refuse_hard_links([*files_under(memdir), db, db + "-wal", db + "-shm"])
     # Import ENGRAM from THIS arm home's plugin, with its environment pointed at this home (set before the import:
     # engram_core reads ENGRAM_HOME at import time, and the evidence archive root is read at import time too).
     os.makedirs(ev, exist_ok=True)
@@ -310,8 +356,6 @@ def main():
         f.write(index_line + "\n")
 
     # ---- plant, ENGRAM channel: evidence file outside the work folder, then ONE observation via ENGRAM's own code
-    body = (a.engram_fact + "\n").encode()
-    epath = os.path.join(ev, hashlib.sha256(body).hexdigest() + ".txt")
     with open(epath, "wb") as f:
         f.write(body)
     res = engram_observation._add_observation_impl(
