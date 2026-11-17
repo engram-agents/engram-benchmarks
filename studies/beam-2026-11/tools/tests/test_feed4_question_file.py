@@ -9,7 +9,8 @@ QS = [{"id": "c1", "question": "What is the first thing?"}, {"id": "a2", "questi
 
 
 def run_feed4(arrow_python, parquet, tmp_path, *extra, env_extra=None, expect=None):
-    env = {"PATH": os.environ["PATH"], "BEAM_PARQUET": parquet, "BEAM_OLLAMA_URL": "http://127.0.0.1:9"}  # privacy-scan: allow (discard-port stub: nothing listens, no model is reached)
+    env = {"PATH": os.environ["PATH"], "BEAM_PARQUET": parquet,
+           "BEAM_OLLAMA_URL": "http://127.0.0.1:9"}  # privacy-scan: allow (discard-port stub: nothing listens, no model is reached)
     env.update(env_extra or {})
     cmd = [arrow_python, "-I", FEED4, "--arm-home", str(tmp_path / "home"), "--out", str(tmp_path / "out"),
            "--conv", "9", *extra]

@@ -728,7 +728,7 @@ def test_refuses_a_plugin_pycache_symlinked_into_a_protected_dir(arm_home, tmp_p
 def test_refuses_anchoring_advisory_hard_linked_to_a_protected_file(arm_home, tmp_path):
     prot = protected_dir(tmp_path)
     os.link(prot / "keep.jsonl", arm_home / ".engram" / "anchoring_advisory.jsonl")
-    refused_and_untouched(arm_home, tmp_path, prot, expect="st_nlink")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
 
 
 def test_refuses_a_symlink_deep_in_an_unrelated_subdir_pointing_into_a_protected_dir(arm_home, tmp_path):
@@ -763,12 +763,12 @@ def test_a_symlink_out_of_the_home_to_an_unprotected_dir_is_allowed(arm_home, tm
     assert len(notes(arm_home)) == 1
 
 
-def test_a_second_hard_link_to_a_nested_file_under_the_engram_dir_is_refused(arm_home, tmp_path):
-    """The generic nlink check: a nested file nobody listed (here a telemetry file)."""
+def test_a_hard_link_to_a_protected_file_nested_under_the_engram_dir_is_refused(arm_home, tmp_path):
+    """A nested file nobody listed (here a telemetry file) that is the same inode as a protected file."""
     prot = protected_dir(tmp_path)
     tel = arm_home / ".engram" / "telemetry"; tel.mkdir()
     os.link(prot / "telemetry" / "t.jsonl", tel / "t.jsonl")
-    refused_and_untouched(arm_home, tmp_path, prot, expect="st_nlink")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
 
 
 def test_bytecode_is_not_written_into_the_plugin_dir(arm_home, tmp_path):
@@ -818,3 +818,160 @@ def test_the_scan_does_not_follow_a_link_out_of_the_home_into_a_foreign_tree(arm
     r = plant(arm_home, tmp_path / "evidence", str(prot))
     assert r.returncode == 0, said(r)
     assert snap(prot) == before
+
+
+# ================================================================ ROUND 5 (contract-first)
+# The class: a write under HOME that reaches a protected INODE or directory. The hazard is tested exactly: the set of
+# (st_dev, st_ino) of every regular file under every P1_PROTECTED entry, against every entry of the HOME walk and every
+# symlink's resolved target. Ways a write can get there, and the cell for each:
+#   1. a hard link to a protected file, anywhere under HOME: test_refuses_a_hard_link_to_a_protected_file_anywhere_...
+#   2. a symlink to a protected file or dir: R4 cells, test_refuses_a_dangling_symlink_into_a_protected_dir
+#   3. a symlink to an in-home hard link of a protected file: ..._round4_blocker_layout, ..._nested_in_home_dir,
+#      ..._chain_of_symlinks_...
+#   4. a symlinked dir leading to (2) or (3): R4 dir cells, test_refuses_a_dir_symlink_to_an_in_home_dir_...
+#   5. a symlink to a file OUTSIDE the home that is a hard link of a protected file: ..._outside_file_...
+#   6. a protected entry that is itself a file: test_a_protected_entry_that_is_a_file_...
+#   7. a directory the walk cannot read (a hole in the scan): test_refuses_when_a_directory_under_the_home_cannot_...
+def hard_link_in_home(arm_home, prot, where):
+    dest = arm_home / where
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    os.link(prot / "keep.jsonl", dest)
+    return dest
+
+
+def test_refuses_the_round4_blocker_layout(arm_home, tmp_path):
+    """Reproduced in the round-4 review: a hard link of a protected file under work/, and a symlink under .engram to
+    it. ENGRAM's write followed the symlink and grew the protected file."""
+    prot = protected_dir(tmp_path)
+    adv = hard_link_in_home(arm_home, prot, "work/adv.jsonl")
+    (arm_home / ".engram" / "anchoring_advisory.jsonl").symlink_to(adv)  # ABSOLUTE, resolves inside the home
+    assert os.path.isabs(os.readlink(arm_home / ".engram" / "anchoring_advisory.jsonl"))
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+@pytest.mark.parametrize("where", ["work/adv.jsonl", ".claude/projects/-synthetic-work/stray.jsonl", "top-level.jsonl",
+                                   "work/a/b/deep.jsonl", ".engram/telemetry/t.jsonl"])
+def test_refuses_a_hard_link_to_a_protected_file_anywhere_under_the_home(arm_home, tmp_path, where):
+    prot = protected_dir(tmp_path)
+    hard_link_in_home(arm_home, prot, where)
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+def test_refuses_a_symlink_to_a_hard_linked_file_in_a_nested_in_home_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    hl = hard_link_in_home(arm_home, prot, "work/x/y/z/hl.jsonl")
+    (arm_home / ".engram" / "telemetry").mkdir()
+    (arm_home / ".engram" / "telemetry" / "e.jsonl").symlink_to(hl)
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+def test_refuses_a_chain_of_symlinks_that_ends_at_an_in_home_hard_link(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    hl = hard_link_in_home(arm_home, prot, "work/hl.jsonl")
+    (arm_home / "work" / "hop1").symlink_to(hl)
+    (arm_home / ".engram" / "hop2.jsonl").symlink_to(arm_home / "work" / "hop1")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+def test_refuses_a_dir_symlink_to_an_in_home_dir_holding_a_hard_link(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    hard_link_in_home(arm_home, prot, "work/realdir/hl.jsonl")
+    (arm_home / ".engram" / "telemetry").symlink_to(arm_home / "work" / "realdir")  # a dir symlink, inside the home
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+def test_refuses_a_symlink_to_an_outside_file_that_is_a_hard_link_of_a_protected_file(arm_home, tmp_path):
+    """The target is outside the home and outside every protected tree, so the realpath test is silent; only the inode
+    of the resolved file gives it away."""
+    prot = protected_dir(tmp_path)
+    outside = tmp_path / "unprotected"; outside.mkdir()
+    os.link(prot / "keep.jsonl", outside / "alias.jsonl")
+    (arm_home / ".engram" / "anchoring_advisory.jsonl").symlink_to(outside / "alias.jsonl")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="same inode")
+
+
+def test_refuses_a_dangling_symlink_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    (arm_home / ".engram" / "not-yet.jsonl").symlink_to(prot / "telemetry" / "will-be-created.jsonl")
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_a_protected_entry_that_is_a_file_has_its_inode_protected(arm_home, tmp_path):
+    f = tmp_path / "preserved-file.jsonl"; f.write_text("preserved\n")
+    os.link(f, arm_home / "work" / "alias.jsonl")
+    r = plant(arm_home, tmp_path / "evidence", str(f))
+    assert r.returncode == 2 and "same inode" in said(r), said(r)
+    assert f.read_text() == "preserved\n"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
+def test_refuses_when_a_directory_under_the_home_cannot_be_read(arm_home, tmp_path):
+    """An unreadable directory is a part of the home the scan did not see: refuse rather than skip it silently."""
+    prot = protected_dir(tmp_path)
+    d = arm_home / "work" / "sealed"; d.mkdir(); (d / "f").write_text("x")
+    d.chmod(0)
+    try:
+        refused_and_untouched(arm_home, tmp_path, prot, expect="cannot be read")
+    finally:
+        d.chmod(0o700)
+
+
+# ---- NEGATIVE cells: the exact test must not refuse what is harmless
+def test_an_in_home_file_with_a_second_link_outside_every_protected_tree_is_allowed(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    other = tmp_path / "unprotected"; other.mkdir()
+    for where in ("work/shared.txt", ".engram/telemetry/t2.jsonl"):
+        (arm_home / where).parent.mkdir(parents=True, exist_ok=True)
+        (arm_home / where).write_text("shared\n")
+        os.link(arm_home / where, other / where.replace("/", "_"))
+    (arm_home / ".engram" / "via-link.jsonl").symlink_to(arm_home / "work" / "shared.txt")  # a link to such a file
+    before = snap(prot)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+    assert snap(prot) == before
+    assert len(notes(arm_home)) == 1
+
+
+def test_a_link_out_to_an_unprotected_cache_dir_holding_a_file_is_allowed(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    cache = tmp_path / "model-cache"; cache.mkdir(); (cache / "w.bin").write_text("weights")
+    (arm_home / ".engram" / "cache").symlink_to(cache)
+    (arm_home / "work" / "cache-file").symlink_to(cache / "w.bin")
+    before = snap(cache)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+    assert snap(cache) == before
+
+
+# ---- unit cell on the scan itself (the (st_dev, st_ino) key)
+def load_tool():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("plant_control_under_test", TOOL)
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    return m
+
+
+def test_the_inode_key_includes_the_device(tmp_path, monkeypatch):
+    """Same st_ino on a DIFFERENT st_dev is a different file. Two filesystems are not available to a cell, so the
+    device number of one file is faked (stat and lstat of that one path); with the real numbers the same layout is
+    refused, so the cell proves the device is part of the key."""
+    m = load_tool()
+    prot = tmp_path / "prot"; prot.mkdir(); (prot / "k").write_text("k")
+    home = tmp_path / "home"; home.mkdir()
+    os.link(prot / "k", home / "alias")
+    keys = m.protected_inodes([str(prot)])
+    with pytest.raises(SystemExit) as e:
+        m.refuse_unsafe_home_scan(str(home), [str(prot)], keys)
+    assert e.value.code == 2  # the real layout: refused
+    real_stat, real_lstat = os.stat, os.lstat
+
+    def fake(fn):
+        def inner(path, *a, **k):
+            st = fn(path, *a, **k)
+            if os.fspath(path) == str(home / "alias"):
+                f = list(st); f[2] = st.st_dev + 1  # st_dev
+                return os.stat_result(f)
+            return st
+        return inner
+    monkeypatch.setattr(os, "stat", fake(real_stat)); monkeypatch.setattr(os, "lstat", fake(real_lstat))
+    m.refuse_unsafe_home_scan(str(home), [str(prot)], keys)  # same ino, other dev: allowed (no SystemExit)

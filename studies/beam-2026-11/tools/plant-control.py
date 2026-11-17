@@ -23,25 +23,32 @@ After planting it prints and enforces (exit 0 only if every line passes, else 1)
   cross-absence (the ENGRAM fact in no file of the memory folder; the built-in fact not in the ENGRAM store);
   absent fact (in neither channel, no transcript); row counts per table before and after, failing if any table other
   than those ENGRAM's observation write touches changed.
-Write-target safety (rounds 3 and 4). Two layers, both run BEFORE anything is written or imported:
+Write-target safety (rounds 3 to 5). Two layers, both run BEFORE anything is written or imported:
   (1) the LISTED targets (the memory folder, the note file, MEMORY.md, HOME/.engram, knowledge.db and its -wal/-shm,
       the plugin dir that is imported, the evidence dir and the content-addressed evidence file) are resolved with
       realpath. Each but the evidence ones must resolve UNDER the realpath of HOME (so an absolute symlink that points
       back INTO the home, like the arm homes' .engram/tools and .engram/hooks, is fine, and one that points out of it
       is refused); none may be under, equal to, or an ancestor of a P1_PROTECTED entry's realpath; and MEMORY.md, any
       file in the memory folder, and knowledge.db (and -wal/-shm) must have st_nlink 1.
-  (2) a GENERIC HOME SCAN, because ENGRAM's in-process write also writes paths nobody lists (telemetry/*.jsonl,
-      anchoring_advisory.jsonl, the setup lockdir, bytecode): os.walk(HOME, followlinks=False) with lstat; every
-      symlink found anywhere under HOME is refused if the realpath of its target is under, equal to, or an ancestor of
-      a P1_PROTECTED entry's realpath (links out of the home to unrelated places, such as the venv or a model cache,
-      stay allowed); every regular file under HOME/.engram (the plugin dir included when it lives there) and under
-      the memory folder must have st_nlink 1. Bytecode writing is switched off (PYTHONDONTWRITEBYTECODE and
+  (2) THE GUARANTEE, an exact test of the hazard (a write under HOME that reaches a protected inode or directory),
+      because ENGRAM's in-process write also writes paths nobody lists (telemetry/*.jsonl, anchoring_advisory.jsonl,
+      the setup lockdir): (a) the set of (st_dev, st_ino) of every regular file under every P1_PROTECTED entry is
+      collected (walked without following links); (b) EVERY entry of HOME is then checked (walked without following
+      links): a regular file is refused if its (st_dev, st_ino) is in that set (a hard link of a protected file,
+      anywhere under HOME); a symlink is resolved with realpath and refused if the result is under, equal to, or an
+      ancestor of a P1_PROTECTED realpath, or if the resolved target is a regular file whose (st_dev, st_ino) is in
+      the set (a symlink to an in-home or outside hard link of a protected file, through any chain of links). A symlink
+      to a directory inside HOME needs no following: the walk reaches that directory itself. A directory the walk
+      cannot read is a refusal, not a skip. Bytecode writing is switched off (PYTHONDONTWRITEBYTECODE and
       sys.dont_write_bytecode) before the plugin is imported, so no .pyc is written.
-  NOT scanned or guaranteed: regular files with st_nlink > 1 outside HOME/.engram and the memory folder (e.g. under
-  HOME/work, HOME/.claude/projects outside the memory folder) are not refused, though the tool never writes there;
-  a file or link created under HOME by ENGRAM's code after the scan is not seen (the scan is a before-the-write
-  check, not a sandbox); and a protected path reachable only through a mount or a bind mount is invisible to
-  realpath. The disposable copy is still to be made with a plain copy (cp -a), never cp -al.
+  OUTSIDE the guarantee: a file or link created under HOME (or anywhere) by ENGRAM's code after the scan is not seen
+  (it is a before-the-write check, not a sandbox); the evidence dir lies outside HOME and is checked only as a listed
+  target (layer 1), not walked; a link from HOME to a directory OUTSIDE HOME that is not related to a protected
+  entry (venv, model caches) is allowed and its contents are not walked, so a protected file hard-linked INSIDE such
+  a foreign directory is not seen unless a symlink resolves straight to it; the embeddings-on path writes into the
+  model cache, whose location is untraced; and a protected path reachable only through a mount or a bind mount is
+  invisible to the realpath test (the inode test still sees a hard link to a file under it). The disposable copy is still to be made with a
+  plain copy (cp -a), never cp -al.
 Every P1_PROTECTED entry must exist.
 Run it with the python of the arm home's own ENGRAM venv (the plugin's dependencies live there).
 
@@ -102,28 +109,53 @@ def refuse_hard_links(paths):
                    "writing it would change another copy")
 
 
-def refuse_unsafe_home_scan(home, protected, memdir):
-    """R4-1: the generic scan. Walk `home` without following links; refuse (exit 2) on any symlink whose target's
-    realpath is related to a P1_PROTECTED entry, and on any regular file under HOME/.engram or the memory folder
-    with st_nlink > 1."""
-    for root, dirs, files in os.walk(home, followlinks=False):
+def _cannot_read(err):
+    refuse(f"{err.filename} cannot be read ({err.strerror}): a part of the home would go unscanned")
+
+
+def protected_inodes(protected):
+    """R5-1 (a): the set of (st_dev, st_ino) of every regular file under every P1_PROTECTED entry (walked without
+    following links, lstat); a protected entry that is itself a regular file contributes its own inode."""
+    keys = set()
+    for prot in protected:
+        top = os.path.realpath(prot)
+        st = os.lstat(top)
+        if stat.S_ISREG(st.st_mode):
+            keys.add((st.st_dev, st.st_ino))
+            continue
+        for root, _, files in os.walk(top, followlinks=False, onerror=_cannot_read):
+            for name in files:
+                st = os.lstat(os.path.join(root, name))
+                if stat.S_ISREG(st.st_mode):
+                    keys.add((st.st_dev, st.st_ino))
+    return keys
+
+
+def refuse_unsafe_home_scan(home, protected, prot_keys):
+    """R5-1 (b): the exact test of the hazard. Walk `home` without following links. For EVERY entry: a symlink is
+    resolved (realpath) and refused if the result is under, equal to, or an ancestor of a P1_PROTECTED realpath, or
+    if the resolved target is a regular file whose (st_dev, st_ino) is in `prot_keys`; a regular file is refused if
+    its own (st_dev, st_ino) is in `prot_keys`. A symlink to a directory inside the home is not followed: the walk
+    reaches that directory itself. Links out of the home are not followed either."""
+    prot_real = [os.path.realpath(p) for p in protected]
+    for root, dirs, files in os.walk(home, followlinks=False, onerror=_cannot_read):
         for name in dirs + files:
             path = os.path.join(root, name)
-            if os.path.islink(path):
+            rel = os.path.relpath(path, home)
+            st = os.lstat(path)
+            if stat.S_ISLNK(st.st_mode):
                 rp = os.path.realpath(path)
-                for prot in protected:
+                for prot in prot_real:
                     if related(rp, prot):
-                        refuse(f"the symlink {os.path.relpath(path, home)} points to {rp}, which is under or above a "
-                               f"P1_PROTECTED path ({prot}): a write through it would change a preserved home")
-    eng = os.path.realpath(os.path.join(home, ".engram"))
-    for top in (eng, os.path.realpath(memdir)):
-        for root, _, files in os.walk(top, followlinks=False):
-            for name in files:
-                path = os.path.join(root, name)
-                st = os.lstat(path)
-                if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
-                    refuse(f"{path} has st_nlink {st.st_nlink} > 1 (a hard link, e.g. from cp -al): "
-                           "writing it would change another copy")
+                        refuse(f"the symlink {rel} points to {rp}, which is under or above a P1_PROTECTED path "
+                               f"({prot}): a write through it would change a preserved home")
+                try:
+                    st = os.stat(rp)  # the resolved target (a dangling link has none: nothing to share an inode with)
+                except OSError:
+                    continue
+            if stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) in prot_keys:
+                refuse(f"{rel} is the same inode as a file under a P1_PROTECTED path (a hard link, possibly reached "
+                       "through a symlink): a write to it would change a preserved home")
 
 
 def find_memory_dirs(home):
@@ -341,8 +373,8 @@ def main():
         ("plugin dir", plug)], [("evidence dir", ev), ("evidence file", epath)])
     # files_under(memdir) includes MEMORY.md (it lives in the memory folder), so the index is covered here
     refuse_hard_links([*files_under(memdir), db, db + "-wal", db + "-shm"])
-    # R4-1: the generic scan, still before any write or import
-    refuse_unsafe_home_scan(home, protected, memdir)
+    # R5-1: the exact scan (protected inode set, then the walk of HOME), still before any write or import
+    refuse_unsafe_home_scan(home, protected, protected_inodes(protected))
     # Import ENGRAM from THIS arm home's plugin, with its environment pointed at this home (set before the import:
     # engram_core reads ENGRAM_HOME at import time, and the evidence archive root is read at import time too).
     os.makedirs(ev, exist_ok=True)
