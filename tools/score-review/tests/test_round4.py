@@ -113,8 +113,27 @@ def _shuffle_file(path, order):
     path.write_text("\n".join(rows[i] for i in order) + "\n")
 
 
-def _stable(rows):
-    return [{k: v for k, v in r.items() if k not in ("generated_at", "exported_at")} for r in rows]
+# Fields that are a wall-clock reading by design, or a digest over a record that carries one. Two stores built a second
+# apart differ in exactly these and nothing else (measured: with a 1.1 s sleep between the stores, the only differing
+# output field was phases/2/record_sha256, the sha256 of the phase-2 record, which includes its `recorded_at`).
+#   generated_at, exported_at, recorded_at : second-grain UTC stamps written by now()
+#   record_sha256, after_2a_record_sha256  : canonical_sha over a record that includes recorded_at (or the 2a's hash)
+_CLOCK_DERIVED = ("generated_at", "exported_at", "recorded_at", "record_sha256", "after_2a_record_sha256")
+
+
+def _stable(x):
+    """The value with the clock-derived fields removed at every depth; row order and everything else is kept."""
+    if isinstance(x, dict):
+        return {k: _stable(v) for k, v in x.items() if k not in _CLOCK_DERIVED}
+    if isinstance(x, list):
+        return [_stable(v) for v in x]
+    return x
+
+
+def _report_stable(text):
+    """The report prints a 12-hex prefix of the phase-2 record's sha256 (`record cbb32fe3c5b0`), a digest over a record
+    that carries `recorded_at`: the same clock-derived value as record_sha256 above, in text form."""
+    return re.sub(r"\brecord [0-9a-f]{12}\b", "record <sha12>", text)
 
 
 def test_a63_shuffling_the_row_order_of_items_and_grades_changes_no_output(tmp_path):
@@ -140,7 +159,7 @@ def test_a63_shuffling_the_row_order_of_items_and_grades_changes_no_output(tmp_p
     for st, o in ((a, oa), (b, ob)):
         run("report", "--items", st.items, "--grades", st.grades, "--verdicts", st.verdicts, "--outcomes", o,
             "--out", st.root / "report.md")
-    assert (a.root / "report.md").read_text() == (b.root / "report.md").read_text()
+    assert _report_stable((a.root / "report.md").read_text()) == _report_stable((b.root / "report.md").read_text())
     # draw samples from the same eligible set whatever the file order
     da = run("draw", "--items", Store(tmp_path / "c").items, "--grades", tmp_path / "c" / "grades.jsonl",
              "--verdicts", tmp_path / "c" / "v.jsonl", "--draws", tmp_path / "c" / "d.jsonl", "--run", "r", "--n", "2", "--seed", "s")
