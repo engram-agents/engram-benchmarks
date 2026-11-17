@@ -17,7 +17,7 @@ Refuses (exit 2, nothing written) unless HOME holds the marker file .disposable-
 the colon-separated environment variable P1_PROTECTED (which must be set), the memory folder exists and is unique, the
 evidence dir is outside HOME/work (and outside the memory folder), and the arm home's plugin imports.
 
-After planting it prints and enforces (exit 0 only if every line passes, else 1):
+After planting it prints and enforces (exit 0 only if every line passes, else 1; exit 3 if a protected entry changed, see below):
   built-in file read back; ENGRAM observation read back through ENGRAM's own read code (_query_impl);
   transcript leak (no fact in any *.jsonl under HOME, nor any file under .claude/projects outside the memory folder);
   cross-absence (the ENGRAM fact in no file of the memory folder; the built-in fact not in the ENGRAM store);
@@ -50,6 +50,21 @@ Write-target safety (rounds 3 to 5). Two layers, both run BEFORE anything is wri
   invisible to the realpath test (the inode test still sees a hard link to a file under it). The disposable copy is still to be made with a
   plain copy (cp -a), never cp -al.
 Every P1_PROTECTED entry must exist.
+
+Post-condition (PR 8 fold; the security read's recommendation). In the same pre-write phase as the protected inode set,
+a SNAPSHOT is taken of every P1_PROTECTED entry (walked without following links): for each regular file and symlink,
+its path and (st_dev, st_ino, st_size, st_mtime_ns) from lstat; for each directory, its sorted entry names. The tool
+exits 2, nothing written, if the snapshot and the inode set disagree on the set of regular files (a protected entry
+changing between the two walks is itself a signal). After the work, on EVERY exit path after the snapshot (success, a
+failing check that exits 1, a refusal, an exception), the entries are walked again and compared. Any difference (a
+changed tuple, a file added or removed, a changed directory listing, an entry that cannot be read) prints one line per
+changed path, then "PROTECTED CHANGED: <n> path(s)", and the process exits 3, overriding 0, 1 and 2. No difference
+prints "protected unchanged: <files> files, <dirs> dirs in <entries> entries".
+This post-condition is the guarantee's REPORTER, not part of the guarantee: it cannot undo a write, it makes one loud
+(a route nobody imagined no longer exits 0 silently). Bounds: anything outside this tool touching a protected entry
+during the run gives a false FAIL (for this control, noisier is the right direction); and a write followed by a
+restore of the size and st_mtime_ns defeats the comparison (an inode is also kept), which is acceptable for a control
+against accidental routes, not against an adversary. A file's content is not hashed.
 Run it with the python of the arm home's own ENGRAM venv (the plugin's dependencies live there).
 
 Round 2: the built-in note is also listed in the folder's MEMORY.md (the index the student finds the folder
@@ -156,6 +171,79 @@ def refuse_unsafe_home_scan(home, protected, prot_keys):
             if stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) in prot_keys:
                 refuse(f"{rel} is the same inode as a file under a P1_PROTECTED path (a hard link, possibly reached "
                        "through a symlink): a write to it would change a preserved home")
+
+
+def snapshot_protected(protected):
+    """PC-1: {key: record} for every P1_PROTECTED entry, walked WITHOUT following links. A regular file or a symlink
+    records (kind, st_dev, st_ino, st_size, st_mtime_ns) from lstat; a directory records its sorted entry names; a
+    path that cannot be read records ("unreadable",). The key is the path (entry realpath + path under it)."""
+    snap = {}
+
+    def bad(err):
+        snap[err.filename] = ("unreadable",)
+
+    for prot in protected:
+        top = os.path.realpath(prot)
+        try:
+            st = os.lstat(top)
+        except OSError:
+            snap[top] = ("unreadable",)
+            continue
+        if not stat.S_ISDIR(st.st_mode):
+            snap[top] = ("file", st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+            continue
+        for root, dirs, files in os.walk(top, followlinks=False, onerror=bad):
+            try:
+                snap[root] = ("dir", tuple(sorted(os.listdir(root))))
+            except OSError:
+                snap[root] = ("unreadable",)
+            for name in dirs + files:  # a symlink to a directory is in `dirs` but is not descended into
+                path = os.path.join(root, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    snap[path] = ("unreadable",)
+                    continue
+                if not stat.S_ISDIR(st.st_mode):
+                    kind = "link" if stat.S_ISLNK(st.st_mode) else "file"
+                    snap[path] = (kind, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+    return snap
+
+
+def snapshot_regular_inodes(snap):
+    return {(r[1], r[2]) for r in snap.values() if r[0] == "file"}
+
+
+def snapshot_counts(snap):
+    files = sum(1 for r in snap.values() if r[0] in ("file", "link"))
+    dirs = sum(1 for r in snap.values() if r[0] == "dir")
+    return files, dirs
+
+
+def changed_paths(before, after):
+    """Sorted (path, how) for every key whose record differs between the two snapshots."""
+    out = []
+    for k in sorted(set(before) | set(after)):
+        if k not in after:
+            out.append((k, "removed"))
+        elif k not in before:
+            out.append((k, "added"))
+        elif before[k] != after[k]:
+            out.append((k, "changed"))
+    return out
+
+
+def report_postcondition(protected, before):
+    """PC-1: re-walk and compare. Prints the verdict; returns True if anything changed."""
+    changes = changed_paths(before, snapshot_protected(protected))
+    if not changes:
+        files, dirs = snapshot_counts(before)
+        print(f"protected unchanged: {files} files, {dirs} dirs in {len(protected)} entries")
+        return False
+    for path, how in changes:
+        print(f"PROTECTED {how}: {path}")
+    print(f"PROTECTED CHANGED: {len(changes)} path(s)")
+    return True
 
 
 def find_memory_dirs(home):
@@ -299,7 +387,7 @@ def index_line_for(existing_text, fname):
     return f"{bullet}[Reference note]({fname}){sep}a stored reference note"
 
 
-def main():
+def _main(state):
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True); ap.add_argument("--evidence-dir", required=True)
     ap.add_argument("--builtin-fact", required=True); ap.add_argument("--engram-fact", required=True)
@@ -374,7 +462,14 @@ def main():
     # files_under(memdir) includes MEMORY.md (it lives in the memory folder), so the index is covered here
     refuse_hard_links([*files_under(memdir), db, db + "-wal", db + "-shm"])
     # R5-1: the exact scan (protected inode set, then the walk of HOME), still before any write or import
-    refuse_unsafe_home_scan(home, protected, protected_inodes(protected))
+    prot_keys = protected_inodes(protected)
+    # PC-1 / PC-4: the SNAPSHOT is taken in this same pre-write phase; the two walks must agree on the regular files
+    state["snapshot"] = snapshot_protected(protected)
+    state["protected"] = protected
+    if snapshot_regular_inodes(state["snapshot"]) != prot_keys:
+        refuse("the protected inode set and the protected snapshot disagree on the set of regular files: a protected "
+               "entry changed between the two walks (something else is writing to a preserved home)")
+    refuse_unsafe_home_scan(home, protected, prot_keys)
     # Import ENGRAM from THIS arm home's plugin, with its environment pointed at this home (set before the import:
     # engram_core reads ENGRAM_HOME at import time, and the evidence archive root is read at import time too).
     os.makedirs(ev, exist_ok=True)
@@ -502,6 +597,27 @@ def main():
 
     print("ALL CHECKS PASS" if not fails else f"{len(fails)} CHECK(S) FAILED; discard this disposable copy")
     return 0 if not fails else 1
+
+
+def main():
+    """Runs _main; once the pre-write snapshot exists, EVERY exit path (return, a refusal, a failing check, an
+    exception) ends with the re-walk, and a change exits 3 whatever the code would have been."""
+    state = {}
+    try:
+        rc = _main(state)
+    except SystemExit as e:
+        rc = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+    except BaseException:  # noqa: BLE001
+        if "snapshot" not in state:
+            raise
+        if report_postcondition(state["protected"], state["snapshot"]):
+            import traceback
+            traceback.print_exc()  # the exception is shown, but the exit code is 3
+            return 3
+        raise
+    if "snapshot" in state and report_postcondition(state["protected"], state["snapshot"]):
+        return 3
+    return rc
 
 
 if __name__ == "__main__":

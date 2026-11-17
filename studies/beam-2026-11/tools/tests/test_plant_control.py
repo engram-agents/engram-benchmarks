@@ -975,3 +975,189 @@ def test_the_inode_key_includes_the_device(tmp_path, monkeypatch):
         return inner
     monkeypatch.setattr(os, "stat", fake(real_stat)); monkeypatch.setattr(os, "lstat", fake(real_lstat))
     m.refuse_unsafe_home_scan(str(home), [str(prot)], keys)  # same ino, other dev: allowed (no SystemExit)
+
+
+# ================================================================ PR 8 FOLD: the post-condition (contract-first)
+# PC-1..PC-4: a snapshot of every protected entry is taken in the pre-write phase (same phase as the inode set, and
+# the two must agree); after the work, on every exit path, the entries are re-walked and compared. Any change prints
+# one line per changed path, then "PROTECTED CHANGED: <n> path(s)", exit 3 (overriding 0, 1 and 2).
+# The guard keeps the tool itself from writing into a protected file, so a driver loads the tool and wraps ONE of
+# its functions to simulate a route outside the guarantee.
+HOOK = (
+    "import importlib.util, os, sys\n"
+    "tool, mode, target = sys.argv[1:4]\n"
+    "spec = importlib.util.spec_from_file_location('plant_control_hooked', tool)\n"
+    "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+    "def act():\n"
+    "    if mode in ('append', 'append-raise'):\n"
+    "        open(target, 'a').write('x')\n"
+    "    elif mode == 'rewrite-same-size':\n"
+    "        data = open(target, 'rb').read(); open(target, 'wb').write(b'Z' * len(data))\n"
+    "    elif mode == 'newfile':\n"
+    "        open(os.path.join(target, 'late.jsonl'), 'w').write('late\\n')\n"
+    "    elif mode == 'remove':\n"
+    "        os.remove(target)\n"
+    "    elif mode == 'utime':\n"
+    "        st = os.stat(target); os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))\n"
+    "    elif mode == 'chmod0':\n"
+    "        os.chmod(target, 0)\n"
+    "    if mode in ('raise', 'append-raise'):\n"
+    "        raise RuntimeError('planting step blew up')\n"
+    "where = os.environ.get('HOOK_AT', 'build_memory_file')\n"
+    "orig = getattr(m, where)\n"
+    "def wrapped(*a, **k):\n"
+    "    if where == 'protected_inodes':\n"
+    "        r = orig(*a, **k); act(); return r\n"
+    "    act(); return orig(*a, **k)\n"
+    "setattr(m, where, wrapped)\n"
+    "sys.argv = [tool] + sys.argv[4:]\n"
+    "sys.exit(m.main())\n")
+
+
+def run_hooked(arm_home, tmp_path, prot, mode, target, at="build_memory_file"):
+    cmd = [sys.executable, "-c", HOOK, TOOL, mode, str(target), "--home", str(arm_home), "--builtin-fact", BUILTIN,
+           "--engram-fact", ENGRAM, "--absent-fact", ABSENT, "--evidence-dir", str(tmp_path / "evidence"),
+           "--no-embeddings"]
+    return subprocess.run(cmd, capture_output=True, text=True,
+                          env={"PATH": os.environ["PATH"], "P1_PROTECTED": str(prot), "HOOK_AT": at})
+
+
+def break_plugin(arm_home):
+    (arm_home / ".engram" / "marketplace" / "plugins" / "engram" / "engram_query.py").write_text("def broken(:\n")
+
+
+# (a) a clean plant reports the post-condition and exits 0
+def test_a_clean_plant_prints_the_unchanged_line_and_exits_0(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+    assert "protected unchanged: 2 files, 2 dirs in 1 entries" in r.stdout, r.stdout
+    assert "PROTECTED CHANGED" not in said(r)
+
+
+def test_the_unchanged_line_counts_every_entry(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    other = tmp_path / "other-preserved"; other.mkdir(); (other / "a").write_text("a")
+    r = plant(arm_home, tmp_path / "evidence", f"{prot}:{other}")
+    assert r.returncode == 0, said(r)
+    assert "protected unchanged: 3 files, 3 dirs in 2 entries" in r.stdout, r.stdout
+
+
+# (b) a write into a protected file AFTER the scan: exit 3, names the path
+def test_a_write_into_a_protected_file_after_the_scan_exits_3_and_names_it(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "append", prot / "keep.jsonl")
+    assert r.returncode == 3, said(r)
+    assert str(prot / "keep.jsonl") in r.stdout and "PROTECTED CHANGED: 1 path(s)" in r.stdout, r.stdout
+    assert "protected unchanged" not in r.stdout
+
+
+def test_a_same_size_rewrite_after_the_scan_is_caught(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "rewrite-same-size", prot / "keep.jsonl")
+    assert r.returncode == 3 and str(prot / "keep.jsonl") in r.stdout, said(r)
+
+
+def test_a_removed_protected_file_is_a_change(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "remove", prot / "keep.jsonl")
+    assert r.returncode == 3 and str(prot / "keep.jsonl") in r.stdout and "PROTECTED CHANGED" in r.stdout, said(r)
+
+
+# (c) a new file in a protected directory after the scan
+def test_a_new_file_in_a_protected_directory_after_the_scan_exits_3_and_names_it(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "newfile", prot)
+    assert r.returncode == 3, said(r)
+    assert str(prot / "late.jsonl") in r.stdout, r.stdout  # the file itself, not only its directory
+    assert "PROTECTED CHANGED: 2 path(s)" in r.stdout, r.stdout  # the file added + the directory listing changed
+
+
+# (d) the post-condition runs and reports on the exit-1 path, on a raise, and on a refusal after the snapshot
+def leak(arm_home):
+    (memory_dir(arm_home).parent / "session-0002.jsonl").write_text(BUILTIN + "\n")  # the transcript-leak check fails
+
+
+def test_the_post_condition_reports_unchanged_on_the_exit_1_path(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    leak(arm_home)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 1, said(r)
+    assert "protected unchanged:" in r.stdout
+
+
+def test_a_protected_change_overrides_exit_1_with_3(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    leak(arm_home)
+    r = run_hooked(arm_home, tmp_path, prot, "append", prot / "keep.jsonl", at="build_memory_file")
+    assert r.returncode == 3, said(r)
+    assert "CHECK(S) FAILED" in r.stdout and "PROTECTED CHANGED: 1 path(s)" in r.stdout, r.stdout
+
+
+def test_the_post_condition_runs_when_the_planting_step_raises(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "raise", prot / "keep.jsonl")
+    assert r.returncode not in (0, 3) and "planting step blew up" in r.stderr, said(r)  # the exception still surfaces
+    assert "protected unchanged:" in r.stdout, said(r)
+
+
+def test_a_protected_change_overrides_a_raise_with_3(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "append-raise", prot / "keep.jsonl")
+    assert r.returncode == 3 and "PROTECTED CHANGED: 1 path(s)" in r.stdout, said(r)
+
+
+def test_a_protected_change_overrides_a_refusal_after_the_snapshot_with_3(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    break_plugin(arm_home)  # exit 2 after the scan: the plugin cannot be imported
+    r = run_hooked(arm_home, tmp_path, prot, "append", prot / "keep.jsonl", at="refuse_unsafe_home_scan")
+    assert r.returncode == 3 and "PROTECTED CHANGED: 1 path(s)" in r.stdout, said(r)
+
+
+def test_the_post_condition_reports_on_a_refusal_after_the_snapshot_when_nothing_changed(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    break_plugin(arm_home)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 2 and "cannot be imported" in said(r), said(r)
+    assert "protected unchanged:" in r.stdout, said(r)
+
+
+def test_a_refusal_before_the_snapshot_prints_no_post_condition(arm_home, tmp_path):
+    (arm_home / ".disposable-copy").unlink()
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 2 and "protected unchanged" not in said(r) and "PROTECTED CHANGED" not in said(r)
+
+
+# (e) an mtime-only change
+def test_an_mtime_only_change_is_caught(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "utime", prot / "keep.jsonl")
+    assert r.returncode == 3 and str(prot / "keep.jsonl") in r.stdout, said(r)
+    assert "PROTECTED CHANGED: 1 path(s)" in r.stdout, said(r)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
+def test_an_entry_unreadable_at_the_rewalk_is_a_change(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    try:
+        r = run_hooked(arm_home, tmp_path, prot, "chmod0", prot / "telemetry")
+        assert r.returncode == 3 and "PROTECTED CHANGED" in r.stdout, said(r)
+    finally:
+        os.chmod(prot / "telemetry", 0o700)
+
+
+# PC-4 (a): the snapshot and the inode set are taken in the same phase and must agree on the regular files
+def test_refuses_when_a_protected_file_appears_between_the_inode_walk_and_the_snapshot(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "newfile", prot, at="protected_inodes")
+    assert r.returncode == 2, said(r)  # the file was created before the snapshot, so the post-condition sees no change
+    assert "snapshot" in said(r).lower() and "disagree" in said(r).lower(), said(r)
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence")
+
+
+# PC-2 / PC-4 (b): the docstring states the post-condition and its bounds
+def test_the_docstring_states_the_post_condition_and_its_bounds():
+    doc = open(TOOL, encoding="utf-8").read().split('"""')[1].lower()
+    for phrase in ("post-condition", "exit 3", "reporter", "cannot undo", "restore"):
+        assert phrase in doc, phrase

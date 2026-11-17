@@ -142,7 +142,7 @@ also lists the note in the folder's `MEMORY.md` by one neutral appended line in 
 there is no `MEMORY.md`; `--question TEXT` exits 2 if that line holds a content word of the question); the observation is
 embedded by default through the copy's own embedder (`--no-embeddings` opts out; exit 2 if the model cannot load). It
 then checks read-back, that no fact is in any transcript, cross-absence between the two channels, that the absent fact
-is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv.
+is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv. Exit codes: 0 all checks pass, 1 a check failed, 2 refused, **3 a `P1_PROTECTED` entry changed during the run** (a snapshot of every protected entry is compared with a re-walk on every exit path after the pre-write scan; each changed path is printed, then `PROTECTED CHANGED: n path(s)`; this overrides 0, 1 and 2, and a clean run prints `protected unchanged: ...`). It reports a write, it cannot undo one.
 
 `control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), reports
 from the turn's own tool calls where the answer came from; it never decides abstention for the `none` control.
