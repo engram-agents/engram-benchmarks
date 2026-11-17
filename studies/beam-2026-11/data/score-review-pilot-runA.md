@@ -276,3 +276,16 @@ Each line is the key holder's own commit. Times are UTC.
   encryption subkey 0FDDD1AF82D35D0674ADA7AC421508F98C069969 (one recipient packet, counted); ciphertext sha256
   d17889783688f6ed62e66e46228175c4eab0ee7b5ca9209725daa2acd9d35be5. Chain-of-custody evidence for that copy, not a
   commitment. It goes to the A3 holder by private means; she states its sha256 on receipt.
+- 2026-11-17T22:31Z. Import (Procedure step 1), tool at e5f0f26ed39ad81e4594dee09f17453e93628534 (clean
+  checkout), with the import seed of commit_0 (recomputed from the stored seed and nonce before use; equal).
+  import-turns (--first-question-turn 137, --arm-label engram-runA, --grades = the official-grades input): wrote 20
+  answers. import-beam (--conv 9, the BEAM 100K parquet above): 20 questions in the conversation, 20 items written,
+  0 without an agent answer.
+  Opaque item ids (20, as items.jsonl lists them): 1a36f9f8c2 28e01f2f1e 68b0b61a7f 6d3a097da5 75686d8601
+  7ffccc2a02 838c9ebabe 8c12a3d619 98b90f3f4b 9eb82dde53 a04a273228 af84c0b2a7 b61d7d5c93 b9cd2f4ff2 bc682a751a
+  bd8f94871e d6bb28fc30 e728feacb7 ecbeaa3683 fccd2b7a3b
+  Import manifest (sha256 of every file the step wrote; the files themselves stay with the key holder):
+  50d21a907c1fd48fb185e364569e437b6ee49d2ad367989a1c1efb3a587a4957 answers.jsonl (import-turns output)
+  215e5d8ab45df04312c0686ad0e2e59e46304a285f5a64807702dfa88f77b169 items.jsonl
+  abdcde2022c020cbae7aed7b3f08cefcee5a09a07e6f1a299e097523392e67ff grades.jsonl
+  No draw yet; no phase-1 record exists.
