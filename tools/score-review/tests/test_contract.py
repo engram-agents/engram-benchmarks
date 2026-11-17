@@ -422,7 +422,7 @@ def test_cell11_packet_builder_blind_by_construction(tmp_path):
             mods |= {a.name.split(".")[0] for a in n.names}
         if isinstance(n, ast.ImportFrom):
             mods.add((n.module or "").split(".")[0])
-    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "glob", "chatfile"}, mods
+    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "glob", "chatfile", "ids"}, mods
     for word in ("grades", "verdicts", "draws", "score_review"):
         assert word not in src.lower(), word
     for fn in (blind_packet.build_packet, blind_packet.write_packet):

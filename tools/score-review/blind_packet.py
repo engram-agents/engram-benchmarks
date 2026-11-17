@@ -9,19 +9,18 @@ import hashlib
 import json
 import os
 import random
-import re
 
 from chatfile import load_chat
+from ids import valid_answer_id, valid_item_id
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-_ITEM_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 CITED_NOT_SHOWN = "Cited messages: not shown for this item"
 
 
 def load_item(items_path, item_id):
     """Return the one row for item_id. The whole file is read: a duplicate row, or any row that is not a JSON
     object with an item_id, is refused before anything is written, never resolved by taking the first match."""
-    if not _ITEM_RE.fullmatch(item_id or ""):
+    if not valid_item_id(item_id):
         raise ValueError("item id %r is not a plain token" % (item_id,))
     found = []
     with open(items_path, "r", encoding="utf-8") as fh:
@@ -53,6 +52,9 @@ def check_answers(item):
         aid = ans.get("answer_id") if isinstance(ans, dict) else None
         if not isinstance(aid, str) or not aid:
             raise ValueError("item %s has an answer with no answer_id" % item.get("item_id"))
+        if not valid_answer_id(aid):
+            raise ValueError("item %s has an answer id %r the scorer would refuse (lowercase letters and digits, "
+                             "not a reserved id)" % (item.get("item_id"), aid))
         ids.append(aid)
     if len(set(ids)) != len(ids):
         raise ValueError("item %s has answers whose answer ids are not distinct" % item.get("item_id"))

@@ -15,15 +15,13 @@ import re
 import sys
 
 import blind_packet
+from ids import valid_answer_id, valid_item_id
 from chatfile import load_chat
 
 SCHEMA = 1
 JUDGEMENT_LEVEL = {"correct": "full", "partly": "partial", "wrong": "zero"}
 INDEPENDENCE = ("all reviewers belong to the team that builds the agent under test. These principles reduce our bias; "
                 "they do not make the adjusted score independent.")
-ITEM_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-ANSWER_RE = re.compile(r"^[0-9a-z]+$")
-RESERVED_IDS = {"ambiguous", "official"}
 LETTERS = blind_packet.LETTERS
 
 
@@ -72,7 +70,7 @@ def load_items(path):
     items = {}
     for r in read_jsonl(path):
         iid = r.get("item_id")
-        if not isinstance(iid, str) or not ITEM_RE.fullmatch(iid):
+        if not valid_item_id(iid):
             raise UserError("items file: bad item_id %r" % (iid,))
         if iid in items:
             raise UserError("items file: duplicate item %s" % iid)
@@ -82,7 +80,7 @@ def load_items(path):
         ids = []
         for a in ans:
             aid = a.get("answer_id")
-            if not isinstance(aid, str) or not ANSWER_RE.fullmatch(aid) or aid in RESERVED_IDS:
+            if not valid_answer_id(aid):
                 raise UserError("items file: item %s has a bad answer id %r (lowercase letters and digits only)" % (iid, aid))
             if not isinstance(a.get("text"), str) or not all(isinstance(c, int) and not isinstance(c, bool)
                                                              for c in a.get("cited_ids", [])):
