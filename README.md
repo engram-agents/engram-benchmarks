@@ -7,6 +7,8 @@ why the study was built the way it was.
 
 - `METHODOLOGY.md`: the experiment-design conventions every study here follows (pre-register before
   running, validated instruments, measured numbers only, the standard study layout).
+- `SCORE-REVIEW-PRINCIPLES.md`: how we review answers against a benchmark's official answer key and report
+  a corrected score beside the official one (versioned, with a change log giving the reason for each change).
 - `studies/<topic>-<YYYY-MM>/`: one directory per study, in the layout of METHODOLOGY section 4.
 - `tools/`: repository tooling (the privacy scan below).
 
