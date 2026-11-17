@@ -81,10 +81,11 @@ The answers keep their own wording. Rewriting them into a neutral form would car
 into the text.
 
 The reviewer writes the answer-level judgement of section 6. After that, the reviewer records which answer
-they believe is the official one.
+they believe is the official one and, in a study with several arms, which arm they believe each agent answer
+came from.
 
 *Known limit, measured rather than assumed:* the reviewer may still guess which answer is which from style or
-citation habits. The guess rate is reported beside the results. In v0.1 it has no automatic consequence; a
+citation habits; an agent answer can also reveal its arm by how it cites its memory. The guess rate is reported beside the results. In v0.1 it has no automatic consequence; a
 high rate is stated as a limit of the phase-2 check.
 
 ## 5. Phase 3: the district official
@@ -101,7 +102,7 @@ settled answer where the key is wrong, and is mapped by the same table. **The ph
 their judgements are identical answer by answer: the same judgement of the official answer, the same judgement
 of every agent answer, and, where the key is wrong, settled answers that do not differ on a load-bearing point. If all three agree, the outcome is settled. If not, the three
 discuss it once, with the fact list in front of them. If they still disagree after that, the outcome is
-**Ambiguous** and every ruling is published.
+**Ambiguous (reviewers split)** and every ruling is published.
 
 If the project lead is unavailable, the item **waits**: its adjusted entry reads "pending". Without the project
 lead, only two kinds of item are settled, and neither changes a grade: an item phase 2 does not review (it keeps
@@ -142,7 +143,7 @@ corresponds to full, partial or zero.
 
 | judgement | outcome |
 |---|---|
-| the item is ambiguous | **Ambiguous** |
+| the item is ambiguous | **Ambiguous (source)** |
 | the official answer is partly correct or wrong | **Key wrong or incomplete** |
 | the official answer is correct, and every agent answer's judgement corresponds to its official grade level | **Key stands** |
 | the official answer is correct, and one or more agent answers' judgements do not correspond to their official grade levels | **Grading error**, for exactly those answers |
@@ -156,8 +157,9 @@ How each outcome scores:
 - **Grading error:** the official column keeps the benchmark's own grade. For each flagged answer, the adjusted
   column takes a re-grade against the unchanged official rubric, applied line by line by the study lead, checked
   by the second reviewer, and settled in phase 3. Logged under its own heading.
-- **Ambiguous:** the item keeps its official grade in both columns, and all readings are published. Ambiguous is
-  a legitimate outcome, not a failure to decide.
+- **Ambiguous**, logged as one of two values: **source** (the source material supports more than one reading)
+  or **reviewers split** (section 5). Either way the item keeps its official grade in both columns, and all
+  readings are published. Ambiguous is a legitimate outcome, not a failure to decide.
 
 **Rewriting a rubric** (for "Key wrong or incomplete"): the study lead writes the new rubric lines from the
 settled answer, in the benchmark's own rubric form, one line per load-bearing point of the settled answer. The
@@ -180,7 +182,8 @@ check is blind to them.
 ## 7. What is published
 
 - A per-item change log: item, official answer, our finding, the messages that prove it, each phase's
-  judgement, each phase-2 reviewer's guess about which answer was the official one, and the outcome.
+  judgement, each phase-2 reviewer's guesses (which answer was the official one; which arm each agent answer
+  came from), and the outcome.
 - An open invitation to dispute any item, at the head of the log. A dispute that succeeds after publication is
   handled as a correction under METHODOLOGY section 7: a dated correction block on the artifact.
 - Every correction to the key applied to all arms identically (section 6); a grading error is corrected for the
@@ -210,9 +213,10 @@ those sections. A first use of a version on unscored tuning data is logged as a 
 
 Each stays open until the named party closes it; closing one is a new version.
 
-- **The project lead's load in phase 3. Closes it: the first pilot.** The first pilot measures the number of
-  phase-3 items and the minutes per item; a scored study does not adopt these principles until that figure is
-  in the change log.
+- **The load of each phase. Closes it: the first pilot.** Phase 1 reads every item against the full source;
+  phase 3 puts every questioned item in front of one person. The first pilot measures, for each phase, the
+  number of items and the minutes per item; a scored study does not adopt these principles until those figures
+  are in the change log.
 
 ## Change log
 
@@ -227,8 +231,9 @@ Each stays open until the named party closes it; closing one is a new version.
   grading errors to phase 3, the definition of agreement, and hiding why an item was selected. The project lead
   added: no rubric or category in the phase-2 packet. The BEAM study's design owner added: adoption through the
   pre-registration, the "pending" rule, measuring the phase-2 guess, facts against one's own judgement, the
-  published independence sentence, "ambiguous" as an outcome, naming who closes each open question, fixing the
-  control draw before any phase-1 outcome exists, and the key-holder's duties. Three review rounds on this file
+  published independence sentence, "ambiguous" as an outcome with two log values, naming who closes each open
+  question, fixing the control draw before any phase-1 outcome exists, the key-holder's duties, recording the
+  phase-2 arm guess, and measuring every phase's load in the pilot. Three review rounds on this file
   supplied: the rubric-rewrite rule, re-scoring every arm on a corrected item, the answer-level judgement and its
   outcome table, an unlettered phase 1 and a key read only by script, agreement answer by answer, the grade
   levels and the re-grade for a grading error, the mechanics of section 5a, and the fit with a pre-registration
