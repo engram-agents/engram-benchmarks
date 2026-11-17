@@ -72,10 +72,14 @@ directory.
 **The packet**, one per item, contains exactly what the agent was given, plus the answers:
 
 - **Given:** the question text; the full source material; the official answer and every arm's answer, labelled
-  with letters in a random order, each with the messages it cites, listed in the same form. An answer that
-  cites no messages is listed with "(no messages cited)". If the cited messages of any answer in the item are
-  unknown (for example an agent answer imported without its citations), no answer's cited messages are listed,
-  since a citation line under only one answer would mark it.
+  with letters in a random order. Cited messages are listed only when every answer in the item comes with a
+  citation list (possibly empty) from the same kind of source; then each answer's list is shown in the same form,
+  and an empty one reads "(no messages cited)". Otherwise no answer's cited messages are listed, since a citation
+  line under only one answer, or an empty line only under one, would mark it. This settles the case where an
+  answer's citations are absent by construction, not merely unknown: an agent answer imported without its
+  citations, or an official answer whose key records no reference (in BEAM's 100K tier, none of the 40
+  abstention items has a reference field, while every item of the other nine categories has one). A study names,
+  per benchmark, where the official answer's citations come from.
 - **Not given:** the rubric or key-point list; the question's category; any metadata field that frames the item
   (for example "tests for", "why unanswerable", contradiction type, difficulty); which answer is the official
   one and which are the agents'; any grade; the teacher's judgement.
@@ -101,7 +105,9 @@ tooling:
   that sets the instruction or preference. This judgement is committed with its hash.
 - **Step 2b.** Only after the step-2a judgement is committed does a separate export, run by the study lead, show
   the reviewer the criterion (an exception to "Not given" above, for this step only, recorded in the reviewer's
-  per-item exposure log). The reviewer judges the criterion
+  per-item exposure log). The export is itself a record with its time, written and hashed in the same record file
+  as the judgements, before the criterion reaches the reviewer, so whether a step-2a record came before or after
+  it is read off the file's own order, not judged. The reviewer judges the criterion
   itself (correct, partly correct or wrong: does the source support it, and does it ask for the right thing) and,
   when it is not correct, writes the fuller criterion. Whether the item as a whole is ambiguous is judged in step
   2a, before the criterion is seen. A step-2b judgement cannot change step 2a; a change of mind is a superseding
@@ -121,7 +127,9 @@ shows the criterion where it would mark the official answer; phase 3 and the re-
 For these items there is no official-answer guess (they are left out of that guess rate); the arm guess is still
 recorded, at the end of step 2a, before the criterion is shown. *Known limits:* a packet with
 no official answer tells the reviewer what kind of item it is, so the category is not hidden for these items; and
-with a single agent answer (single-arm data) there is nothing to compare it with, only an unanchored read.
+with a single agent answer (single-arm data) there is nothing to compare it with, only an unanchored read. For
+such an item phase 3 receives no A/B comparison at all: only the step-2a read of that one answer and the step-2b
+judgement of the criterion, so its phase-2 evidence is weaker by design, and the log says so per item.
 
 ## 5. Phase 3: the district official
 
@@ -160,6 +168,10 @@ rules, so any such ruling is visible in the log.
   item to item, so neither an id nor a position says which answer is official or which arm an answer came from;
   which answer is official, the grades, the rubric, the category and the arms live in separate files the phase-2
   packet builder never opens.
+- The item ids are fixed before any packet is built: derived by a script from a seed held by the key-holder (so a
+  reviewer cannot invert an id into a question number), and the list of ids is committed to the study's log
+  before the letter order is drawn; the seed is published when the round is settled, so anyone can then re-derive
+  both.
 - A script builds the phase-2 packets. It draws each item's letter order from a logged seed and the item's own id
   (so the same letter is not the same answer from item to item) and writes the letter key to a separate file
   whose hash is published before the phase-2 read. The key is held by a named seat that reviews no item in that
