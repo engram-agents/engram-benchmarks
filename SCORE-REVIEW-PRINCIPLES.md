@@ -194,7 +194,9 @@ rules, so any such ruling is visible in the log.
 - Each phase's judgement is committed with a hash before the next phase sees anything of it, and each phase's
   judgements are committed to the study's repository before the next phase's packets are handed out: the commit is
   the outside witness that the order held. Phase 2 never sees the phase-1 judgement. Phase 3 sees both, with the
-  merged fact list.
+  merged fact list. Where a study's repository is public and the source text is licensed, "committed" means a
+  committed hash manifest: every file of the phase with its sha256, and the manifest's own hash, with each file
+  held byte-exact by its author and the key-holder, and published at the end under the study's provenance rule.
 - The fact lists are merged by script (concatenate, keep every fact, mark which reviewer contributed it), never
   by hand.
 
@@ -308,7 +310,8 @@ Each stays open until the named party closes it; closing one is a new version.
   official answer, or a letter order fixed across items, would tell the reviewer which answer is which; section 5a
   now requires meaningless per-item ids and a per-item letter order. (3) Re-keying a phase-2 judgement before it is
   recorded would let anyone holding both forms read that item's key; section 5a now orders it. (4) The commit of
-  each phase before the next phase's packets go out is stated as the outside witness of order. Also: the guess-rate
+  each phase before the next phase's packets go out is stated as the outside witness of order; in a public
+  repository with licensed source text it is a hash manifest, since the records quote that text. Also: the guess-rate
   sentence no longer names a version. Proposed by the study lead from the design owner's rulings; the project
   lead's decision is recorded on the pull request that merges this version.
 - **v0.1, 2026-11-17.** First version. *Why:* during the BEAM study's tuning, our corrections to the official
