@@ -79,7 +79,11 @@ directory.
   answer's citations are absent by construction, not merely unknown: an agent answer imported without its
   citations, or an official answer whose key records no reference (in BEAM's 100K tier, none of the 40
   abstention items has a reference field, while every item of the other nine categories has one). A study names,
-  per benchmark, where the official answer's citations come from.
+  per benchmark, where the official answer's citations come from. *Known limit:* where every agent answer does
+  cite messages, the "not shown for this item" line falls on exactly the items whose official answer has no
+  reference (in BEAM, the abstention items), so the line itself hints at the item kind, as a missing official
+  answer does for criterion items (where no agent answer cites, as in agent runs imported without citations, every
+  item carries the line and it hints at nothing). The pilot reports how well the line predicts the category.
 - **Not given:** the rubric or key-point list; the question's category; any metadata field that frames the item
   (for example "tests for", "why unanswerable", contradiction type, difficulty); which answer is the official
   one and which are the agents'; any grade; the teacher's judgement.
