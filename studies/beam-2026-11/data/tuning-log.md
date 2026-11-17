@@ -1420,11 +1420,38 @@ written; where it differs from this note, this note governs. Nothing has been an
    reported with the verdict, the per-fact channel and per-answer source reported beside the verdict, the speed bar, and
    any acceptance provisional on one run per k.
 
+## P1 answering: a declared limit, the question wrapper (logged 2026-11-17T13:21:07Z, before any answer exists)
+
+**What.** Every P1 question reaches the student through the same proctor prefix run A used: "The conversation is over.
+Answer this question about it, from your record and memory:" (`QUESTION_PREFIX` in `tools/feed.py`; `feed4.py
+--question-file` adds it to each question). In run A that prefix framed live requests as questions about a finished
+record, and the answers hedged (run A, conversation 9, official questions 15 and 16). The design owner has ruled the
+question-16 failure our own defect, to be fixed in the wrapper and re-asked, not adjusted.
+
+**Which P1 items it can touch.** Two in the key-fact list, read off the list itself: **F37** (exchange 17,
+preference_following, "When should I schedule that writing session?", a live request) and, more weakly, **F48**
+(exchange 25, instruction_following, phrased as a fact question). Every other item is a fact question or an abstention
+item. F48's exchange 25 is the last position of a round at k = 5, so it sits in that guard's subset; F37's exchange 17
+is not a last position at k = 3 or k = 5.
+
+**Ruling (design owner, 2026-11-17).** P1 keeps the pre-logged wrapper: no amendment, no new setup ids. The wrapper is
+identical in every arm, so it cannot favour one; its cost is noise on the two items, which lowers power slightly and
+biases nothing. Therefore:
+
+1. This flag is recorded here, with its time, before the first P1 answer exists. It is a declared limit, not an
+   after-the-fact excuse.
+2. The P1 result reports the outcome **with and without F37 and F48**, both computed whichever looks better, for the
+   overall bound and for the last-position guard. The three-outcome rule above decides on the **full list as pre-logged**;
+   the without-two line is a sensitivity read and never the verdict.
+3. The per-category wrapper fix is designed after P1 answering, for the Q16 re-ask and the scored study, and gets its own
+   pre-log entry.
+
 ## Running now
 
-- The k = 1 re-run (setup `d18b5d26…`), started 2026-11-16T20:35:28Z; its end state becomes the k = 1 reference for the
-  answering rule above.
-- The key-fact list for the answering rule, being written and checked.
+- The k = 1 re-run (setup `d18b5d26…`) ended 2026-11-17T00:13:30Z (exit 0); its end state is preserved and becomes the
+  k = 1 reference for the answering rule above.
+- The key-fact list is final (writer and checker done); the freeze commit (75 questions + 9 abstention items, F32
+  excluded) is next, before any answer.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
