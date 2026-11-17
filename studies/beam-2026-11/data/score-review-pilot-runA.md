@@ -370,3 +370,35 @@ Each line is the study lead's own commit. Times are UTC.
   to an expected hash does not match). At rest 0700 directory, 20 files 0600, no ACL mask or named entries.
   Phase 1 started. Phase-1 records return encrypted to the key holder's subkey
   2162978927389669684D456AC0B78AA823D20819, and their manifest is committed here before any phase-2 packet.
+- 2026-11-17T23:10Z. Phase-1 packets received (Custody receipt, sent to the key holder): 20 of 20 ciphertexts equal the key
+  holder's logged hashes, each with one recipient packet (the study lead's subkey); decrypted with the study lead's
+  key; 20 of 20 plaintext hashes equal the logged values.
+- 2026-11-17T23:10Z. PHASE-1 MANIFEST (Procedure step 3), committed before any phase-2 packet leaves the key holder. 20 records,
+  one per item, written by the study lead from the packets and conversation 9's chat file; every quote checked
+  verbatim against its message with the tool's parse_chat at e5f0f26e. Per file (sha256, file):
+  b1271a109099805d94f3cbeabbcc8d80da2a69bd84a320398100410086b61dc8  p1-1a36f9f8c2.json
+  e657c13ebf641f34391efd1a8dec375cb84bc1ec41ed8fc20fca05385ee83b39  p1-28e01f2f1e.json
+  56f00765b93c34d20329a496404865a19dc6ec34ef39bc74a0f8a23ad7b1d60a  p1-68b0b61a7f.json
+  b97f921c5fe89ed0b75c9eff9efb8b5e39a08c0b822ba37642e4829e18294e4f  p1-6d3a097da5.json
+  7ac641756edc139068bbd5585567dd101480b8f8b144e7d1edc477f49173e723  p1-75686d8601.json
+  0a1be4736efa2ed0a1c4c6c6078c64a56aa7ab13d950fa363d3a912081ab1f99  p1-7ffccc2a02.json
+  ff9c36fabf8b7c1d8f797ce515f24a8b4cb49185117d95055f68511283d130ac  p1-838c9ebabe.json
+  4b7cd74875758826d70be8fff151aeb4e6c5f71ff72e7884a9b2dbe30f2f7972  p1-8c12a3d619.json
+  9ef8147c71e6a68f39f19c4e21270cae3d0e3cd0684f25312b99bfbcc2d1ba8a  p1-98b90f3f4b.json
+  aac4e37f60d5822a7c1c7031dc16b380705f970775efb9e489024a0a6b54ea12  p1-9eb82dde53.json
+  3571a5ebbe463a90c6e64ed27c13415d68dc633281aa4b8a137c4a417e08140b  p1-a04a273228.json
+  1177b1bb5cf0747700826dba437488bd809259c4d644d2ebfb901de90c1877ae  p1-af84c0b2a7.json
+  d9342413d30dbb15ad0c0693dcf2f75d3b0a64e4ff6f7b268efd554a90004451  p1-b61d7d5c93.json
+  af5c979a68441a276cf0b319b229493ff3d9a655ac245950f23de37146e96c33  p1-b9cd2f4ff2.json
+  1a44dfdc4b09b88c9755bc27bed9d86f31775b58501d3a17696b3e98bb611bde  p1-bc682a751a.json
+  8646b22085f5232c9fb02a6bc4e9e8e31bafe461543567bc567417bccffb165a  p1-bd8f94871e.json
+  f2544cafc1783ef6b6e8f1cf99eac80bd6c5819a91ed3d5903e93273b76f8f5d  p1-d6bb28fc30.json
+  9c561a7347beb16dd8ee0b3292bbdefcbfa4cb80dd96f30751089e7a7adb5258  p1-e728feacb7.json
+  40dc90e62c3c0bb9bd8c78212b8c85612d651aaf128ddbb29438afd9a1ce5e80  p1-ecbeaa3683.json
+  c832f90fde52d657a088746fd7ff4eaebbfbc1ee90c8c105c52b7a7559be1d6d  p1-fccd2b7a3b.json
+  Manifest file sha256: de877b3fb38bb24f62882114a28d5e54b1b9d9a30bb4626bf07802124d171189. The records stay with their author and go to the key holder encrypted.
+- 2026-11-17T23:10Z. At rest, measured after the files landed (Custody A2): the record and packet directories are 0700 and
+  every file 0600, each with exactly three ACL entries (no mask, no named entry). Disclosed: seven of the per-item
+  start-time files (timestamps only, no benchmark text) had been created 0644 inside the 0700 directory; set to 0600
+  before this line. Correction to this section's first line: the draw check ran at 2026-11-17T22:51:16Z (the time
+  of the drand fetch); the 22:52Z written there is the commit minute.
