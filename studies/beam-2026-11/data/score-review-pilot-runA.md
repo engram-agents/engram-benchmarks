@@ -289,3 +289,14 @@ Each line is the key holder's own commit. Times are UTC.
   215e5d8ab45df04312c0686ad0e2e59e46304a285f5a64807702dfa88f77b169 items.jsonl
   abdcde2022c020cbae7aed7b3f08cefcee5a09a07e6f1a299e097523392e67ff grades.jsonl
   No draw yet; no phase-1 record exists.
+- 2026-11-17T22:45Z. Sealed copy received by the A3 holder (her receipt, team channel): stored encrypted, not
+  decrypted, in a 0700 directory at 0600; her own sha256 of the stored file is
+  d17889783688f6ed62e66e46228175c4eab0ee7b5ca9209725daa2acd9d35be5, equal to the value above; one recipient packet,
+  her encryption subkey. Clarification of the commitment-entry hash in commit d6b7da01: it covers the five lines of
+  the "Seed commitments" entry including the final newline (the study lead recomputed it: equal).
+- 2026-11-17T22:45Z. DRAW ANNOUNCEMENT (Procedure step 2), made before the round exists: the draw seed is the
+  `randomness` of drand default-chain round 6650827 (chain hash
+  8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce, period 30 s, genesis 1595431050), emitted at
+  2026-11-17T22:50:30Z. After emission the key holder fetches the round, checks randomness == sha256(signature),
+  and runs `draw` at e5f0f26e with --run runA-pilot --n 3 --seed <that randomness, lowercase hex>, then commits the
+  draw record. No phase-1 record exists.
