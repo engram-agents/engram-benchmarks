@@ -55,8 +55,9 @@ answers, and the messages each cites, are used as pointers into the source mater
 question from the source and writes the answer-level judgement of section 6, including a fuller correct
 answer when the official answer is not fully correct. Phase 1 is not lettered: its packet marks which answer is
 the official one, so its outcome is mapped directly and can decide phase-2 selection (section 2, set b). In a
-scored study the teacher sees the agents' answers without arm labels (the study's pre-registration freezes the
-adjusted set before arm labels are unblinded).
+scored study the teacher sees the agents' answers without arm labels, each under an **arm-blind answer id**
+(agent answer 1, 2, ...) that stays the same for that item through phase 3 (the study's pre-registration freezes
+the adjusted set before arm labels are unblinded).
 
 *Known limit:* the teacher has seen the rubric, the question's category, and, on single-arm data, which answer
 is the agent's. Phase 1 is the least blind phase. Phases 2 and 3 exist to check it.
@@ -100,7 +101,10 @@ material; the reviewers bring the facts:
 The project lead's ruling is written in the same answer-level form as phases 1 and 2 (section 6), with the
 settled answer where the key is wrong, and is mapped by the same table. **The phases agree** on an item when
 their judgements are identical answer by answer: the same judgement of the official answer, the same judgement
-of every agent answer, and, where the key is wrong, settled answers that do not differ on a load-bearing point. If all three agree, the outcome is settled. If not, the three
+of every agent answer, and, where the key is wrong, settled answers that do not differ on a load-bearing point.
+The answer-by-answer comparison is computed by script on the re-keyed judgements (section 5a). Whether two
+settled answers differ on a load-bearing point is judged by the project lead in phase 3, which every item with a
+wrong key reaches. If all three agree, the outcome is settled. If not, the three
 discuss it once, with the fact list in front of them. If they still disagree after that, the outcome is
 **Ambiguous (reviewers split)** and every ruling is published.
 
@@ -108,9 +112,10 @@ If the project lead is unavailable, the item **waits**: its adjusted entry reads
 lead, only two kinds of item are settled, and neither changes a grade: an item phase 2 does not review (it keeps
 its official grade, section 2) and an unquestioned control (section 2).
 
-*Known limit:* phase 3 is decisive and is not blind. The project lead knows which answer is the agent's and
-belongs to the team under test. Phases 1 and 2 are on the record before phase 3 rules, so a phase-3 ruling
-against both of them is visible in the log.
+*Known limit:* phase 3 is not blind. The project lead knows which answer is the official one and belongs to the
+team under test. Phase 3 can block a correction but cannot impose one alone: a ruling against phases 1 and 2
+ends as "reviewers split", and the item keeps its official grade. Phases 1 and 2 are on the record before phase 3
+rules, so any such ruling is visible in the log.
 
 ### 5a. Mechanics (blinding by construction, METHODOLOGY section 5)
 
@@ -118,7 +123,8 @@ against both of them is visible in the log.
   to a separate file whose hash is published before the phase-2 read. The key is held by a named seat that
   reviews no item in that round, recorded in the study's log.
 - **The key-holder's duties, in one line:** the key-holder runs the mapping script, which reads the key and
-  prints each item's phase-2 outcome (never the letters); the key itself is revealed only into the study's
+  prints each item's phase-2 outcome and phase-2 judgement re-keyed from letters to "official" and the arm-blind
+  answer ids (never the letters, never arm labels), into the phase-3 packet; the key itself is revealed only into the study's
   log, only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every
   reveal is logged with its time. An unlogged reveal is the one way this seat can break the design.
 - *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
@@ -135,8 +141,9 @@ for each agent answer, one of **correct**, **partly correct**, or **wrong**; or,
 **ambiguous** (the source supports more than one reading). When the official answer is not judged correct, the
 reviewer also writes the fuller correct answer.
 
-**Grade levels.** An official grade is **full** when every rubric line is met, **zero** when none is, and
-**partial** otherwise, whatever the benchmark's own scale. A judgement of correct, partly correct or wrong
+**Grade levels.** A rubric line is **met** when its official score is the maximum of the benchmark's line scale
+(for a 1.0 / 0.5 / 0.0 scale, 1.0). An official grade is **full** when every rubric line is met, **zero** when
+every line scores the scale's minimum, and **partial** otherwise, whatever the benchmark's own scale. A judgement of correct, partly correct or wrong
 corresponds to full, partial or zero.
 
 **From judgement to outcome** (applied by script; the first matching row decides):
@@ -183,7 +190,10 @@ check is blind to them.
 
 - A per-item change log: item, official answer, our finding, the messages that prove it, each phase's
   judgement, each phase-2 reviewer's guesses (which answer was the official one; which arm each agent answer
-  came from), and the outcome.
+  came from), the outcome, and for each adjusted entry the grading method that produced it (the official judge
+  re-run against a rewritten rubric, or a hand re-grade for a grading error).
+- The phase-2 guess rates reported beside the rate a blind guess would reach (1 / the number of answers in the
+  packet for the official answer; 1 / the number of arms for the arm guess).
 - An open invitation to dispute any item, at the head of the log. A dispute that succeeds after publication is
   handled as a correction under METHODOLOGY section 7: a dated correction block on the artifact.
 - Every correction to the key applied to all arms identically (section 6); a grading error is corrected for the
@@ -237,4 +247,7 @@ Each stays open until the named party closes it; closing one is a new version.
   supplied: the rubric-rewrite rule, re-scoring every arm on a corrected item, the answer-level judgement and its
   outcome table, an unlettered phase 1 and a key read only by script, agreement answer by answer, the grade
   levels and the re-grade for a grading error, the mechanics of section 5a, and the fit with a pre-registration
-  that already defines both scores and limits reruns. Decided by the project lead.
+  that already defines both scores and limits reruns. The peer review (the calibration seat) supplied: phase-2
+  judgements re-keyed to arm-blind answer ids for phase 3, a definition of a met rubric line, phase 3 as able to
+  block but not impose, the grading method marked per adjusted entry, who judges a load-bearing difference, and
+  guess rates beside chance. Decided by the project lead.
