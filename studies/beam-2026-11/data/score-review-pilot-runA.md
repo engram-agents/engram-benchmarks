@@ -300,3 +300,14 @@ Each line is the key holder's own commit. Times are UTC.
   2026-11-17T22:50:30Z. After emission the key holder fetches the round, checks randomness == sha256(signature),
   and runs `draw` at e5f0f26e with --run runA-pilot --n 3 --seed <that randomness, lowercase hex>, then commits the
   draw record. No phase-1 record exists.
+- 2026-11-17T22:50:33Z. DRAW (Procedure step 2), tool at e5f0f26e, before any phase-1 record. drand round 6650827
+  fetched after emission: randomness c338f8ef3e3482f4afb6f27147ff166e845dc6bc3f5fac0199d56dba6a5574f7, and
+  randomness == sha256(signature) checked: yes (the BLS signature itself not verified here; any drand client can).
+  `draw --run runA-pilot --n 3 --seed <that randomness>`: drew 3 of 10 eligible items:
+  drawn 7ffccc2a02 af84c0b2a7 b9cd2f4ff2
+  eligible (not in set (a)) 28e01f2f1e 68b0b61a7f 6d3a097da5 75686d8601 7ffccc2a02 838c9ebabe af84c0b2a7 b9cd2f4ff2
+  bd8f94871e ecbeaa3683
+  draws.jsonl sha256 0caefc84dc73c6bdfddc0adaa0438b4a1147fc18598efd3bdf9099ef4eeadac5 (its one record holds exactly
+  these values plus drawn_at). Disclosure: a first attempt at 22:50:2xZ stopped before drawing, because drand's API
+  answered HTTP 500 ('Failed to get beacon') a few seconds before the round's time; nothing was written, the script
+  was changed only to treat 500 like 425 (not yet) and re-run; the round and seed are the announced ones.
