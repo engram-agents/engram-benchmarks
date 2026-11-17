@@ -118,3 +118,30 @@ setup id by content, with the import walk (every study-local module the feed scr
 `coverage.py`: the pilots' note-coverage attribution, its controls, and the per-run measures. `gate-input-evidence.py`:
 shows, byte for byte, that a run's student received the messages its own `feed.py` builds. Each file's docstring has
 its usage; the tuning log has their outputs.
+
+## Answering harness (P1): `--question-file`, `answer-delivery-check.py`, `plant-control.py`, `control-source-check.py`
+
+`feed4.py --question-file F` delivers a frozen list (a JSON list of `{"id", "question"}`) in file order, once each, after
+the optional `/compact`, one message per item (`PROCTOR + " " + QUESTION_PREFIX + question`). An answering run is
+`--resume SESSION --turns 0 --force-compact --question-file F`; `--dump-plan` shows exactly `[compact, q1..qN]`. It is
+refused (exit 2, before any student process or model unload) with `--questions` or `--ask`, with duplicate ids, an empty
+question, an empty list, or a file that is not a list of such objects. Each question's turn record carries
+`"kind": "question"` and its `"id"`. Without the flag the plan and the turn records are unchanged.
+
+`answer-delivery-check.py --turns RUN/turns.jsonl --questions F --session SESSION`: PASS (exit 0) only if every turn
+carries the resumed session id, exactly one compact turn precedes the first question, every id of F appears once in file
+order, and there are no other question turns and no reading turns. Each failure is printed; exit 1 on any.
+
+`plant-control.py --home COPY --builtin-fact T --engram-fact T --absent-fact T --evidence-dir DIR`: the two-channel
+control, for a **disposable copy** of an arm home only (refuses without `COPY/.disposable-copy`, under `P1_PROTECTED`,
+with an evidence dir inside `COPY/work`, or with a fact shorter than 6 characters). The built-in fact goes in as one
+markdown file in the arm's memory folder; the ENGRAM fact through `engram_observation._add_observation_impl` (what the
+`engram_add_observation` tool calls), imported in-process from the copy's own plugin, with its evidence file in DIR. It
+then checks read-back, that no fact is in any transcript, cross-absence between the two channels, that the absent fact
+is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv.
+
+`control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), reports
+from the turn's own tool calls where the answer came from; it never decides abstention for the `none` control.
+
+Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
+cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.
