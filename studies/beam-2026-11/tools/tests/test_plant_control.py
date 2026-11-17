@@ -688,3 +688,133 @@ def test_refuses_when_the_engram_modules_come_from_outside_the_arm_home(arm_home
                        env={"PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path)})
     assert r.returncode == 2 and "not from the arm home's plugin" in said(r), said(r)
     untouched(arm_home)
+
+
+
+# ================================================================ ROUND 4 (contract-first)
+# R4-1: ENGRAM's own in-process write also writes outside the listed targets (telemetry, anchoring_advisory.jsonl,
+# the setup lockdir, plugin __pycache__). A generic scan of the whole home runs before any write or import.
+def protected_dir(tmp_path):
+    prot = tmp_path / "preserved"; prot.mkdir()
+    (prot / "keep.jsonl").write_text("preserved line\n")
+    (prot / "telemetry").mkdir(); (prot / "telemetry" / "t.jsonl").write_text("t\n")
+    return prot
+
+
+def refused_and_untouched(arm_home, tmp_path, prot, expect="P1_PROTECTED"):
+    before = snap(prot)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 2 and expect in said(r), said(r)
+    assert snap(prot) == before  # the protected dir is byte-for-byte unchanged
+    assert not os.listdir(tmp_path / "evidence")
+    assert table_counts(arm_home)["nodes"] == 1
+    return r
+
+
+def test_refuses_a_telemetry_dir_symlinked_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    (arm_home / ".engram" / "telemetry").symlink_to(prot / "telemetry")
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_refuses_a_plugin_pycache_symlinked_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path); (prot / "pc").mkdir()
+    plug = arm_home / ".engram" / "marketplace" / "plugins" / "engram"
+    shutil.rmtree(plug / "__pycache__", ignore_errors=True)  # the fixture's seeding run left one behind
+    (plug / "__pycache__").symlink_to(prot / "pc")
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_refuses_anchoring_advisory_hard_linked_to_a_protected_file(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    os.link(prot / "keep.jsonl", arm_home / ".engram" / "anchoring_advisory.jsonl")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="st_nlink")
+
+
+def test_refuses_a_symlink_deep_in_an_unrelated_subdir_pointing_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    deep = arm_home / "work" / "a" / "b" / "c"; deep.mkdir(parents=True)
+    (deep / "innocent-looking").symlink_to(prot / "telemetry")
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_refuses_a_file_symlink_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    (arm_home / ".engram" / "note.jsonl").symlink_to(prot / "keep.jsonl")  # a FILE symlink
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_refuses_a_symlink_to_an_ancestor_of_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    (arm_home / "work" / "up").symlink_to(tmp_path)  # tmp_path is an ANCESTOR of the protected dir
+    refused_and_untouched(arm_home, tmp_path, prot)
+
+
+def test_a_symlink_out_of_the_home_to_an_unprotected_dir_is_allowed(arm_home, tmp_path):
+    """NEGATIVE: venv and model caches are links out of the home to dirs that are not protected."""
+    prot = protected_dir(tmp_path)
+    cache = tmp_path / "hf-cache"; cache.mkdir(); (cache / "model.bin").write_text("weights")
+    (arm_home / ".engram" / "hf-cache").symlink_to(cache)
+    (arm_home / "work" / "venv-link").symlink_to(cache)
+    before = snap(cache)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+    assert snap(cache) == before
+    assert len(notes(arm_home)) == 1
+
+
+def test_a_second_hard_link_to_a_nested_file_under_the_engram_dir_is_refused(arm_home, tmp_path):
+    """The generic nlink check: a nested file nobody listed (here a telemetry file)."""
+    prot = protected_dir(tmp_path)
+    tel = arm_home / ".engram" / "telemetry"; tel.mkdir()
+    os.link(prot / "telemetry" / "t.jsonl", tel / "t.jsonl")
+    refused_and_untouched(arm_home, tmp_path, prot, expect="st_nlink")
+
+
+def test_bytecode_is_not_written_into_the_plugin_dir(arm_home, tmp_path):
+    plug = arm_home / ".engram" / "marketplace" / "plugins" / "engram"
+    for d in list(plug.rglob("__pycache__")):  # the fixture's seeding run left some behind
+        shutil.rmtree(d)
+    assert not list(plug.rglob("*.pyc"))
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 0, said(r)
+    assert not list(plug.rglob("*.pyc")) and not list(plug.rglob("__pycache__"))
+
+
+# ---- R4-2 (a): a P1_PROTECTED entry that is itself an alias (symlink) path; the memory dir links into the real dir
+def test_refuses_when_the_protected_entry_is_an_alias_symlink_path(arm_home, tmp_path):
+    real = tmp_path / "real-preserved"; (real / "memory").mkdir(parents=True)
+    (real / "memory" / "MEMORY.md").write_text(MEMORY_INDEX)
+    alias = tmp_path / "alias-preserved"; alias.symlink_to(real)
+    m = memory_dir(arm_home); shutil.rmtree(m); m.symlink_to(real / "memory")
+    before = snap(real)
+    r = plant(arm_home, tmp_path / "evidence", str(alias))
+    assert r.returncode == 2 and "P1_PROTECTED" in said(r), said(r)
+    assert snap(real) == before
+
+
+# ---- R4-2 (b): the content-addressed evidence file pre-planted as a symlink into a protected dir
+def test_refuses_an_evidence_file_pre_planted_as_a_symlink_into_a_protected_dir(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    ev = tmp_path / "evidence"
+    epath = ev / (hashlib.sha256((ENGRAM + "\n").encode()).hexdigest() + ".txt")
+    epath.symlink_to(prot / "keep.jsonl")
+    before = snap(prot)
+    r = plant(arm_home, ev, str(prot))
+    assert r.returncode == 2 and "evidence file" in said(r), said(r)
+    assert snap(prot) == before
+    assert (prot / "keep.jsonl").read_text() == "preserved line\n"
+    untouched(arm_home)
+
+
+def test_the_scan_does_not_follow_a_link_out_of_the_home_into_a_foreign_tree(arm_home, tmp_path):
+    """The scan is of the home's own tree: a model cache outside it that itself holds a link to a protected dir is not
+    walked (nothing the tool or ENGRAM writes lives there). Kills a followlinks=True walk."""
+    prot = protected_dir(tmp_path)
+    cache = tmp_path / "hf-cache"; cache.mkdir()
+    (cache / "stale-link").symlink_to(prot / "telemetry")
+    (arm_home / ".engram" / "hf-cache").symlink_to(cache)
+    before = snap(prot)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+    assert snap(prot) == before

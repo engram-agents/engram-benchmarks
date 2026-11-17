@@ -23,8 +23,12 @@ Per control, on the tool calls of that turn only:
           call naming the folder file; `stat`, `ls`, Write, Edit never count), no ENGRAM read returned the token, and
           the evidence file was untouched;
   none    FAIL if the answer contains the engram or folder token; otherwise REVIEW (a human judges abstention).
-Alignment: row k of turns.jsonl must carry the same `result` text as the k-th `result` event (an empty result event
-is read as the turn's last assistant text, which is what feed4.py logs then); a mismatch FAILs the whole check.
+Alignment: row k of turns.jsonl must pair with the k-th `result` event on BOTH its `session_id` (the row's, which
+feed4.py logs from the stream's system event, against the result event's own session_id; a row that carries one while
+its result event carries none cannot be paired and FAILs) AND its `result` text (an empty result event is read as the
+turn's last assistant text, which is what feed4.py logs then); a mismatch on either FAILs the whole check. Bound:
+two turns of the SAME session with IDENTICAL result text can still swap undetected (neither field tells them apart);
+the check also relies on the stream order, since turn index k is the only other key.
 Exit 0 if nothing FAILs, else 1. A match is a case-insensitive substring; a file is 'named' by its full path or its
 base name appearing in a call's input.
 usage: control-source-check.py --events E --turns T --controls C
@@ -61,7 +65,7 @@ def result_text(content):
 
 
 def segment(events):
-    """Split the events into turns: each turn ends with its `result` event. Returns [(calls, answer)]; each call is
+    """Split the events into turns: each turn ends with its `result` event. Returns [(calls, answer, session_id of the result event)]; each call is
     {name, input, result}. A trailing run of events with no result event is returned as an unfinished extra turn."""
     turns, calls, by_id, last_text = [], [], {}, ""
     for ev in events:
@@ -79,9 +83,9 @@ def segment(events):
                 if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("tool_use_id") in by_id:
                     by_id[c["tool_use_id"]]["result"] += result_text(c.get("content"))
         elif t == "result":
-            turns.append((calls, ev.get("result") or last_text or "")); calls, last_text = [], ""
+            turns.append((calls, ev.get("result") or last_text or "", ev.get("session_id"))); calls, last_text = [], ""
     if calls:
-        turns.append((calls, None))
+        turns.append((calls, None, None))
     return turns
 
 
@@ -180,6 +184,10 @@ def main():
         print(f"FAIL: events and turns do not align: {len(segs)} turn(s) of events (result events) vs {len(rows)} turn row(s)")
         return 1
     for k, (row, seg) in enumerate(zip(rows, segs)):
+        if row.get("session_id") != seg[2] and (row.get("session_id") or seg[2]):
+            print(f"FAIL: events and turns do not align: turn row {k + 1} (i={row.get('i')}) carries session_id "
+                  f"{row.get('session_id')!r}, the {k + 1}-th result event {seg[2]!r}")
+            return 1
         if row.get("result") != seg[1]:
             print(f"FAIL: events and turns do not align: turn row {k + 1} (i={row.get('i')}) carries result text "
                   f"{str(row.get('result'))[:80]!r}, the {k + 1}-th result event {seg[1][:80]!r}")
@@ -193,7 +201,7 @@ def main():
             print(f"{c['id']}: FAIL no turn carries this control id"); bad.append(c["id"]); continue
         if len(idx) > 1:
             print(f"{c['id']}: FAIL more than one turn carries this control id ({len(idx)})"); bad.append(c["id"]); continue
-        calls, answer = segs[idx[0]]
+        calls, answer, _ = segs[idx[0]]
         verdict, why = judge(c, answer, calls, folder_files, evidence_files, tokens)
         print(f"{c['id']}: {verdict} [{c['channel']}] " + ("; ".join(why) if why else
               ("human judgment of abstention required (this tool does not decide it)" if verdict == "REVIEW" else "ok")))

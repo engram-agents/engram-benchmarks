@@ -92,6 +92,8 @@ def test_question_file_requires_resume_and_refuses_setup_flags(arrow_python, syn
 @pytest.mark.parametrize("name,extra,word", [
     ("--turns 3", ["--turns", "3"], "--turns"),
     ("--start 2", ["--turns", "0", "--start", "2"], "--start"),
+    ("--start 0", ["--turns", "0", "--start", "0"], "--start"),  # R4-4: compared exactly, not as a truthiness test
+    ("--start -1", ["--turns", "0", "--start=-1"], "--start"),
 ])
 def test_question_file_refuses_a_reading_window(arrow_python, synthetic_parquet, tmp_path, name, extra, word):
     """R3-6: an answering run reads nothing, so --turns other than 0 or --start other than its default is refused."""

@@ -42,7 +42,7 @@ class Run:
             self.events.append({"type": "user", "message": {"content": [
                 {"type": "tool_result", "tool_use_id": tid, "content": c["result"]}]}})
         self.events.append({"type": "assistant", "message": {"content": [{"type": "text", "text": answer}]}})
-        self.events.append({"type": "result", "result": answer})
+        self.events.append({"type": "result", "result": answer, "session_id": SESS})
         row = {"i": self.n, "kind": kind, "session_id": SESS, "result": answer}
         if qid is not None:
             row["id"] = qid
@@ -330,6 +330,39 @@ def test_fails_when_a_turn_row_has_no_result_text_but_its_event_has_one(tmp_path
 def test_an_empty_result_event_aligns_with_the_rows_last_assistant_text(tmp_path):
     """feed4 logs `ev.get('result') or last assistant text`; an empty result event must still align with that."""
     r = good_run()
-    r.events[-1] = {"type": "result", "result": ""}  # the last turn's result event is empty; its assistant text stays
+    r.events[-1] = {"type": "result", "result": "", "session_id": SESS}  # the last turn's result event is empty; its assistant text stays
     out = run_check(tmp_path, r)
     assert out.returncode == 0, out.stdout
+
+
+# ---- R4-3: rows pair with result events by session_id AND result text (identical texts can no longer swap
+# across sessions undetected)
+def test_fails_when_a_row_session_id_differs_from_its_result_events_session_id(tmp_path):
+    r = good_run()
+    r.turns[1]["session_id"] = "s-other"  # same result text, different session: text alone would pair them
+    out = run_check(tmp_path, r)
+    assert out.returncode == 1 and "align" in out.stdout.lower() and "session" in out.stdout.lower(), out.stdout
+
+
+def test_fails_when_identical_result_texts_come_from_different_sessions_and_are_swapped(tmp_path):
+    r = good_run()
+    for ev, sess in zip([e for e in r.events if e.get("type") == "result"], ("s-a", "s-b", "s-a", "s-b")):
+        ev["session_id"] = sess
+    for row, sess in zip(r.turns, ("s-a", "s-b", "s-a", "s-b")):
+        row["session_id"] = sess
+        row["result"] = "same text"
+    for ev in r.events:
+        if ev.get("type") == "result":
+            ev["result"] = "same text"
+    r.turns[0]["session_id"], r.turns[1]["session_id"] = r.turns[1]["session_id"], r.turns[0]["session_id"]
+    out = run_check(tmp_path, r)
+    assert out.returncode == 1 and "align" in out.stdout.lower() and "session" in out.stdout.lower(), out.stdout
+
+
+def test_fails_when_a_row_has_a_session_id_but_its_result_event_has_none(tmp_path):
+    r = good_run()
+    for e in r.events:
+        if e.get("type") == "result":
+            e.pop("session_id", None)
+    out = run_check(tmp_path, r)
+    assert out.returncode == 1 and "align" in out.stdout.lower() and "session" in out.stdout.lower(), out.stdout
