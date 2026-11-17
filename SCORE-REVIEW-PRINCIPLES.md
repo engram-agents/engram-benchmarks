@@ -1,6 +1,6 @@
 # Score review principles
 
-*Version 0.1, 2026-11-17. **One parameter is still open** (see "Open questions"; it names who closes it).
+*Version 0.2, 2026-11-17. **One parameter is still open** (see "Open questions"; it names who closes it).
 Version-controlled like `METHODOLOGY.md`: amend by PR, give the reasoning in the PR body AND in the change log
 at the end of this file, never edit history. These principles govern how we review an agent's answers against
 a benchmark's official answer key, and how a corrected score is reported beside the official one.*
@@ -86,8 +86,25 @@ they believe is the official one and, in a study with several arms, which arm th
 came from.
 
 *Known limit, measured rather than assumed:* the reviewer may still guess which answer is which from style or
-citation habits; an agent answer can also reveal its arm by how it cites its memory. The guess rate is reported beside the results. In v0.1 it has no automatic consequence; a
+citation habits; an agent answer can also reveal its arm by how it cites its memory. The guess rate is reported beside the results. It has no automatic consequence; a
 high rate is stated as a limit of the phase-2 check.
+
+**Items whose reference is a criterion, not an answer** (for example a benchmark's instruction-following and
+preference-following questions, whose key says what a compliant response must do rather than giving one). Showing
+the criterion first would anchor the reviewer on the key's framing, so phase 2 runs in two steps, enforced by the
+tooling:
+
+- **Step 2a.** The packet holds the question, the source material and the agent answers under letters, and no
+  criterion. The reviewer judges each agent answer and writes what a complying answer must do, with the message
+  that sets the instruction or preference. This judgement is committed with its hash.
+- **Step 2b.** Only after the step-2a judgement exists is the reviewer shown the criterion, and judges the criterion
+  itself (correct, partly correct or wrong: does the source support it, and does it ask for the right thing). A
+  step-2b judgement cannot change step 2a; a change of mind is a superseding step-2a record with its reason,
+  visible to phase 3.
+
+For these items there is no official-answer guess; the arm guess is still recorded. *Known limits:* a packet with
+no official answer tells the reviewer what kind of item it is, so the category is not hidden for these items; and
+with a single agent answer (single-arm data) there is nothing to compare it with, only an unanchored read.
 
 ## 5. Phase 3: the district official
 
@@ -119,18 +136,26 @@ rules, so any such ruling is visible in the log.
 
 ### 5a. Mechanics (blinding by construction, METHODOLOGY section 5)
 
-- A script builds the phase-2 packets. It draws the letter order from a logged seed and writes the letter key
-  to a separate file whose hash is published before the phase-2 read. The key is held by a named seat that
-  reviews no item in that round, recorded in the study's log.
+- The data the phase-2 tooling reads holds only what phase 2 may see. Answer ids carry no meaning and differ from
+  item to item, so neither an id nor a position says which answer is official or which arm an answer came from;
+  which answer is official, the grades, the rubric, the category and the arms live in separate files the phase-2
+  packet builder never opens.
+- A script builds the phase-2 packets. It draws each item's letter order from a logged seed and the item's own id
+  (so the same letter is not the same answer from item to item) and writes the letter key to a separate file
+  whose hash is published before the phase-2 read. The key is held by a named seat that reviews no item in that
+  round, recorded in the study's log.
 - **The key-holder's duties, in one line:** the key-holder runs the mapping script, which reads the key and
   prints each item's phase-2 outcome and phase-2 judgement re-keyed from letters to "official" and the arm-blind
-  answer ids (never the letters, never arm labels), into the phase-3 packet; the key itself is revealed only into the study's
-  log, only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every
-  reveal is logged with its time. An unlogged reveal is the one way this seat can break the design.
+  answer ids (never the letters, never arm labels), into the phase-3 packet. It re-keys an item only after that
+  item's phase-2 judgement is recorded with its hash. The key file itself is revealed only into the study's log,
+  only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every reveal is
+  logged with its time. An unlogged reveal is the one way this seat can break the design.
 - *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
   belongs to the team under test.
-- Each phase's judgement is committed with a hash before the next phase sees anything of it. Phase 2 never sees
-  the phase-1 judgement. Phase 3 sees both, with the merged fact list.
+- Each phase's judgement is committed with a hash before the next phase sees anything of it, and each phase's
+  judgements are committed to the study's repository before the next phase's packets are handed out: the commit is
+  the outside witness that the order held. Phase 2 never sees the phase-1 judgement. Phase 3 sees both, with the
+  merged fact list.
 - The fact lists are merged by script (concatenate, keep every fact, mark which reviewer contributed it), never
   by hand.
 
@@ -154,6 +179,9 @@ corresponds to full, partial or zero.
 | the official answer is partly correct or wrong | **Key wrong or incomplete** |
 | the official answer is correct, and every agent answer's judgement corresponds to its official grade level | **Key stands** |
 | the official answer is correct, and one or more agent answers' judgements do not correspond to their official grade levels | **Grading error**, for exactly those answers |
+
+For an item whose reference is a criterion (section 4), the judgement of the criterion takes the place of the
+judgement of the official answer in this table.
 
 How each outcome scores:
 
@@ -230,6 +258,17 @@ Each stays open until the named party closes it; closing one is a new version.
 
 ## Change log
 
+- **v0.2, 2026-11-17.** *Why:* building the tooling for v0.1 and running it on the real data of the BEAM study
+  showed four things v0.1 did not say. (1) A fifth of that benchmark's questions (instruction following and
+  preference following) carry a criterion, not an answer, so the A/B blind between official and agent answers
+  cannot hold for them; the study lead first proposed showing phase 2 the criterion openly, and the BEAM design
+  owner ruled that this would repeat the anchoring v0.1 was written against, and set the two-step procedure in
+  section 4 instead. (2) The design owner's read of the tooling's data found that an answer id that names the
+  official answer, or a letter order fixed across items, would tell the reviewer which answer is which; section 5a
+  now requires meaningless per-item ids and a per-item letter order. (3) Re-keying a phase-2 judgement before it is
+  recorded would let anyone holding both forms read that item's key; section 5a now orders it. (4) The commit of
+  each phase before the next phase's packets go out is stated as the outside witness of order. Proposed by the
+  study lead from the design owner's rulings; awaiting the project lead's read.
 - **v0.1, 2026-11-17.** First version. *Why:* during the BEAM study's tuning, our corrections to the official
   key were first checked by a second read that was blind to our verdict and to the agent's answer, but showed
   the reviewer the official answer first, framed the way the key frames it. The project lead judged that this
