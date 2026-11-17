@@ -326,3 +326,16 @@ Each line is the study lead's own commit. Times are UTC.
   1336B2D7F547A11A943C35AC2EE2C21BE8617E43 (ed25519, signing); encryption subkey
   9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519). Generated on the study lead's seat; the private half has not
   left it.
+- 2026-11-17T23:0xZ. Phase-1 transfer key checked (key holder): the study lead's .asc in commit 31d78815 gives
+  primary 1336B2D7F547A11A943C35AC2EE2C21BE8617E43 (ed25519), encryption subkey
+  9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519), equal to his channel-1 strings; repeated back to him.
+- 2026-11-17T23:0xZ. Chat file for packets (two-seat check). Source: the study lead's conv9-full.md (the
+  dataset's public text of conversation 9; no answers, grades or notes), file sha256
+  110b77e1ee3f9cd9dbbe95bc83c293044c71a52435a2c46171318d766bd3f18b. One disclosed transformation: the parquet
+  sets time_anchor only on each session's first message (5 of 270), and the file carries each session's anchor
+  forward to every message of that session. The key holder's independent conversion from the parquet (sessions
+  52/52/56/58/52, 270 messages, ids 0..269), with the same carry-forward rule, parsed by parse_chat at e5f0f26e:
+  canonical hash (sha256 of json.dumps({str(id): parsed[id] for id in sorted}, sort_keys=True,
+  ensure_ascii=False)) = 7805c3fe6926d60ffb4f76531da961f06bd9a0c9bcf645f5bb2b333fdf7313b8, equal to the study
+  lead's; 0 message ids differ. Packets are built with --chat conv9-full.md. (The tool at e5f0f26e has no
+  command that writes a chat file.)
