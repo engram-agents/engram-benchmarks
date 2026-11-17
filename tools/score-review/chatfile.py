@@ -15,7 +15,7 @@ def parse_chat(text):
             msgs[cur[0]] = {"role": cur[1], "date": cur[2], "body": "\n".join(buf).strip()}
 
     for line in text.splitlines():
-        m = _HEADER.match(line)
+        m = _HEADER.fullmatch(line)
         if m:
             flush()
             mid = int(m.group(1))

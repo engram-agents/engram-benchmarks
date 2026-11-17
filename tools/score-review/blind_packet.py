@@ -19,16 +19,45 @@ CITED_NOT_SHOWN = "Cited messages: not shown for this item"
 
 
 def load_item(items_path, item_id):
-    if not _ITEM_RE.match(item_id or ""):
+    """Return the one row for item_id. The whole file is read: a duplicate row, or any row that is not a JSON
+    object with an item_id, is refused before anything is written, never resolved by taking the first match."""
+    if not _ITEM_RE.fullmatch(item_id or ""):
         raise ValueError("item id %r is not a plain token" % (item_id,))
+    found = []
     with open(items_path, "r", encoding="utf-8") as fh:
-        for line in fh:
+        for n, line in enumerate(fh, 1):
             if not line.strip():
                 continue
-            row = json.loads(line)
-            if row.get("item_id") == item_id:
-                return row
-    raise ValueError("item %s not found in the items file" % item_id)
+            try:
+                row = json.loads(line)
+            except ValueError as exc:
+                raise ValueError("items file row %d is not JSON: %s" % (n, exc))
+            if not isinstance(row, dict) or not isinstance(row.get("item_id"), str):
+                raise ValueError("items file row %d is not a JSON object with an item_id" % n)
+            if row["item_id"] == item_id:
+                found.append(row)
+    if not found:
+        raise ValueError("item %s not found in the items file" % item_id)
+    if len(found) > 1:
+        raise ValueError("item %s occurs on more than one row of the items file; the key could not be trusted" % item_id)
+    return found[0]
+
+
+def check_answers(item):
+    """Refuse an item the key could not describe: the key maps letters to answer ids, so the ids must be distinct."""
+    answers = item.get("answers")
+    if not isinstance(answers, list) or not answers:
+        raise ValueError("item %s has no answers" % item.get("item_id"))
+    ids = []
+    for ans in answers:
+        aid = ans.get("answer_id") if isinstance(ans, dict) else None
+        if not isinstance(aid, str) or not aid:
+            raise ValueError("item %s has an answer with no answer_id" % item.get("item_id"))
+        ids.append(aid)
+    if len(set(ids)) != len(ids):
+        raise ValueError("item %s has answers whose answer ids are not distinct" % item.get("item_id"))
+    if len(ids) > len(LETTERS):
+        raise ValueError("too many answers for letter labels")
 
 
 def letter_order(item, seed):
@@ -46,9 +75,8 @@ def build_packet(item, seed, chat=None):
     answer often cannot), so cited ids are listed only when EVERY answer of the item has a non-empty list;
     otherwise no answer gets one and a single neutral line says so.
     """
+    check_answers(item)
     answers = letter_order(item, seed)
-    if len(answers) > len(LETTERS):
-        raise ValueError("too many answers for letter labels")
     show_cited = all(ans.get("cited_ids") for ans in answers)
     out = ["# Review packet: %s" % item["item_id"], "", "## Question", "", item["question"], "", "## Answers", "",
            "The answers below are in an arbitrary order and carry letters only.", ""]

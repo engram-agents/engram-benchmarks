@@ -72,7 +72,7 @@ def load_items(path):
     items = {}
     for r in read_jsonl(path):
         iid = r.get("item_id")
-        if not isinstance(iid, str) or not ITEM_RE.match(iid):
+        if not isinstance(iid, str) or not ITEM_RE.fullmatch(iid):
             raise UserError("items file: bad item_id %r" % (iid,))
         if iid in items:
             raise UserError("items file: duplicate item %s" % iid)
@@ -82,7 +82,7 @@ def load_items(path):
         ids = []
         for a in ans:
             aid = a.get("answer_id")
-            if not isinstance(aid, str) or not ANSWER_RE.match(aid) or aid in RESERVED_IDS:
+            if not isinstance(aid, str) or not ANSWER_RE.fullmatch(aid) or aid in RESERVED_IDS:
                 raise UserError("items file: item %s has a bad answer id %r (lowercase letters and digits only)" % (iid, aid))
             if not isinstance(a.get("text"), str) or not all(isinstance(c, int) and not isinstance(c, bool)
                                                              for c in a.get("cited_ids", [])):
@@ -376,7 +376,7 @@ def cmd_record(a):
         raise UserError("phase must be 1, 2 or 3")
     if phase not in (1, 2, 3):
         raise UserError("unknown phase %s: phases are 1, 2 and 3" % a.phase)
-    if not a.reviewer or not REVIEWER_RE.match(a.reviewer):
+    if not a.reviewer or not REVIEWER_RE.fullmatch(a.reviewer):
         raise UserError("reviewer must be a plain token")
     items = load_items(a.items)
     try:
