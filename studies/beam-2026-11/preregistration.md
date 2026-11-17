@@ -173,9 +173,10 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
   answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any
   finding goes upstream it is checked against the benchmark's open issue tracker: a finding already reported
-  there is credited to its reporter in our change log (with the issue number) and, where we agree, corroborated
-  with a short comment on that issue rather than reported again; only a finding not already reported is raised
-  as a new issue, and every one is cited. The adjusted set is frozen before arm labels are unblinded.
+  there is credited to its reporter, with the issue number, in the study's per-item change log (the one
+  SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
+  rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
+  whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
 - Absolute scores are not comparable with the paper's table (different judge). The comparison is
   between our arms.
 
@@ -292,6 +293,9 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
   watch for changes of mind and contradictions, which BEAM scores directly.
 - The per-turn timeout value, fixed before the first scored run.
+- How two upstream scoring reports bear on our judge, stated before the first scored run: issue 8 (an int()
+  conversion that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of
+  systematic judging bias on 100K conversation 1).
 
 ## Deviations log
 
