@@ -1,4 +1,4 @@
-# tools/p1-answering-power-clustered.py output. Each TABLE line names its seed, trials, resamples and bound method. Runs 1 and 2 were produced by script sha256 cfc2138032a04fa2 (before the --method option); Run 3 by 73c8fccafd463429 (adds --method studentized; the percentile path is unchanged); Run 4 by 9f5631f45cfcdeaa (adds --counts; the default layout and the percentile path are byte-identical to the previous script).
+# tools/p1-answering-power-clustered.py output. Each TABLE line names its seed, trials, resamples and bound method. Runs 1 and 2 were produced by script sha256 cfc2138032a04fa2 (before the --method option); Run 3 by 73c8fccafd463429 (adds --method studentized; the percentile path is unchanged); Run 4 by 9f5631f45cfcdeaa (adds --counts; the default layout and the percentile path are byte-identical to the previous script). Run 5 by the same script, 9f5631f45cfcdeaa, unchanged (only --counts differs).
 ## Run 1: percentile bounds 5/95 (superseded: slightly liberal at 45 clusters)
 TABLE seed 20261120, trials 2000 per cell, bootstrap 1000, base accuracy 0.75, margin 0.1, 45 exchanges, 110 questions (20 x 3 + 25 x 2), bounds at percentiles 5.0/95.0 (nominal one-sided 95%)
 each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
@@ -35,3 +35,12 @@ rho=0.2 D=0.35 | loss 0.00: 0.341 / 0.446 / worse 0.051 | loss 0.05: 0.144 / 0.2
 rho=0.6 D=0.15 | loss 0.00: 0.592 / 0.699 / worse 0.051 | loss 0.05: 0.237 / 0.324 / worse 0.246 | loss 0.10: 0.054 / 0.077 / worse 0.566
 rho=0.6 D=0.25 | loss 0.00: 0.404 / 0.544 / worse 0.053 | loss 0.05: 0.161 / 0.254 / worse 0.154 | loss 0.10: 0.056 / 0.097 / worse 0.379
 rho=0.6 D=0.35 | loss 0.00: 0.309 / 0.447 / worse 0.052 | loss 0.05: 0.134 / 0.233 / worse 0.135 | loss 0.10: 0.045 / 0.098 / worse 0.287
+## Run 5: percentile bounds 4/96 after the design owner dropped F32 before any answer (75 counting questions in 38 exchanges; exchange 15 goes from 2 to 1), whole grid
+TABLE seed 20261121, trials 4000 per cell, bootstrap 1000, base accuracy 0.75, margin 0.1, 38 exchanges, 75 questions (1 x 4 + 11 x 3 + 12 x 2 + 14 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.623 / 0.743 / worse 0.049 | loss 0.05: 0.254 / 0.314 / worse 0.258 | loss 0.10: 0.061 / 0.069 / worse 0.581
+rho=0.2 D=0.25 | loss 0.00: 0.422 / 0.553 / worse 0.050 | loss 0.05: 0.184 / 0.238 / worse 0.177 | loss 0.10: 0.053 / 0.068 / worse 0.398
+rho=0.2 D=0.35 | loss 0.00: 0.338 / 0.449 / worse 0.046 | loss 0.05: 0.141 / 0.198 / worse 0.135 | loss 0.10: 0.049 / 0.068 / worse 0.320
+rho=0.6 D=0.15 | loss 0.00: 0.581 / 0.716 / worse 0.053 | loss 0.05: 0.245 / 0.328 / worse 0.237 | loss 0.10: 0.059 / 0.090 / worse 0.551
+rho=0.6 D=0.25 | loss 0.00: 0.397 / 0.537 / worse 0.051 | loss 0.05: 0.166 / 0.265 / worse 0.165 | loss 0.10: 0.041 / 0.086 / worse 0.382
+rho=0.6 D=0.35 | loss 0.00: 0.297 / 0.454 / worse 0.050 | loss 0.05: 0.128 / 0.231 / worse 0.135 | loss 0.10: 0.043 / 0.093 / worse 0.280
