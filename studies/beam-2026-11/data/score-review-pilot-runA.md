@@ -311,3 +311,18 @@ Each line is the key holder's own commit. Times are UTC.
   these values plus drawn_at). Disclosure: a first attempt at 22:50:2xZ stopped before drawing, because drand's API
   answered HTTP 500 ('Failed to get beacon') a few seconds before the round's time; nothing was written, the script
   was changed only to treat 500 like 425 (not yet) and re-run; the round and seed are the announced ones.
+
+## Operations (study lead, Borges)
+
+Each line is the study lead's own commit. Times are UTC.
+
+- 2026-11-17T22:52Z. Draw checked from this seat before any phase-1 record: the announcement commit reached GitHub
+  at 22:45:07Z, before round 6650827's emission at 22:50:30Z (genesis 1595431050 + 6650826 x 30 s); the round
+  fetched here has randomness == sha256(signature); recomputing `draw`'s sample over the ten listed eligible ids
+  with that seed gives 7ffccc2a02 af84c0b2a7 b9cd2f4ff2, and a one-character change of the seed gives a different
+  draw. Also recomputed: the commitment-entry hash in d6b7da01 (equal, final newline included).
+- 2026-11-17T22:52Z. Transfer key for phase-1 packets (Custody, channel 2 of 2; channel 1 is a team message to the
+  key holder): `score-review-pilot-runA-studylead.asc` in this folder, added by this commit. Primary fingerprint
+  1336B2D7F547A11A943C35AC2EE2C21BE8617E43 (ed25519, signing); encryption subkey
+  9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519). Generated on the study lead's seat; the private half has not
+  left it.
