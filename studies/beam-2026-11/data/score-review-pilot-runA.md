@@ -259,3 +259,20 @@ Each line is the key holder's own commit. Times are UTC.
 - 2026-11-17T22:18Z. Tool at pull request 7's head e5f0f26ed39ad81e4594dee09f17453e93628534 (a detached checkout of
   exactly that commit): its own test suite, 218 passed, Python 3.12.10 with pyarrow 26.0.1.
 - No seed exists yet. Nothing has been imported or drawn.
+- 2026-11-17T22:23Z. Receipt of the import inputs (Custody): two files from the study lead, each encrypted only to
+  the key holder's encryption subkey, decrypted into the key holder's folder (0700, files 0600, no ACL entry).
+  Ciphertext sha256 runA-turns.jsonl.asc 481fbec9780c39638d2adbe602a54b8a522d30f897a51e9449fb78ed620828b9 ->
+  plaintext f772318ac2f2a4d500cf73ac8b57cfeaa1aa15c8037e45280d9c38d18b33b2ee (156 rows);
+  runA-official-grades.jsonl.asc 252733dd60d303067e3603d26e0ac99668c564c85169d4d640f2fd587b9c3a38 -> plaintext
+  dc9e09c33ea6c19216e5a947fec5e3023be74c1dbce57715b3f9344d9640db92 (20 rows). All four equal the study lead's
+  stated values. BEAM 100K parquet fetched by the key holder from Mohammadta/BEAM at dataset revision 3205395e:
+  sha256 c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace, equal to the study lead's.
+- 2026-11-17T22:23Z. Seed commitments ("Seed commitment" section). n = 2 seeds, indexes 0..1 (0 = import seed,
+  1 = letter seed). Each seed is secrets.token_hex(32) on the key holder's seat; each nonce is 32 fresh bytes from
+  secrets. Neither seed has been used to derive, draw or order anything.
+  commit_0 = 5d8aeab749a5015c6abfb44776aa85516e9ab552c67fe511a3fc4ba26ed194af
+  commit_1 = 6a2783d01d5174fadbe803544ab6843993283e5895da1231ebfc44051b0c21fa
+- 2026-11-17T22:23Z. Sealed copy of both seeds and nonces (Custody A3): encrypted only to the A3 holder's
+  encryption subkey 0FDDD1AF82D35D0674ADA7AC421508F98C069969 (one recipient packet, counted); ciphertext sha256
+  d17889783688f6ed62e66e46228175c4eab0ee7b5ca9209725daa2acd9d35be5. Chain-of-custody evidence for that copy, not a
+  commitment. It goes to the A3 holder by private means; she states its sha256 on receipt.
