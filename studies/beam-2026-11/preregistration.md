@@ -170,9 +170,18 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
+- Judge prompt: the upstream template as shipped at BEAM commit
+  b2da22eac88bb0874c64665f13457eb99835774a, which our judge ports. That template never shows the judge the
+  question (reported upstream as issue 15). The OFFICIAL and the ADJUSTED columns both use it.
+- A judge that is shown the question is a separate, third column ("question-aware judge"): all items, both
+  arms, the same judge with the question passed in, declared before it is run and reported whichever arm it
+  favours, beside the other two and never folded into ADJUSTED. It corrects a defect of the evaluator, which
+  touches every item in both arms, not the gold answer of one item. Issue 15's own figures (on one run of one
+  system, supplying the question changed the verdict on 160 of 1,051 rubric items) are that reporter's
+  measurement, cited as theirs and not as ours.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
   answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any
-  finding goes upstream it is checked against the benchmark's open issue tracker: a finding already reported
+  finding goes upstream it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported
   there is credited to its reporter, with the issue number, in the study's per-item change log (the one
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
   rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
@@ -186,7 +195,10 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   central result (Lei, 2026-11-17).
 - Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
   in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
-  details, so a reader sees which official answers we dispute and can judge for themselves.
+  details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
+  checked afterwards (the design owner's reading, open to the project lead's tightening): the ADJUSTED contrast
+  appears in the same table and the same summary paragraph as the OFFICIAL one, and that summary states how many
+  official answers we dispute and links to the per-item change log.
 - Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
@@ -293,9 +305,10 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
   watch for changes of mind and contradictions, which BEAM scores directly.
 - The per-turn timeout value, fixed before the first scored run.
-- How two upstream scoring reports bear on our judge, stated before the first scored run: issue 8 (an int()
-  conversion that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of
-  systematic judging bias on 100K conversation 1).
+- How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
+  judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
+  that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
+  judging bias on 100K conversation 1).
 
 ## Deviations log
 
