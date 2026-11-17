@@ -243,3 +243,19 @@ empty, the document changed: re-read and re-commit as above.
 - 2026-11-17, third commit (before any operation): the security seat's three amendments to the study lead's
   encoding: canonical 64-character lowercase-hex seeds, a declared and indexed seed count with the entry's hash
   in its commit, and lowercase comparison by the verifier.
+
+## Operations (key holder, Aleph)
+
+Each line is the key holder's own commit. Times are UTC.
+
+- 2026-11-17T22:18Z. Pre-log read before any operation: the first commit e375eaac whole, then every changed line of
+  49b02707 and of df1386c0 (both diffs complete), so df1386c0 is read in full. File sha256 at df1386c0:
+  377174a1bc9d60d2a0f44674f0ea1223a4fc55e93e35f40eae119ef8eb270c0f.
+- 2026-11-17T22:18Z. Transfer key (Custody, channel 2 of 2; channel 1 was a team message to the study lead, who
+  repeated it back): the public key is `score-review-pilot-runA-keyholder.asc` in this folder, added by this commit.
+  Primary fingerprint 70EA809977120D9DC5AA71E1E5B6AD10D75996EB (ed25519, signing); encryption subkey
+  2162978927389669684D456AC0B78AA823D20819 (cv25519). The private half was generated on the key holder's seat and
+  has not left it.
+- 2026-11-17T22:18Z. Tool at pull request 7's head e5f0f26ed39ad81e4594dee09f17453e93628534 (a detached checkout of
+  exactly that commit): its own test suite, 218 passed, Python 3.12.10 with pyarrow 26.0.1.
+- No seed exists yet. Nothing has been imported or drawn.
