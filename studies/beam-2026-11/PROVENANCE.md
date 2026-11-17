@@ -66,6 +66,13 @@ entries say so.
 | 23:43 | Kepler | Rulings on those ideas: efficiency list and the Knowledge Update and Contradiction Resolution secondary committed before any Phase 1 or Phase 2 result is read; graphs kept, published only as scrubbed text; cascades measured first, no exam sleep schedule. | "(a) and (c) are committed to the plan BEFORE Phase 1 or Phase 2 results are read" | `ob_7529` |
 | 23:52 | Lei | Cascade resolution stays in sleep: resolving at supersede time would make a waiting user wait, and telling when a user is away is unreliable; the exam has no waiting user, but no exam-only switch is added. | "I'd err on the side of keeping cascade in the sleep." | `ob_7535` |
 
+## Decision log, 2026-11-17
+
+| UTC | who | decision | quote | node |
+|---|---|---|---|---|
+| 19:25 | Lei (relayed by Kepler) | The OFFICIAL score is the central result; our adjustments and disagreements with official answers go in a clearly noticeable place in the report, with a pointer to per-item details. | "the OFFICIAL score is the central one" (Kepler's relay of Lei's words) | `ob_7806` |
+| 19:27 | Kepler | Before any finding goes upstream, check the benchmark's issue tracker: credit findings already reported (the evaluator finding is upstream issue 15; disputed gold labels are issues 4 to 7 and 16) and corroborate there rather than report again. | "do not draft a fresh report of the evaluator defect" | `ob_7810` |
+
 ## Corrections (METHODOLOGY section 7)
 
 - 18:52: a first record of Kepler's both-arms ruling cited the wrong evidence and was retracted

@@ -171,14 +171,21 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
-  answer is "confirmed wrong" only after a first-hand check against the conversation text; each one is
-  raised with the BEAM maintainers and cited. The adjusted set is frozen before arm labels are unblinded.
+  answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any
+  finding goes upstream it is checked against the benchmark's open issue tracker: a finding already reported
+  there is credited to its reporter in our change log (with the issue number) and, where we agree, corroborated
+  with a short comment on that issue rather than reported again; only a finding not already reported is raised
+  as a new issue, and every one is cited. The adjusted set is frozen before arm labels are unblinded.
 - Absolute scores are not comparable with the paper's table (different judge). The comparison is
   between our arms.
 
 ## 11. Primary analysis
 
-- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL.
+- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL. The OFFICIAL score is the
+  central result (Lei, 2026-11-17).
+- Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
+  in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
+  details, so a reader sees which official answers we dispute and can judge for themselves.
 - Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
