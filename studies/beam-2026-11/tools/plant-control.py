@@ -28,7 +28,9 @@ Write-target safety (rounds 3 to 5). Two layers, both run BEFORE anything is wri
       the plugin dir that is imported, the evidence dir and the content-addressed evidence file) are resolved with
       realpath. Each but the evidence ones must resolve UNDER the realpath of HOME (so an absolute symlink that points
       back INTO the home, like the arm homes' .engram/tools and .engram/hooks, is fine, and one that points out of it
-      is refused); none may be under, equal to, or an ancestor of a P1_PROTECTED entry's realpath; and MEMORY.md, any
+      is refused); none may be under, equal to, or an ancestor of a P1_PROTECTED entry, decided by DIRECTORY IDENTITY ((st_dev, st_ino) of the
+      resolved path or any existing ancestor against the entry and its ancestors) as well as by realpath strings,
+      because on a case-insensitive filesystem realpath keeps the typed case and one directory has several strings; and MEMORY.md, any
       file in the memory folder, and knowledge.db (and -wal/-shm) must have st_nlink 1.
   (2) THE GUARANTEE, an exact test of the hazard (a write under HOME that reaches a protected inode or directory),
       because ENGRAM's in-process write also writes paths nobody lists (telemetry/*.jsonl, anchoring_advisory.jsonl,
@@ -36,7 +38,7 @@ Write-target safety (rounds 3 to 5). Two layers, both run BEFORE anything is wri
       collected (walked without following links); (b) EVERY entry of HOME is then checked (walked without following
       links): a regular file is refused if its (st_dev, st_ino) is in that set (a hard link of a protected file,
       anywhere under HOME); a symlink is resolved with realpath and refused if the result is under, equal to, or an
-      ancestor of a P1_PROTECTED realpath, or if the resolved target is a regular file whose (st_dev, st_ino) is in
+      ancestor of a P1_PROTECTED entry (by directory identity and by realpath, as in layer 1), or if the resolved target is a regular file whose (st_dev, st_ino) is in
       the set (a symlink to an in-home or outside hard link of a protected file, through any chain of links). A symlink
       to a directory inside HOME needs no following: the walk reaches that directory itself. A directory the walk
       cannot read is a refusal, not a skip. Bytecode writing is switched off (PYTHONDONTWRITEBYTECODE and
@@ -55,8 +57,8 @@ Post-condition (PR 8 fold; the security read's recommendation). In the same pre-
 a SNAPSHOT is taken of every P1_PROTECTED entry (walked without following links): for each regular file and symlink,
 its path and (st_dev, st_ino, st_size, st_mtime_ns) from lstat; for each directory, its sorted entry names. The tool
 exits 2, nothing written, if the snapshot and the inode set disagree on the set of regular files (a protected entry
-changing between the two walks is itself a signal). After the work, on EVERY exit path after the snapshot (success, a
-failing check that exits 1, a refusal, an exception), the entries are walked again and compared. Any difference (a
+changing between the two walks is itself a signal). After the work, on EVERY exit path after the snapshot, that is every exit that
+runs code (success, a failing check that exits 1, a refusal, an exception), the entries are walked again and compared. Any difference (a
 changed tuple, a file added or removed, a changed directory listing, an entry that cannot be read) prints one line per
 changed path, then "PROTECTED CHANGED: <n> path(s)", and the process exits 3, overriding 0, 1 and 2. No difference
 prints "protected unchanged: <files> files, <dirs> dirs in <entries> entries".
@@ -64,7 +66,8 @@ This post-condition is the guarantee's REPORTER, not part of the guarantee: it c
 (a route nobody imagined no longer exits 0 silently). Bounds: anything outside this tool touching a protected entry
 during the run gives a false FAIL (for this control, noisier is the right direction); and a write followed by a
 restore of the size and st_mtime_ns defeats the comparison (an inode is also kept), which is acceptable for a control
-against accidental routes, not against an adversary. A file's content is not hashed.
+against accidental routes, not against an adversary. A file's content is not hashed. A SIGKILL or an OOM kill (out of memory) after the snapshot runs no code in this
+process, reaches no wrapper and leaves no report: that exit has no post-condition line at all.
 Run it with the python of the arm home's own ENGRAM venv (the plugin's dependencies live there).
 
 Round 2: the built-in note is also listed in the folder's MEMORY.md (the index the student finds the folder
@@ -98,9 +101,44 @@ def under(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def related(a, b):
-    """True if the realpath of `a` is under, equal to, or an ancestor of the realpath of `b`."""
-    return under(a, b) or under(b, a)
+def _identity(path):
+    """(st_dev, st_ino) of `path`, or None if it does not exist or cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+def _identity_chain(path):
+    """The identities of `path` and of every existing ancestor of it (a path that does not exist has none of its own;
+    its nearest existing ancestors still count)."""
+    ids = set()
+    while True:
+        key = _identity(path)
+        if key is not None:
+            ids.add(key)
+        parent = os.path.dirname(path)
+        if parent == path:
+            return ids
+        path = parent
+
+
+def related(a, b, b_chain=None):
+    """PC-6. True if `a` is under, equal to, or an ancestor of `b`, by DIRECTORY IDENTITY: (st_dev, st_ino) of `a`
+    or of an existing ancestor of `a` equals that of `b` (a under or equal to b), or the identity of `a` equals that
+    of `b` or of an ancestor of `b` (a an ancestor of b). Path strings from realpath are compared as well (belt: a
+    path that does not exist has no inode), but on a case-insensitive filesystem realpath keeps the typed case, so
+    the strings alone can call one directory two different paths. `b_chain` = precomputed _identity_chain(b)."""
+    if under(a, b) or under(b, a):
+        return True
+    a_ra = os.path.realpath(a)
+    b_ra = os.path.realpath(b)
+    b_chain = _identity_chain(b_ra) if b_chain is None else b_chain
+    a_chain = _identity_chain(a_ra)
+    b_self = _identity(b_ra)
+    a_self = _identity(a_ra)
+    return (b_self is not None and b_self in a_chain) or (a_self is not None and a_self in b_chain)
 
 
 def refuse_unsafe_targets(home, protected, in_home, anywhere):
@@ -153,6 +191,7 @@ def refuse_unsafe_home_scan(home, protected, prot_keys):
     its own (st_dev, st_ino) is in `prot_keys`. A symlink to a directory inside the home is not followed: the walk
     reaches that directory itself. Links out of the home are not followed either."""
     prot_real = [os.path.realpath(p) for p in protected]
+    prot_chain = {p: _identity_chain(p) for p in prot_real}  # computed once
     for root, dirs, files in os.walk(home, followlinks=False, onerror=_cannot_read):
         for name in dirs + files:
             path = os.path.join(root, name)
@@ -161,7 +200,7 @@ def refuse_unsafe_home_scan(home, protected, prot_keys):
             if stat.S_ISLNK(st.st_mode):
                 rp = os.path.realpath(path)
                 for prot in prot_real:
-                    if related(rp, prot):
+                    if related(rp, prot, prot_chain[prot]):
                         refuse(f"the symlink {rel} points to {rp}, which is under or above a P1_PROTECTED path "
                                f"({prot}): a write through it would change a preserved home")
                 try:

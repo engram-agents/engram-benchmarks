@@ -999,6 +999,8 @@ HOOK = (
     "        os.remove(target)\n"
     "    elif mode == 'utime':\n"
     "        st = os.stat(target); os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))\n"
+    "    elif mode == 'grow-restore-mtime':\n"
+    "        st = os.stat(target); open(target, 'a').write('grown'); os.utime(target, ns=(st.st_atime_ns, st.st_mtime_ns))\n"
     "    elif mode == 'chmod0':\n"
     "        os.chmod(target, 0)\n"
     "    if mode in ('raise', 'append-raise'):\n"
@@ -1136,6 +1138,14 @@ def test_an_mtime_only_change_is_caught(arm_home, tmp_path):
     assert "PROTECTED CHANGED: 1 path(s)" in r.stdout, said(r)
 
 
+# PC-7 (colleague read, note 2): SIZE is compared on its own. The size changes and st_mtime_ns is restored with os.utime.
+def test_a_size_change_with_the_mtime_restored_is_caught(arm_home, tmp_path):
+    prot = protected_dir(tmp_path)
+    r = run_hooked(arm_home, tmp_path, prot, "grow-restore-mtime", prot / "keep.jsonl")
+    assert r.returncode == 3 and str(prot / "keep.jsonl") in r.stdout, said(r)
+    assert "PROTECTED CHANGED: 1 path(s)" in r.stdout, said(r)
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads any directory")
 def test_an_entry_unreadable_at_the_rewalk_is_a_change(arm_home, tmp_path):
     prot = protected_dir(tmp_path)
@@ -1160,4 +1170,112 @@ def test_refuses_when_a_protected_file_appears_between_the_inode_walk_and_the_sn
 def test_the_docstring_states_the_post_condition_and_its_bounds():
     doc = open(TOOL, encoding="utf-8").read().split('"""')[1].lower()
     for phrase in ("post-condition", "exit 3", "reporter", "cannot undo", "restore"):
+        assert phrase in doc, phrase
+
+
+# ================================================================ PR 8 FOLD 2: PC-6 directory identity, PC-5 kill bound
+# PC-6: related() must not depend on path STRINGS alone. On a case-insensitive filesystem realpath keeps the typed
+# case, so one directory has several realpath strings. The relation is tested by (st_dev, st_ino): P is related to a
+# protected entry E if P or an existing ancestor of P is E (P under or equal), or P is E or an ancestor of E.
+# Cells (i) and (ii): Linux is case-sensitive and os.path.realpath always returns the canonical string, so no second
+# string for one directory is constructible with real paths and no bind mount. Instead realpath is monkeypatched to
+# return a case-variant (swapcase) string for ONE link path, and os.stat/os.lstat resolve that variant back to the
+# real path (as a case-insensitive filesystem would); the string test alone then sees two different paths.
+@pytest.fixture
+def case_variant(monkeypatch):
+    real_realpath, real_stat, real_lstat = os.path.realpath, os.stat, os.lstat
+    links = set()
+
+    def realpath(p, *a, **k):
+        r = real_realpath(p, *a, **k)
+        return r.swapcase() if os.fspath(p) in links else r
+
+    def lenient(fn):
+        def inner(path, *a, **k):
+            try:
+                return fn(path, *a, **k)
+            except FileNotFoundError:
+                return fn(os.fspath(path).swapcase(), *a, **k)
+        return inner
+    monkeypatch.setattr(os.path, "realpath", realpath)
+    monkeypatch.setattr(os, "stat", lenient(real_stat)); monkeypatch.setattr(os, "lstat", lenient(real_lstat))
+    return lambda link: links.add(str(link))
+
+
+def test_a_case_variant_realpath_of_a_protected_dir_is_related_by_identity(tmp_path, case_variant):
+    m = load_tool()
+    prot = tmp_path / "prot"; (prot / "sub").mkdir(parents=True)
+    link = tmp_path / "lnk"; link.symlink_to(prot / "sub")
+    case_variant(link)
+    assert os.path.realpath(str(link)) != os.path.realpath(str(prot / "sub")), "the cell must produce a second string"
+    assert m.related(str(link), str(prot)) is True  # (i) under the protected entry
+
+
+def test_a_case_variant_realpath_of_an_ancestor_of_a_protected_dir_is_related_by_identity(tmp_path, case_variant):
+    m = load_tool()
+    top = tmp_path / "top"; prot = top / "inner" / "prot"; prot.mkdir(parents=True)
+    link = tmp_path / "up"; link.symlink_to(top)
+    case_variant(link)
+    assert m.related(str(link), str(prot)) is True  # (ii) the link's directory is an ANCESTOR of the entry
+
+
+def test_the_home_scan_refuses_a_symlink_whose_realpath_string_differs_only_in_case(tmp_path, case_variant):
+    m = load_tool()
+    prot = tmp_path / "prot"; prot.mkdir(); (prot / "k").write_text("k")
+    home = tmp_path / "home"; home.mkdir()
+    link = home / "lnk"; link.symlink_to(prot)
+    case_variant(link)
+    with pytest.raises(SystemExit) as e:
+        m.refuse_unsafe_home_scan(str(home), [str(prot)], m.protected_inodes([str(prot)]))
+    assert e.value.code == 2
+
+
+def test_a_real_second_directory_is_related_in_both_directions_without_any_patching(tmp_path):
+    m = load_tool()
+    prot = tmp_path / "x" / "prot"; (prot / "sub").mkdir(parents=True)
+    assert m.related(str(prot / "sub"), str(prot)) and m.related(str(prot), str(prot))
+    assert m.related(str(tmp_path / "x"), str(prot))  # ancestor direction
+    assert m.related(str(tmp_path / "x" / "gone"), str(prot)) is False  # not-yet-existing, unrelated: string test only
+
+
+# (iii) a similar string prefix is not a relation
+def test_a_directory_with_a_similar_string_prefix_is_not_related(tmp_path):
+    m = load_tool()
+    prot = tmp_path / "x" / "prot"; prot.mkdir(parents=True)
+    other = tmp_path / "x" / "prot2"; other.mkdir()
+    assert m.related(str(other), str(prot)) is False and m.related(str(prot), str(other)) is False
+
+
+def test_the_identity_relation_compares_the_device_as_well_as_the_inode(tmp_path, monkeypatch):
+    """A directory with the protected entry's st_ino on ANOTHER st_dev is a different directory (device faked for that
+    one path; with the real numbers the cell would see no collision at all, so the fake supplies the same ino)."""
+    m = load_tool()
+    prot = tmp_path / "prot"; prot.mkdir()
+    other = tmp_path / "other"; other.mkdir()
+    ps, real_stat = os.stat(prot), os.stat
+
+    def fake(path, *a, **k):
+        st = real_stat(path, *a, **k)
+        if os.fspath(path) == str(other):
+            f = list(st); f[1] = ps.st_ino; f[2] = ps.st_dev + 1  # st_ino, st_dev
+            return os.stat_result(f)
+        return st
+    monkeypatch.setattr(os, "stat", fake)
+    assert m.related(str(other), str(prot)) is False
+
+
+def test_a_symlink_to_an_unprotected_dir_whose_neighbour_is_protected_is_still_allowed_end_to_end(arm_home, tmp_path):
+    """NEGATIVE guard on the identity test: an in-home link to an unprotected cache dir and a foreign venv link stay
+    allowed (same layouts as the existing negative cells), now under the identity relation."""
+    prot = protected_dir(tmp_path)
+    cache = tmp_path / "prot2"; cache.mkdir(); (cache / "model.bin").write_text("w")  # a similar prefix
+    (arm_home / ".engram" / "hf-cache").symlink_to(cache)
+    r = plant(arm_home, tmp_path / "evidence", str(prot))
+    assert r.returncode == 0, said(r)
+
+
+# PC-5 / PC-2: the docstring enumerates the exits honestly and says what the post-condition cannot report
+def test_the_docstring_states_the_exit_enumeration_and_the_kill_bound():
+    doc = " ".join(open(TOOL, encoding="utf-8").read().split('"""')[1].lower().split())
+    for phrase in ("every exit that runs code", "sigkill", "oom", "no report", "directory identity"):
         assert phrase in doc, phrase
