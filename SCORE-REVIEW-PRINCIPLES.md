@@ -100,16 +100,19 @@ tooling:
 - **Step 2b.** Only after the step-2a judgement is committed does a separate export, run by the study lead, show
   the reviewer the criterion (an exception to "Not given" above, for this step only, recorded in the reviewer's
   per-item exposure log). The reviewer judges the criterion
-  itself (correct, partly correct or wrong: does the source support it, and does it ask for the right thing). A
-  step-2b judgement cannot change step 2a; a change of mind is a superseding step-2a record with its reason,
-  visible to phase 3.
+  itself (correct, partly correct or wrong: does the source support it, and does it ask for the right thing) and,
+  when it is not correct, writes the fuller criterion. Whether the item as a whole is ambiguous is judged in step
+  2a, before the criterion is seen. A step-2b judgement cannot change step 2a; a change of mind is a superseding
+  step-2a record with its reason. A step-2a record superseded after the criterion was shown is exactly the
+  anchored read this procedure exists to avoid, so such an item always goes to phase 3, which sees both the
+  original and the latest step-2a record; the latest is the one mapped to an outcome.
 
 **Everywhere else in this document, for a criterion item:** "the official answer" means the criterion, "the settled
 answer" means the settled criterion, and rewriting a rubric starts from the settled criterion. The phase-1 packet
 shows the criterion where it would mark the official answer; phase 3 and the re-keyed output label it "criterion".
 
 For these items there is no official-answer guess (they are left out of that guess rate); the arm guess is still
-recorded. *Known limits:* a packet with
+recorded, at the end of step 2a, before the criterion is shown. *Known limits:* a packet with
 no official answer tells the reviewer what kind of item it is, so the category is not hidden for these items; and
 with a single agent answer (single-arm data) there is nothing to compare it with, only an unanchored read.
 
@@ -143,7 +146,8 @@ rules, so any such ruling is visible in the log.
 
 ### 5a. Mechanics (blinding by construction, METHODOLOGY section 5)
 
-- The data the phase-2 tooling reads holds only what phase 2 may see. Answer ids carry no meaning and differ from
+- The data the phase-2 packet tooling reads holds only what phase 2 may see (the one exception is the step-2b
+  export of section 4, which reads a criterion only after the committed step-2a record exists). Answer ids carry no meaning and differ from
   item to item, so neither an id nor a position says which answer is official or which arm an answer came from;
   which answer is official, the grades, the rubric, the category and the arms live in separate files the phase-2
   packet builder never opens.
