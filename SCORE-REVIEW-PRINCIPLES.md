@@ -38,7 +38,7 @@ An **item** is one question. In a study with several arms, an item carries one a
 |---|---|
 | 1, the teacher | **every item**, and every arm's answer to it |
 | 2, the external exam expert | the union of: (a) every item where any arm's answer is below full official score; (b) every item where the phase-1 outcome is anything other than "Key stands"; (c) a fixed number of the remaining items, drawn with a seed |
-| 3, the district official | every phase-2 item **except** the unquestioned controls: items where every arm's answer has full official score and both phase 1 and phase 2 map to "Key stands" |
+| 3, the district official | every phase-2 item **except** the unquestioned controls: items where every arm's answer has full official score and both phase 1 and phase 2 map to "Key stands", and no step-2a record was superseded after the criterion was shown (section 4) |
 
 The number drawn in (c) and its seed are fixed and logged **before any phase-1 outcome exists for that run**, so
 the sample cannot follow the results: in the study's pre-registration for a scored study, in the study's log for
@@ -73,7 +73,9 @@ directory.
 
 - **Given:** the question text; the full source material; the official answer and every arm's answer, labelled
   with letters in a random order, each with the messages it cites, listed in the same form. An answer that
-  cites no messages is listed with "(no messages cited)".
+  cites no messages is listed with "(no messages cited)". If the cited messages of any answer in the item are
+  unknown (for example an agent answer imported without its citations), no answer's cited messages are listed,
+  since a citation line under only one answer would mark it.
 - **Not given:** the rubric or key-point list; the question's category; any metadata field that frames the item
   (for example "tests for", "why unanswerable", contradiction type, difficulty); which answer is the official
   one and which are the agents'; any grade; the teacher's judgement.
@@ -137,7 +139,8 @@ discuss it once, with the fact list in front of them. If they still disagree aft
 
 If the project lead is unavailable, the item **waits**: its adjusted entry reads "pending". Without the project
 lead, only two kinds of item are settled, and neither changes a grade: an item phase 2 does not review (it keeps
-its official grade, section 2) and an unquestioned control (section 2).
+its official grade, section 2) and an unquestioned control (section 2, which excludes any item whose step-2a record
+was superseded after the criterion was shown).
 
 *Known limit:* phase 3 is not blind. The project lead knows which answer is the official one and belongs to the
 team under test. Phase 3 can block a correction but cannot impose one alone: a ruling against phases 1 and 2
@@ -147,7 +150,8 @@ rules, so any such ruling is visible in the log.
 ### 5a. Mechanics (blinding by construction, METHODOLOGY section 5)
 
 - The data the phase-2 packet tooling reads holds only what phase 2 may see (the one exception is the step-2b
-  export of section 4, which reads a criterion only after the committed step-2a record exists). Answer ids carry no meaning and differ from
+  export of section 4, which reads a criterion only after the committed step-2a record exists). Item ids carry no
+  meaning either (no question number or position, which can imply the category). Answer ids carry no meaning and differ from
   item to item, so neither an id nor a position says which answer is official or which arm an answer came from;
   which answer is official, the grades, the rubric, the category and the arms live in separate files the phase-2
   packet builder never opens.
@@ -159,7 +163,8 @@ rules, so any such ruling is visible in the log.
   prints each item's phase-2 outcome and phase-2 judgement re-keyed from letters to "official" and the arm-blind
   answer ids (never the letters, never arm labels), into the phase-3 packet. It re-keys an item only after that
   item's phase-2 judgement is recorded with its hash (for a criterion item: the latest step-2a record, superseding
-  ones included, together with the step-2b record). The key file itself is revealed only into the study's log,
+  ones included, together with the step-2b record; where a step-2a record was superseded after the criterion was
+  shown, the original step-2a record as well). The key file itself is revealed only into the study's log,
   only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every reveal is
   logged with its time. An unlogged reveal is the one way this seat can break the design.
 - *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
