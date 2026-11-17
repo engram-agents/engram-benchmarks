@@ -364,3 +364,9 @@ Each line is the study lead's own commit. Times are UTC.
   e728feacb7 06952d1c075392b14932cf502bbe020e4cb2e939ec7965720ab56bf0d3b78c0e cf689b379aa575275a6ca68422553e43da45ffe7318475037053a77d9d0d7573
   ecbeaa3683 3b7300af3d9b33eb777bb793a48be79fe9e2e29dbc06aeb70169235582212616 0dcc3fafc3b1a6b051de96bb383ce38613125c4b28b7000720c9810d7fbb502e
   fccd2b7a3b a0e22d9c63d20c171b6fdd8ecb5f48ba016c8d4b37a7ca5b55b4b70cbcf43f05 c42f40f33dca36d67eb2fa7c079415455e7c86645d46365bfa26d4eed1d97cc6
+- 2026-11-17T23:00Z. Phase-1 packets received by the study lead (his receipt, team channel): 20 files; ciphertext
+  sha256 equal 20/20 to the lines above; each a single recipient packet to his subkey 711D6E77CEC5D314;
+  decrypted with his own key into a 0700 directory; plaintext sha256 equal 20/20 (control: a one-character change
+  to an expected hash does not match). At rest 0700 directory, 20 files 0600, no ACL mask or named entries.
+  Phase 1 started. Phase-1 records return encrypted to the key holder's subkey
+  2162978927389669684D456AC0B78AA823D20819, and their manifest is committed here before any phase-2 packet.
