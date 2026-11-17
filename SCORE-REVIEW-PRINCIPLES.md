@@ -72,10 +72,10 @@ directory.
 **The packet**, one per item, contains exactly what the agent was given, plus the answers:
 
 - **Given:** the question text; the full source material; the official answer and every arm's answer, labelled
-  with letters in a random order. Cited messages are listed only when every answer in the item comes with a
-  citation list (possibly empty) from the same kind of source; then each answer's list is shown in the same form,
-  and an empty one reads "(no messages cited)". Otherwise no answer's cited messages are listed, since a citation
-  line under only one answer, or an empty line only under one, would mark it. This settles the case where an
+  with letters in a random order. Cited messages are listed only when every answer in the item cites at least
+  one message; then each answer's list is shown in the same form. Otherwise no answer's cited messages are
+  listed, and the packet says once that they are not shown for this item, since a citation line under only one
+  answer, or an empty one under only one, would mark it. This settles the case where an
   answer's citations are absent by construction, not merely unknown: an agent answer imported without its
   citations, or an official answer whose key records no reference (in BEAM's 100K tier, none of the 40
   abstention items has a reference field, while every item of the other nine categories has one). A study names,
