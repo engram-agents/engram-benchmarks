@@ -12,7 +12,7 @@ import textwrap
 
 import pytest
 
-from helpers import Store, assert_refused, forge_verdict, read_jsonl, run
+from helpers import Store, assert_refused, forge_export, forge_verdict, read_jsonl, run
 from test_round2 import CStore
 
 NEUTRAL = "Cited messages: not shown for this item"
@@ -230,6 +230,7 @@ def test_s2_criterion_items_need_a_phase1_for_the_2a_and_a_2a_and_2b_for_phase3(
     assert not s.verdicts.exists() or _bytes(s) == before
     # a 2b with no phase 1 (the 2a is forged past the rule): still refused
     forge_verdict(s.verdicts, item_id="k2", phase=2, step="2a", reviewer="expert", keyed_by="letter", judgement=lj)
+    forge_export(s, item_id="k2")  # so the refusal is about the missing phase 1, not the missing export
     before = _bytes(s)
     assert_refused(s.record("k2", 2, "expert", s.vd("k2", {"criterion": "correct"}, step="2b")))
     assert _bytes(s) == before
@@ -463,4 +464,5 @@ def test_a4_check_a_2b_may_carry_the_fuller_criterion_and_item_ambiguity_is_a_2a
     t.p1("k3")
     t.packet2("k3")
     t.ok("k3", 2, "expert", t.vd("k3", {"ambiguous": "source"}, step="2a"))
+    forge_export(t, item_id="k3")  # so the refusal is about ambiguity in a 2b, not the missing export
     assert_refused(t.record("k3", 2, "expert", t.vd("k3", {"ambiguous": "source"}, step="2b")))

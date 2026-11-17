@@ -182,18 +182,23 @@ A criterion is visibly not an answer, so an A/B blind between "official" and age
   `criterion_text`, `criterion_lists` (from metadata), the item id, the reviewer, the time and the 2a record's hash. The
   reviewer then records `step: "2b"`, whose judgement has exactly one key, `criterion`: `correct`, `partly` or `wrong`.
   `record` refuses a 2b carrying any other key (an agent-answer judgement, a letter, `ambiguous`) or a guess, and refuses a 2b
-  without a 2a by the same reviewer.
+  without a 2a by the same reviewer, and **refuses a 2b unless an export record for the same item and the same reviewer is
+  earlier in the verdicts file** (the message names the missing export): a 2b judges the criterion, so it cannot exist
+  before the reviewer was shown it, and the reveal event must be in the store for the anchoring rule below to read it.
 - **The export record.** The reveal is an event in the verdict store, not an inference from the 2b: `export-criterion`
   appends `{"schema_version": 1, "kind": "export_2b", "item_id", "reviewer", "exported_at", "after_2a_record_sha256",
   "record_sha256"}` (the effective 2a it was made after; the hash is computed like a verdict's) through the same single
   append as `record`, before it releases the criterion. It is not a verdict: it has no `phase`, and nothing counts it as a
   reviewer's phase record (`effective`, the one-reviewer rule, the order rule, `has_phase2_record`, `draw`, the arm-guess
   statistic). A second export for the same item and reviewer is allowed and recorded; the first one is the boundary. A
-  tampered export record makes every reader refuse, like a tampered verdict.
+  tampered or malformed export record (a missing `item_id`, `reviewer`, `exported_at` or `after_2a_record_sha256`) makes
+  every reader refuse with a message, like a tampered verdict. The record an export names must be a verdict for the same
+  item, phase 2, step 2a and the same reviewer, else `map` refuses ("names a record that is not this reviewer's 2a for this
+  item").
 - **Changing a 2a** needs a new 2a with `--supersedes` and `--reason` (the supersession key includes the step). What it
   does depends on the file order against the reviewer's FIRST export record. **Before the export** it is an ordinary
   correction: the latest 2a is the one mapped and nothing is forced. **After the export** (before or after the 2b record)
-  the criterion has been shown and the item is the anchored case: the ORIGINAL 2a, the one named by that export's
+  the criterion has been shown and the item is the anchored case: the ORIGINAL 2a (the one the arm-guess statistic reads too), the one named by that export's
   `after_2a_record_sha256` (the unanchored second read), is the one mapped; the later 2a is carried beside it as
   `post_reveal_revision` (`reviewer`, `record_sha256`, `judgement`, `fuller_answer`, `facts`, `reason`) and shown in the
   report labelled "post-reveal revision"; and the item is **forced into the phase-3 set whatever the outcomes**, never an

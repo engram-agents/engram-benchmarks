@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, hid, in_grade_order, read_jsonl, run, write_json
+from helpers import Store, assert_refused, build_flow, forge_export, hid, in_grade_order, read_jsonl, run, write_json
 
 
 def _beam():
@@ -484,6 +484,7 @@ def _bytes(s):
 def test_cell18_a_2b_with_any_key_other_than_criterion_is_refused(tmp_path):
     s = CStore(tmp_path)
     s.p2a("k2", {"x": "correct", "y": "partly"})  # (records the phase-1 verdict first)
+    forge_export(s, item_id="k2")  # past the 2b-needs-its-export rule, so each refusal below is about the shape
     before = s.verdicts.read_bytes()
     x = s.ids["k2"]["x"]
     for j in ({"criterion": "correct", x: "correct"}, {"criterion": "correct", "A": "correct"},
@@ -501,6 +502,8 @@ def test_cell18_a_2b_with_any_key_other_than_criterion_is_refused(tmp_path):
 def test_cell18_a_2b_needs_a_2a_by_the_same_reviewer(tmp_path):
     s = CStore(tmp_path)
     s.p1("k2")  # the order rule is met, so the refusals below are about the missing 2a
+    forge_export(s, item_id="k2")
+    forge_export(s, item_id="k2", reviewer="other")  # exports exist for both: only the 2a rule can refuse
     _refused(s, lambda: s.record("k2", 2, "expert", s.vd("k2", {"criterion": "correct"}, step="2b")))
     s.p2a("k2", {"x": "correct", "y": "partly"}, reviewer="expert")
     _refused(s, lambda: s.record("k2", 2, "other", s.vd("k2", {"criterion": "correct"}, step="2b")))
@@ -638,6 +641,7 @@ def test_cell19_map_merges_the_facts_of_2a_and_2b(tmp_path):
                       "against_own": False}
     s.ok("k2", 2, "expert", s.vd("k2", {A: "correct", s.letter("k2", s.ids["k2"]["y"]): "partly"}, step="2a",
                                  facts=[fact(A)]))
+    assert s.export_criterion("k2")[0].returncode == 0  # a 2b needs its export record (A8-1)
     s.ok("k2", 2, "expert", s.vd("k2", {"criterion": "correct"}, step="2b", facts=[fact("criterion")]))
     facts = s.outcomes()["k2"]["facts"]
     assert len(facts) == 2 and sorted(f["bears_on"] for f in facts) == sorted(["criterion", s.ids["k2"]["x"]])

@@ -141,10 +141,16 @@ def load_verdicts(path, required=False):
         if r.get("record_sha256") != canonical_sha(r):
             raise UserError("verdict record %s does not recompute its record_sha256 (file altered?)"
                             % str(r.get("record_sha256"))[:12])
+        if r.get("kind") == EXPORT_KIND:
+            missing = [k for k in EXPORT_FIELDS if not isinstance(r.get(k), str) or not r.get(k)]
+            if missing:
+                raise UserError("an export record (%s) is malformed: missing %s"
+                                % (str(r.get("record_sha256"))[:12], ", ".join(missing)))
     return rows
 
 
 EXPORT_KIND = "export_2b"
+EXPORT_FIELDS = ("item_id", "reviewer", "exported_at", "after_2a_record_sha256")
 
 
 def is_verdict(rec):
@@ -343,8 +349,9 @@ def check_quotes(facts, chat):
             raise UserError("quote is not verbatim in message %d: %r" % (f["msg_id"], f["quote"]))
 
 
-def check_order(live, iid, phase, step, reviewer, criterion):
-    """Phases are recorded in order (S2): 2 after 1, 3 after both (a criterion item: after 1, 2a and 2b)."""
+def check_order(live, iid, phase, step, reviewer, criterion, rows):
+    """Phases are recorded in order (S2): 2 after 1, 3 after both (a criterion item: after 1, 2a and 2b).
+    `rows` is the whole store, export records included: a 2b needs its export (A8-1)."""
     def has(ph, st=None):
         return any((r["item_id"], r["phase"], r.get("step")) == (iid, ph, st) for r in live)
     if phase >= 2 and not has(1):
@@ -355,6 +362,11 @@ def check_order(live, iid, phase, step, reviewer, criterion):
     if step == "2b" and not any((r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (iid, 2, "2a", reviewer)
                                 for r in live):
         raise UserError("a 2b record needs a recorded 2a record for this item by the same reviewer")
+    if step == "2b" and not any(r.get("kind") == EXPORT_KIND and (r["item_id"], r["reviewer"]) == (iid, reviewer)
+                                for r in rows):
+        raise UserError("a 2b record needs an export-criterion record for this item and this reviewer (%s) earlier in "
+                        "the verdicts file: run export-criterion first; the criterion is not judged before it is shown"
+                        % reviewer)
 
 
 def cmd_record(a):
@@ -381,7 +393,7 @@ def cmd_record(a):
     rows = load_verdicts(a.verdicts)
     iid = item["item_id"]
     live = effective(rows)
-    check_order(live, iid, phase, body["step"], a.reviewer, grade.get("reference_kind", "answer") == "criterion")
+    check_order(live, iid, phase, body["step"], a.reviewer, grade.get("reference_kind", "answer") == "criterion", rows)
     # one EFFECTIVE record per (item, phase, step), whoever the reviewer: a second reviewer would make `map` refuse
     # the whole study, so it is refused here unless it supersedes the current record, with a reason
     prior = [r for r in live if (r["item_id"], r["phase"], r.get("step")) == (iid, phase, body["step"])]
@@ -545,7 +557,7 @@ class Ctx:
         if head["reviewer"] != r2b["reviewer"]:
             raise UserError("item %s: the 2a and 2b records are by different reviewers" % item)
         change = self.criterion_change(item)
-        out = self.rekey(item, change[0] if change else head)
+        out = self.rekey(item, self.mapped_head(item))
         if "ambiguous" not in out["judgement"]:
             out["judgement"] = dict(out["judgement"], criterion=r2b["judgement"]["criterion"])
         out["facts"] = list(out["facts"]) + [dict(f) for f in r2b["facts"]]
@@ -566,6 +578,7 @@ class Ctx:
         it releases the criterion); order is the file's, which the append-only store witnesses (a timestamp has a
         one-second grain). The original is the 2a that export names (`after_2a_record_sha256`): the 2a as it
         stood when the criterion was shown. A 2a superseded before the export is an ordinary correction.
+        The named record must be a verdict of this item, phase 2, step 2a, by the same reviewer, else refused.
         """
         r2a, r2b = self.phase_record(item, 2, "2a"), self.phase_record(item, 2, "2b")
         if r2a is None or r2b is None:
@@ -585,7 +598,20 @@ class Ctx:
         if original is None:
             raise UserError("item %s: the criterion export names a 2a record (%s) that is not in the verdicts file"
                             % (item, str(named)[:12]))
+        if (original["item_id"], original["phase"], original.get("step"), original["reviewer"]) != (item, 2, "2a", who):
+            raise UserError("item %s: the criterion export names a record (%s) that is not this reviewer's 2a for this "
+                            "item" % (item, str(named)[:12]))
         return (original, r2a)
+
+    def mapped_head(self, item):
+        """The one phase-2 record whose judgement `map` takes for an item's phase 2 (its 2a for a criterion item,
+        the ORIGINAL when the 2a changed after the export): the single definition `phase2` and the arm-guess
+        statistic both read. None when the item has no such record."""
+        head = self.phase_record(item, 2, self._opening_step(item))
+        if head is None or not self.is_criterion(item):
+            return head
+        change = self.criterion_change(item)
+        return change[0] if change else head
 
     def key_path(self, item):
         return os.path.join(self.keys_dir, "%s.json" % item)
@@ -885,14 +911,14 @@ def _guess_section(outcomes, items, arm_stats, unblind):
 
 
 def _arm_guess_stats(a, items, grades):
-    rows = load_verdicts(a.verdicts, required=True)
+    ctx = Ctx(a.items, a.grades, a.verdicts, a.keys_dir)
     tot = hit = 0
     chance = 0.0
-    for r in effective(rows):
-        g = r.get("guesses")
-        if r["phase"] != 2 or not g or not g.get("arms"):
+    for item in sorted(ctx.items):
+        r = ctx.mapped_head(item)  # the mapped 2a (the original when it changed after the export), as the official guess
+        g = r.get("guesses") if r else None
+        if not g or not g.get("arms"):
             continue
-        item = r["item_id"]
         with open(os.path.join(a.keys_dir, "%s.json" % item), "r", encoding="utf-8") as fh:
             letters = json.load(fh)["letters"]
         arms = grades[item]["arms"]

@@ -64,6 +64,23 @@ def forge_verdict(verdicts_path, **fields):
     return rec["record_sha256"]
 
 
+EXPORT_FIELDS = {"schema_version": 1, "kind": "export_2b", "item_id": "k1", "reviewer": "expert",
+                 "exported_at": "2026-01-01T00:00:00Z", "after_2a_record_sha256": "0" * 64}
+
+
+def forge_export(store, drop=(), **over):
+    """Append a hand-built, hash-valid export record (what `export-criterion` writes, without its checks), so a cell
+    that tests another refusal rule still reaches that rule past the 2b-needs-its-export rule (A8-1)."""
+    import score_review
+    rec = dict(EXPORT_FIELDS, **over)
+    for k in drop:
+        rec.pop(k)
+    rec["record_sha256"] = score_review.canonical_sha(rec)
+    with open(store.verdicts, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec, sort_keys=True) + "\n")
+    return rec["record_sha256"]
+
+
 def level(scores):
     if all(s == 1.0 for s in scores):
         return "full"
