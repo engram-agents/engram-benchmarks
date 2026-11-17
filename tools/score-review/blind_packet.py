@@ -4,6 +4,7 @@ Blind by construction: this module takes the items file and a seed, and nothing 
 parameter, import or code path that could reach any other study file, so what it writes cannot
 carry anything that file does not hold. It writes the standalone packet and the letter key.
 """
+import glob
 import hashlib
 import json
 import os
@@ -92,44 +93,58 @@ def _drop(path):
         pass
 
 
+def _stale_temps(path):
+    """Temporary files an earlier, killed run left beside `path` (named <path>.tmp-<pid>)."""
+    return sorted(glob.glob(glob.escape(path) + ".tmp-*"))
+
+
+def _place(tmp, path):
+    """Hard-link the staged file to path: atomic, and it fails if path exists, so it is never an overwrite."""
+    try:
+        os.link(tmp, path)
+    finally:
+        _drop(tmp)
+
+
 def write_packet(items_path, item_id, seed, keys_dir, out_dir, chat_path=None):
     """Write packets/phase2/<item>.md and keys/<item>.json. Returns (packet_path, key_path, key_sha256).
 
-    The packet is written first and the key last, each through a temporary file and an atomic rename, so a
-    failure leaves no key without its packet and no half-written file. An existing key file is never read
-    and never overwritten: the builder refuses instead.
+    The packet is written first and the key last, each through a temporary file and a hard link, so a failure
+    leaves no key without its packet and no half-written file. An existing packet or key is never read and never
+    overwritten: the builder refuses instead. Because the packet is placed the same way, a packet that exists when
+    the key stage fails is always this run's own, and it is then removed. A stale temporary file beside either
+    output (a killed run's residue) is refused by name, never ignored.
     """
     item = load_item(items_path, item_id)
     key_path = os.path.join(keys_dir, "%s.json" % item_id)
-    if os.path.exists(key_path):
+    packet_path = os.path.join(out_dir, "%s.md" % item_id)
+    stale = _stale_temps(packet_path) + _stale_temps(key_path)
+    if stale:
+        raise ValueError("a stale temporary file from an interrupted run sits beside the outputs: %s; "
+                         "check it and remove it, then run again" % ", ".join(stale))
+    if os.path.lexists(key_path):
         raise ValueError("a key file already exists for %s; it is never overwritten" % item_id)
+    if os.path.lexists(packet_path):
+        raise ValueError("a packet already exists for %s; it is never overwritten" % item_id)
     chat = load_chat(chat_path) if chat_path else None
     text, letters = build_packet(item, seed, chat)
     key = {"schema_version": 1, "item_id": item_id, "seed": seed, "letters": letters}
     key_bytes = (json.dumps(key, sort_keys=True) + "\n").encode("utf-8")
     os.makedirs(keys_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
-    packet_path = os.path.join(out_dir, "%s.md" % item_id)
-    had_packet = os.path.lexists(packet_path)
     tmp_packet = _stage(packet_path, text.encode("utf-8"))
     try:
-        os.replace(tmp_packet, packet_path)
-    except BaseException:
-        _drop(tmp_packet)
-        raise
-    tmp_key = None
+        _place(tmp_packet, packet_path)
+    except FileExistsError:
+        raise ValueError("a packet already exists for %s; it is never overwritten" % item_id)
+    # From here the packet is this run's own: the link above would have failed on any other file.
     try:
         tmp_key = _stage(key_path, key_bytes)
-        os.link(tmp_key, key_path)  # atomic, and it fails if a key appeared meanwhile: never an overwrite
+        _place(tmp_key, key_path)
     except FileExistsError:
-        if not had_packet:
-            _drop(packet_path)
+        _drop(packet_path)
         raise ValueError("a key file already exists for %s; it is never overwritten" % item_id)
     except BaseException:
-        if not had_packet:
-            _drop(packet_path)
+        _drop(packet_path)
         raise
-    finally:
-        if tmp_key is not None:
-            _drop(tmp_key)
     return packet_path, key_path, hashlib.sha256(key_bytes).hexdigest()

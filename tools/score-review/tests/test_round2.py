@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, hid, read_jsonl, run, write_json
+from helpers import Store, assert_refused, build_flow, hid, in_grade_order, read_jsonl, run, write_json
 
 
 def _beam():
@@ -121,7 +121,8 @@ def _records(questions_by_cat, arms=("armA", "armB")):
         for arm in arms:
             rows.append({"question_no": q["question_no"], "text": "Synthetic agent reply %s %d" % (arm, q["question_no"]),
                          "cited_ids": [], "rubric_scores": [1.0] * len(q["rubric"]), "arm": arm})
-    return beam.build_records("c1", questions, rows, "sd", "synthetic", "0" * 12)
+    items, grades, skipped = beam.build_records("c1", questions, rows, "sd", "synthetic", "0" * 12)
+    return in_grade_order(items, grades), grades, skipped
 
 
 MIXED = {
@@ -181,6 +182,7 @@ def test_import_beam_parquet_with_every_real_shape(tmp_path):
              "--items-out", tmp_path / "i.jsonl", "--grades-out", tmp_path / "g.jsonl")
     assert cp.returncode == 0, cp.stderr
     items, grades = read_jsonl(tmp_path / "i.jsonl"), read_jsonl(tmp_path / "g.jsonl")
+    items = in_grade_order(items, grades)
     assert [g["reference_kind"] for g in grades] == ["answer", "answer", "answer", "criterion"]
     assert [len(i["answers"]) for i in items] == [3, 3, 3, 2]
     texts = {a["answer_id"]: a for a in items[1]["answers"]}
@@ -359,6 +361,9 @@ class CStore:
         return self.ok(item, 2, reviewer, self.vd(item, j, step="2a", guesses=g, fuller=fuller))
 
     def p2b(self, item, value, reviewer="expert", **kw):
+        """The reviewer is handed the criterion (the export, which is recorded in the store), then records the 2b."""
+        cp, _ = self.export_criterion(item, reviewer=reviewer)
+        assert cp.returncode == 0, cp.stderr
         return self.ok(item, 2, reviewer, self.vd(item, {"criterion": value}, step="2b", **kw))
 
     def export_criterion(self, item, reviewer="expert", out=None):
@@ -653,7 +658,7 @@ def test_cell19_export_phase3_for_a_criterion_item(tmp_path):
     cp = export("k2")
     assert cp.returncode == 0, cp.stderr
     x = json.loads(out.read_text())
-    rows = [r for r in read_jsonl(s.verdicts) if r["item_id"] == "k2"]
+    rows = [r for r in read_jsonl(s.verdicts) if r["item_id"] == "k2" and "kind" not in r]
     sha = {(r["phase"], r.get("step")): r["record_sha256"] for r in rows}
     assert x["phase1"]["record_sha256"] == sha[(1, None)]
     assert x["phase2"]["record_sha256"] == sha[(2, "2a")] and x["phase2"]["record_sha256_2b"] == sha[(2, "2b")]

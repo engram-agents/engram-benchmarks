@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, forge_verdict, read_jsonl, run
+from helpers import Store, assert_refused, build_flow, forge_verdict, in_grade_order, read_jsonl, run
 
 
 
@@ -422,7 +422,7 @@ def test_cell11_packet_builder_blind_by_construction(tmp_path):
             mods |= {a.name.split(".")[0] for a in n.names}
         if isinstance(n, ast.ImportFrom):
             mods.add((n.module or "").split(".")[0])
-    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "chatfile"}, mods
+    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "glob", "chatfile"}, mods
     for word in ("grades", "verdicts", "draws", "score_review"):
         assert word not in src.lower(), word
     for fn in (blind_packet.build_packet, blind_packet.write_packet):
@@ -752,6 +752,7 @@ def test_import_beam_parquet(tmp_path):
              "--items-out", items_out, "--grades-out", grades_out)
     assert cp.returncode == 0, cp.stderr
     items, grades = read_jsonl(items_out), read_jsonl(grades_out)
+    items = in_grade_order(items, grades)
     assert [g["question_no"] for g in grades] == [1, 2, 3]  # dict order, then list order
     assert [g["category"] for g in grades] == ["cat_one", "cat_one", "cat_two"]
     g1, i1 = grades[0], items[0]

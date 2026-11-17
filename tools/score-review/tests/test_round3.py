@@ -130,15 +130,15 @@ def test_b2_item_ids_are_opaque_hex_and_conv_and_question_no_live_only_in_grades
 
 def test_b2_ids_are_not_ordered_by_question_number_or_category_and_depend_on_seed_and_conv():
     items, grades, _ = _planted()
-    ids = [it["item_id"] for it in items]  # in question-number order
+    ids = [g["item_id"] for g in grades]  # in question-number order (items.jsonl is in item-id order)
     assert ids != sorted(ids) and ids != sorted(ids, reverse=True)  # no function of the id gives the question order
     by_id = sorted(range(len(ids)), key=lambda k: ids[k])
     cats = [grades[k]["category"] for k in by_id]
     assert any(cats[i] != cats[i + 1] for i in range(len(cats) - 1))
     assert len({k % 3 for k in by_id[:6]}) > 1  # the id-sorted head holds more than one category
-    assert [i["item_id"] for i in _planted(seed="other")[0]] != ids
-    assert [i["item_id"] for i in _planted(conv="OTHERCONV")[0]] != ids
-    assert [i["item_id"] for i in _planted()[0]] == ids  # reproducible
+    assert sorted(i["item_id"] for i in _planted(seed="other")[0]) != sorted(ids)
+    assert sorted(i["item_id"] for i in _planted(conv="OTHERCONV")[0]) != sorted(ids)
+    assert sorted(i["item_id"] for i in _planted()[0]) == sorted(ids)  # reproducible
 
 
 # ---------------------------------------------------------------- S1: one effective reviewer per (item, phase, step)
@@ -253,8 +253,8 @@ def test_s3_a_failed_packet_write_leaves_neither_packet_nor_key(tmp_path):
     import blind_packet
     s = Store(tmp_path / "s")
     out, keys = tmp_path / "packets", tmp_path / "keys"
-    (out / "i02.md").mkdir(parents=True)  # the packet cannot be written over a directory
-    with pytest.raises(OSError):
+    (out / "i02.md").mkdir(parents=True)  # the packet cannot be written over a directory (refused: the path exists)
+    with pytest.raises((ValueError, OSError)):
         blind_packet.write_packet(str(s.items), "i02", "sd", str(keys), str(out))
     assert not (keys / "i02.json").exists()
     assert _tree(keys) == []  # no temp file left behind either
@@ -355,16 +355,18 @@ def _changed_after_2b(s, new_y="partly"):
     return orig, new
 
 
-def test_a4_a_2a_superseded_after_the_2b_is_never_a_control_and_the_latest_2a_is_mapped(tmp_path):
+def test_a4_a_2a_superseded_after_the_2b_is_never_a_control_and_the_original_2a_is_mapped(tmp_path):
     s = CStore(tmp_path)
     orig, new = _changed_after_2b(s)
     k1 = s.outcomes()["k1"]
     assert k1["routing"]["unquestioned_control"] is False and k1["routing"]["in_phase3"] is True
     assert k1["routing"]["phase3_required"] is True and k1["status"] == "pending"
     y = s.ids["k1"]["y"]
-    assert k1["phases"]["2"]["judgement"][y] == "partly"  # the latest 2a is the one mapped
-    assert k1["phases"]["2"]["outcome"] == "grading_error" and k1["phases"]["2"]["flagged"] == [y]
-    assert k1["phases"]["2"]["record_sha256"] == new
+    assert k1["phases"]["2"]["judgement"][y] == "correct"  # the ORIGINAL 2a is the one mapped (the unanchored read)
+    assert k1["phases"]["2"]["outcome"] == "key_stands" and k1["phases"]["2"]["flagged"] == []
+    assert k1["phases"]["2"]["record_sha256"] == orig
+    rev = k1["phases"]["2"]["post_reveal_revision"]
+    assert rev["record_sha256"] == new and rev["judgement"][y] == "partly" and "reread the instruction" in rev["reason"]
 
 
 def test_a4_forced_whatever_the_outcome_even_when_the_changed_2a_says_the_same(tmp_path):
@@ -384,7 +386,8 @@ def test_a4_the_first_2b_is_the_witness_even_when_the_2b_is_itself_superseded_la
          extra=("--supersedes", first_2b, "--reason", "restated the criterion verdict"))  # now AFTER the changed 2a
     k1 = s.outcomes()["k1"]
     assert k1["routing"]["unquestioned_control"] is False and k1["routing"]["in_phase3"] is True
-    assert k1["phases"]["2"]["original_2a"]["record_sha256"] == orig and k1["phases"]["2"]["record_sha256"] == new
+    assert k1["phases"]["2"]["record_sha256"] == orig
+    assert k1["phases"]["2"]["post_reveal_revision"]["record_sha256"] == new
 
 
 def test_a4_a_2a_changed_before_the_2b_does_not_force_phase3(tmp_path):
@@ -401,10 +404,10 @@ def test_a4_a_2a_changed_before_the_2b_does_not_force_phase3(tmp_path):
     cp = run("export-phase3", "--items", s.items, "--grades", s.grades, "--verdicts", s.verdicts, "--keys-dir", s.keys,
              "--item", "k1", "--out", out)
     assert cp.returncode == 0, cp.stderr
-    assert "phase2_original_2a" not in json.loads(out.read_text())
+    assert "phase2_post_reveal_revision" not in json.loads(out.read_text())
 
 
-def test_a4_export_phase3_carries_the_original_and_the_latest_2a_rekeyed(tmp_path):
+def test_a4_export_phase3_maps_the_original_and_carries_the_post_reveal_revision_rekeyed(tmp_path):
     s = CStore(tmp_path)
     orig, new = _changed_after_2b(s)
     out = tmp_path / "x.json"
@@ -414,17 +417,18 @@ def test_a4_export_phase3_carries_the_original_and_the_latest_2a_rekeyed(tmp_pat
     text = out.read_text()
     x = json.loads(text)
     ids = s.ids["k1"]
-    assert x["phase2"]["record_sha256"] == new and x["phase2"]["judgement"][ids["y"]] == "partly"
+    assert x["phase2"]["record_sha256"] == orig and x["phase2"]["judgement"][ids["y"]] == "correct"
     assert x["phase2"]["judgement"]["criterion"] == "correct"
-    o = x["phase2_original_2a"]
-    assert o["record_sha256"] == orig and o["judgement"] == {ids["x"]: "correct", ids["y"]: "correct"}
+    o = x["phase2_post_reveal_revision"]
+    assert o["record_sha256"] == new and o["judgement"] == {ids["x"]: "correct", ids["y"]: "partly"}
+    assert "reread the instruction" in o["reason"]
     assert orig in text and new in text
     for L in "AB":
         assert '"%s"' % L not in text
     assert "guesses" not in text and "letters" not in text and "CRIT-ARM-TOKEN" not in text
 
 
-def test_a4_the_report_names_the_original_2a_and_the_stale_guard_covers_it(tmp_path):
+def test_a4_the_report_names_the_post_reveal_revision_and_the_stale_guard_covers_it(tmp_path):
     s = CStore(tmp_path)
     orig, new = _changed_after_2b(s)
     cp, out = s.map()
@@ -433,11 +437,11 @@ def test_a4_the_report_names_the_original_2a_and_the_stale_guard_covers_it(tmp_p
     cp = run("report", "--items", s.items, "--grades", s.grades, "--verdicts", s.verdicts, "--outcomes", out, "--out", rep)
     assert cp.returncode == 0, cp.stderr
     text = rep.read_text()
-    assert orig[:12] in text and "changed after the criterion" in text
+    assert new[:12] in text and "post-reveal revision" in text and "reread the instruction" in text
     rows = read_jsonl(out)
     for r in rows:
         if r["item_id"] == "k1":
-            r["phases"]["2"]["original_2a"]["record_sha256"] = "0" * 64
+            r["phases"]["2"]["post_reveal_revision"]["record_sha256"] = "0" * 64
     out.write_text("".join(json.dumps(r) + "\n" for r in rows))
     assert_refused(run("report", "--items", s.items, "--grades", s.grades, "--verdicts", s.verdicts, "--outcomes", out,
                        "--out", tmp_path / "r2.md"))

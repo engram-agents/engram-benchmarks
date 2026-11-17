@@ -167,4 +167,5 @@ def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix
         if criterion:
             g["criterion_text"] = q["answer"]
         grades.append(g)
+    items.sort(key=lambda it: it["item_id"])  # item-id order: question order is category order
     return items, grades, skipped

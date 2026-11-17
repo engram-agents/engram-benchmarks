@@ -91,7 +91,7 @@ def load_items(path):
         if len(set(ids)) != len(ids) or len(ids) > len(LETTERS):
             raise UserError("items file: item %s has duplicate answer ids or too many answers" % iid)
         items[iid] = r
-    return items
+    return dict(sorted(items.items()))  # item-id order, whatever the file's row order: nothing pairs by position
 
 
 def load_grades(path, items):
@@ -144,10 +144,29 @@ def load_verdicts(path, required=False):
     return rows
 
 
+EXPORT_KIND = "export_2b"
+
+
+def is_verdict(rec):
+    """THE predicate for 'this store record is a reviewer's verdict'. The store also holds export records (the
+    moment a criterion was handed to a reviewer); they carry a `kind`, and are never a phase record anywhere."""
+    return rec.get("kind") is None
+
+
 def effective(rows):
-    """Verdicts not superseded by a later record."""
+    """Verdicts not superseded by a later record (export records are not verdicts and are never returned)."""
     dead = {r["supersedes"] for r in rows if r.get("supersedes")}
-    return [r for r in rows if r["record_sha256"] not in dead]
+    return [r for r in rows if is_verdict(r) and r["record_sha256"] not in dead]
+
+
+def append_record(path, rec):
+    """Append one record to the verdict store in a single O_APPEND write (the only way anything enters it)."""
+    line = (json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, line)
+    finally:
+        os.close(fd)
 
 
 # ------------------------------------------------------------------ the rules (principles section 6, section 2)
@@ -194,7 +213,7 @@ def agree(j1, j2):
 def route(levels, p1, p2, drawn, forced=()):
     """levels {item: {answer_id: level}}, p1/p2 {item: outcome}, drawn: set of item ids.
 
-    forced: items whose 2a was changed after their 2b (amendment 4). Whatever the outcomes, such an item is
+    forced: items whose 2a was changed after the criterion export (amendments 4 and 7). Whatever the outcomes, such an item is
     never an unquestioned control and is always in phase 3.
     """
     out = {}
@@ -384,12 +403,7 @@ def cmd_record(a):
         if len(set(who.values())) > 1:
             raise UserError("this record would leave the 2a and the 2b of item %s with different reviewers (%s); "
                             "both steps are by one reviewer" % (iid, ", ".join("%s: %s" % kv for kv in sorted(who.items()))))
-    line =(json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
-    fd = os.open(a.verdicts, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        os.write(fd, line)
-    finally:
-        os.close(fd)
+    append_record(a.verdicts, rec)
     print(rec["record_sha256"])
 
 
@@ -418,7 +432,7 @@ def cmd_draw(a):
         raise UserError("--n must be an integer")
     if n < 0:
         raise UserError("--n must not be negative")
-    seen = [r for r in load_verdicts(a.verdicts) if r["phase"] == 1 and r["item_id"] in items]
+    seen = [r for r in load_verdicts(a.verdicts) if is_verdict(r) and r["phase"] == 1 and r["item_id"] in items]
     if seen:
         raise UserError("a phase-1 verdict already exists for this run (%d record(s)); the draw is fixed before any "
                         "phase-1 outcome exists" % len(seen))
@@ -516,8 +530,9 @@ class Ctx:
         An answer-type item has one phase-2 record. A criterion-type item has a 2a (agent answers) and a 2b
         (the criterion); both must be recorded, by one reviewer, and the judgement is the two merged: the 2b
         `criterion` judgement stands where an official answer's would, beside the re-keyed 2a judgements.
-        When the 2a was changed after the 2b (see `criterion_change`), the latest 2a is the one merged and the
-        original is carried under `original_2a`.
+        When the 2a was superseded AFTER the criterion was exported (see `criterion_change`), the ORIGINAL 2a, the
+        one the reviewer gave before seeing the criterion, is the one merged; the later 2a is carried beside it
+        as `post_reveal_revision`. A 2a superseded before the export is an ordinary correction: the latest is merged.
         """
         if not self.has_phase2_record(item):
             return None
@@ -529,36 +544,48 @@ class Ctx:
             return None
         if head["reviewer"] != r2b["reviewer"]:
             raise UserError("item %s: the 2a and 2b records are by different reviewers" % item)
-        out = self.rekey(item, head)
+        change = self.criterion_change(item)
+        out = self.rekey(item, change[0] if change else head)
         if "ambiguous" not in out["judgement"]:
             out["judgement"] = dict(out["judgement"], criterion=r2b["judgement"]["criterion"])
         out["facts"] = list(out["facts"]) + [dict(f) for f in r2b["facts"]]
         out["record_sha256_2b"] = r2b["record_sha256"]
         out["fuller_answer_2b"] = r2b.get("fuller_answer")
-        change = self.criterion_change(item)
         if change:
-            before = self.rekey(item, change[0])
-            out["original_2a"] = {"reviewer": before["reviewer"], "record_sha256": before["record_sha256"],
-                                  "judgement": before["judgement"], "fuller_answer": before.get("fuller_answer"),
-                                  "facts": before["facts"], "change_reason": head.get("reason")}
+            late = self.rekey(item, change[1])
+            out["post_reveal_revision"] = {"reviewer": late["reviewer"], "record_sha256": late["record_sha256"],
+                                           "judgement": late["judgement"], "fuller_answer": late.get("fuller_answer"),
+                                           "facts": late["facts"], "reason": late.get("reason")}
+            out["facts"] += [dict(f, post_reveal=True) for f in late["facts"]]
         return out
 
     def criterion_change(self, item):
-        """(original 2a, latest 2a) when the item's 2a was superseded AFTER its 2b was recorded, else None.
+        """(original 2a, latest 2a) when the item's 2a was superseded AFTER the criterion was exported, else None.
 
-        Order is the file's: the append-only verdicts file witnesses it, a timestamp (one-second grain) does not.
-        The 2b that counts is the reviewer's first, the nearest witness to the moment the criterion was shown;
-        the original is the reviewer's last 2a before it, i.e. the 2a as it stood when the criterion was shown.
+        The boundary is the reviewer's FIRST export record in the verdict store (`export-criterion` writes it before
+        it releases the criterion); order is the file's, which the append-only store witnesses (a timestamp has a
+        one-second grain). The original is the 2a that export names (`after_2a_record_sha256`): the 2a as it
+        stood when the criterion was shown. A 2a superseded before the export is an ordinary correction.
         """
         r2a, r2b = self.phase_record(item, 2, "2a"), self.phase_record(item, 2, "2b")
         if r2a is None or r2b is None:
             return None
-        mine = [(n, r) for n, r in enumerate(self.rows)
-                if (r["item_id"], r["phase"], r["reviewer"]) == (item, 2, r2b["reviewer"])]
-        first_2b = next((n for n, r in mine if r.get("step") == "2b"), None)
-        before = [r for n, r in mine if r.get("step") == "2a" and n < first_2b]
-        after = [r for n, r in mine if r.get("step") == "2a" and n > first_2b and r.get("supersedes")]
-        return (before[-1], r2a) if (before and after) else None
+        who = r2b["reviewer"]
+        first = next((n for n, r in enumerate(self.rows)
+                      if r.get("kind") == EXPORT_KIND and (r["item_id"], r["reviewer"]) == (item, who)), None)
+        if first is None:
+            return None
+        revised = any(n > first and is_verdict(r) and r.get("supersedes")
+                      and (r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (item, 2, "2a", who)
+                      for n, r in enumerate(self.rows))
+        if not revised:
+            return None
+        named = self.rows[first]["after_2a_record_sha256"]
+        original = next((r for r in self.rows if is_verdict(r) and r["record_sha256"] == named), None)
+        if original is None:
+            raise UserError("item %s: the criterion export names a 2a record (%s) that is not in the verdicts file"
+                            % (item, str(named)[:12]))
+        return (original, r2a)
 
     def key_path(self, item):
         return os.path.join(self.keys_dir, "%s.json" % item)
@@ -608,8 +635,8 @@ class Ctx:
             if rec.get("record_sha256_2b"):
                 v["record_sha256_2b"] = rec["record_sha256_2b"]
                 v["fuller_answer_2b"] = rec.get("fuller_answer_2b")
-            if rec.get("original_2a"):
-                v["original_2a"] = rec["original_2a"]
+            if rec.get("post_reveal_revision"):
+                v["post_reveal_revision"] = rec["post_reveal_revision"]
         return v
 
 
@@ -705,7 +732,7 @@ def cmd_export_phase3(a):
     v1, v2 = ctx.phase_view(a.item, 1, r1), ctx.phase_view(a.item, 2, r2)
     v1["notes"] = r1.get("notes", "")
     v2.pop("official_guess", None)  # the guesses name letters and arms; phase 3 does not receive them
-    original_2a = v2.pop("original_2a", None)  # present when the 2a was changed after the 2b: phase 3 sees both
+    revision = v2.pop("post_reveal_revision", None)  # present when the 2a was revised after the reveal: phase 3 sees both
     export = {
         "schema_version": SCHEMA, "item_id": a.item, "exported_at": now(), "question": it["question"],
         "answers": it["answers"], "official_id": g["official_id"],
@@ -715,8 +742,8 @@ def cmd_export_phase3(a):
     }
     if g.get("reference_kind") == "criterion":
         export["criterion_text"] = g["criterion_text"]
-    if original_2a:
-        export["phase2_original_2a"] = original_2a
+    if revision:
+        export["phase2_post_reveal_revision"] = revision
     with open(a.out, "w", encoding="utf-8") as fh:
         json.dump(export, fh, sort_keys=True, indent=2)
         fh.write("\n")
@@ -739,7 +766,13 @@ def cmd_export_criterion(a):
         raise UserError("no recorded 2a record for item %s by reviewer %s; the criterion is not released before it"
                         % (a.item, a.reviewer))
     meta = g.get("metadata") or {}
-    export = {"schema_version": SCHEMA, "item_id": a.item, "reviewer": a.reviewer, "exported_at": now(),
+    # The reveal is an event in the store: record it BEFORE the criterion is released, so a criterion that was
+    # handed out always has its record (a record without a file is the safe direction).
+    event = {"schema_version": SCHEMA, "kind": EXPORT_KIND, "item_id": a.item, "reviewer": a.reviewer,
+             "exported_at": now(), "after_2a_record_sha256": r2a[0]["record_sha256"]}
+    event["record_sha256"] = canonical_sha(event)
+    append_record(a.verdicts, event)
+    export = {"schema_version": SCHEMA, "item_id": a.item, "reviewer": a.reviewer, "exported_at": event["exported_at"],
               "after_2a_record_sha256": r2a[0]["record_sha256"], "criterion_text": g["criterion_text"],
               "criterion_lists": {k: meta[k] for k in ("compliance_indicators", "non_compliance_signs") if k in meta}}
     with open(a.out, "w", encoding="utf-8") as fh:
@@ -760,7 +793,7 @@ def cmd_report(a):
             raise UserError("outcomes name an item that is not in the items file: %s" % o["item_id"])
         for p, v in o["phases"].items():
             cited = [v["record_sha256"], v.get("record_sha256_2b", v["record_sha256"]),
-                     (v.get("original_2a") or v)["record_sha256"]]
+                     (v.get("post_reveal_revision") or v)["record_sha256"]]
             if any(c not in shas for c in cited):
                 raise UserError("outcomes are stale: %s phase %s cites a record that is not in the verdicts file; "
                                 "run map again" % (o["item_id"], p))
@@ -809,10 +842,11 @@ def cmd_report(a):
                     L.append("  - fuller answer: %s" % v["fuller_answer"])
                 if v.get("fuller_answer_2b"):
                     L.append("  - fuller answer (2b): %s" % v["fuller_answer_2b"])
-                if v.get("original_2a"):
-                    o2 = v["original_2a"]
-                    L.append("  - 2a changed after the criterion was shown (reason: %s); original 2a (record %s, reviewer %s): %s"
-                             % (o2.get("change_reason") or "none given", o2["record_sha256"][:12], o2["reviewer"],
+                if v.get("post_reveal_revision"):
+                    o2 = v["post_reveal_revision"]
+                    L.append("  - the 2a above is the original (given before the criterion was shown); post-reveal revision "
+                             "(record %s, reviewer %s, reason: %s): %s"
+                             % (o2["record_sha256"][:12], o2["reviewer"], o2.get("reason") or "none given",
                                 json.dumps(o2["judgement"], sort_keys=True)))
             elif o["routing"]["in_phase3"] and p == "3" and o["status"] in ("pending", "disagreement"):
                 L.append("- Phase 3: **pending**")

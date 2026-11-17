@@ -32,6 +32,12 @@ def assert_refused(cp):
     assert "refused" in cp.stderr.lower(), cp.stderr
 
 
+def in_grade_order(items, grades):
+    """items.jsonl is written in item-id order; tests that index items by question position look them up by id."""
+    by_id = {i["item_id"]: i for i in items}
+    return [by_id[g["item_id"]] for g in grades]
+
+
 def read_jsonl(path):
     p = pathlib.Path(path)
     if not p.exists():
