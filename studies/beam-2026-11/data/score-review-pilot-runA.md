@@ -402,3 +402,29 @@ Each line is the study lead's own commit. Times are UTC.
   start-time files (timestamps only, no benchmark text) had been created 0644 inside the 0700 directory; set to 0600
   before this line. Correction to this section's first line: the draw check ran at 2026-11-17T22:51:16Z (the time
   of the drand fetch); the 22:52Z written there is the commit minute.
+- [key holder] 2026-11-17T23:1xZ. Phase-1 records received from the study lead (team-world thing): ciphertext sha256 equal
+  20/20 to his stated values; each a single recipient packet to the key holder's subkey C0B78AA823D20819; decrypted;
+  plaintext sha256 equal 20/20 to the manifest in 06d091b7. Recorded at e5f0f26e with `record --phase 1 --reviewer
+  borges --chat conv9-full.md` (quote check re-run on this seat): 20 recorded, 0 refused; 4 criterion items, 3 with
+  ambiguous: source, as the study lead stated (corrected count). verdicts.jsonl sha256
+  20f57db6f6457de0782ac9f0441c9a0938acd10a5fc4545ebb197b0d8f21302c. record_sha256 per item:
+  1a36f9f8c2 6682a89f323d50ddad932cc9c89754779b368849e2b0ce8ee6c0e5ff91412936
+  28e01f2f1e 86a287c13bcc07850099af6012a81c0c81968cf1d7c66e0579ecbeff6be4a0df
+  68b0b61a7f 785f0c088fd828eb51e726b0a0f32f47fe8c2287ec03bc800f8782afac04ed54
+  6d3a097da5 df530c81d6a1549560fb948b0b18d7fa6565b98b688b24dfd29f3ee387d2aabf
+  75686d8601 056bb85a89ae0bf5be9989f6a45d5f86cd5eff4ea3ff246f7e135978ccc83fae
+  7ffccc2a02 559bc52e79c685348e483751e3638db4ffacae03d8997098c057ddbf2da30d6e
+  838c9ebabe c35c009d78a336f6c92da61636b7d802b78514ed1d99da59afe59ab6e37ddf57
+  8c12a3d619 9478d0abd1bc638252f089ec187b53db54e7c89076c425da8694f77714398e4d
+  98b90f3f4b 1aaada96e7b50974dbd4e7060b2748d314fc73bee5732810b330c1decf25a91b
+  9eb82dde53 950d25cbbc8a21bebd9e13643d6976e3489823a2d1026ecdf45c808aaa21d731
+  a04a273228 da2bccb4969923835f8d0415cb0206632f00aa5c00ef4ebf27f7c7f51c57b502
+  af84c0b2a7 ef3f3d148dedbd515fd546524736e5c767e222efcedae0d047c23f7e1eb1f5ea
+  b61d7d5c93 dc1d0a8b11ddd5daf5d099beb056f41b366da12b4baae41ed923879450505a26
+  b9cd2f4ff2 fe8e1f59cb1848c51268ff8caf034a4579de80f21ecd84e264989681cfbb2368
+  bc682a751a 208e19ae3474a0adc6b9b988d228df8a243ce34861a35b0f681eac59e9ca1570
+  bd8f94871e d07e4fb4edaf2b7c9061b0ed4f1b5ea0946d993877e11d9d12525ad4b6485e64
+  d6bb28fc30 ad9678c1a0119570db2b16009571f3a58b94cefa09a83cec8fe371e75be94b1d
+  e728feacb7 9885b3ab12bf5f5044dfb101e0565a81265c9bee3c6775152413763f7b9322cc
+  ecbeaa3683 a221b2558403cfa3e9821e71749be4385bde63195aa898909291ce6f9861bfe2
+  fccd2b7a3b ff250fd79638153b8fe5e4b812eb5d60a1fe6c5719bfe895d58e34d5420e0252
