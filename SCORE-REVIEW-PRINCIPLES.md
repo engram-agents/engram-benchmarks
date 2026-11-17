@@ -106,8 +106,13 @@ tooling:
   when it is not correct, writes the fuller criterion. Whether the item as a whole is ambiguous is judged in step
   2a, before the criterion is seen. A step-2b judgement cannot change step 2a; a change of mind is a superseding
   step-2a record with its reason. A step-2a record superseded after the criterion was shown is exactly the
-  anchored read this procedure exists to avoid, so such an item always goes to phase 3, which sees both the
-  original and the latest step-2a record; the latest is the one mapped to an outcome.
+  anchored read this procedure exists to avoid, so such an item always goes to phase 3, which sees both records;
+  the original step-2a record is the one mapped to an outcome, and the later one is published beside it as a
+  post-reveal revision, with its reason, for phase 3 to weigh. The split is by time, read off the order of the
+  records: a step-2a record superseded before the step-2b export exists for that item is an ordinary correction,
+  the latest record is mapped, and the item is not sent to phase 3 for that reason. *Why the original:* the phase-2
+  column means the unanchored second read; if a post-reveal revision took its place, the column would change what
+  it measures on exactly the items where anchoring happened.
 
 **Everywhere else in this document, for a criterion item:** "the official answer" means the criterion, "the settled
 answer" means the settled criterion, and rewriting a rubric starts from the settled criterion. The phase-1 packet
@@ -162,9 +167,10 @@ rules, so any such ruling is visible in the log.
 - **The key-holder's duties, in one line:** the key-holder runs the mapping script, which reads the key and
   prints each item's phase-2 outcome and phase-2 judgement re-keyed from letters to "official" and the arm-blind
   answer ids (never the letters, never arm labels), into the phase-3 packet. It re-keys an item only after that
-  item's phase-2 judgement is recorded with its hash (for a criterion item: the latest step-2a record, superseding
-  ones included, together with the step-2b record; where a step-2a record was superseded after the criterion was
-  shown, the original step-2a record as well). The key file itself is revealed only into the study's log,
+  item's phase-2 judgement is recorded with its hash (for a criterion item: the step-2a record that is mapped,
+  together with the step-2b record; where a step-2a record was superseded after the criterion was shown, the
+  original is the record re-keyed for mapping and the superseding record is re-keyed and carried beside it, for
+  phase 3, as the post-reveal revision). The key file itself is revealed only into the study's log,
   only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every reveal is
   logged with its time. An unlogged reveal is the one way this seat can break the design.
 - *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
@@ -281,7 +287,8 @@ Each stays open until the named party closes it; closing one is a new version.
   preference following) carry a criterion, not an answer, so the A/B blind between official and agent answers
   cannot hold for them; the study lead first proposed showing phase 2 the criterion openly, and the BEAM design
   owner ruled that this would repeat the anchoring v0.1 was written against, and set the two-step procedure in
-  section 4 instead. (2) The design owner's read of the tooling's data found that an answer id that names the
+  section 4 instead, including that a step-2a record changed after the criterion was shown is kept as a published
+  revision while the original is the record mapped. (2) The design owner's read of the tooling's data found that an answer id that names the
   official answer, or a letter order fixed across items, would tell the reviewer which answer is which; section 5a
   now requires meaningless per-item ids and a per-item letter order. (3) Re-keying a phase-2 judgement before it is
   recorded would let anyone holding both forms read that item's key; section 5a now orders it. (4) The commit of
