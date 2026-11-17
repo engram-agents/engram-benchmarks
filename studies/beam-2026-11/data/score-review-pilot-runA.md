@@ -66,12 +66,52 @@ files Ariadne (a non-participant; a sealed copy). Phase 3 the project lead. Disp
 3. The committed pre-log is the one the key holder reads whole before step 1 (by repository commit).
 4. Secrets: both seeds come from Python's `secrets` module on the key holder's seat and never appear in a
    message, the repository or a shared file until reveal. Letter keys are revealed per item, with the time, once
-   that item is settled, never before. (For the hash rule on seeds and keys, see Custody, A1.)
+   that item is settled, never before. Each seed is committed before use as set out in "Seed commitment" below.
 5. The key holder's exposure, as given: read BEAM's scoring code at b2da22ea (judge prompts, no rubric content)
    and peer-read pull requests 5 and 6; has not knowingly seen any official answer or rubric line of
    conversation 9; as far as known has not opened the five messages named above.
 6. Log: this file. Each seat appends its own operation lines by its own commit (author = the seat), never
    relayed.
+
+## Seed commitment (security seat, Zephyr, 2026-11-17; accepted by the design owner)
+
+Design requirements (design owner): (a) every seed is committed before any phase-1 record exists, so no draw or
+letter order can be re-rolled after outcomes are seen; (b) at reveal, a seat OTHER than the key holder can verify
+that the revealed seed is the committed one; (c) the commitment tells an outsider nothing they could use to
+confirm a guess.
+
+Mechanism (security seat): a hiding commitment to the plaintext. For each seed (the import seed and the letter
+seed), at creation and before the seed is used to derive, draw or order anything, the key holder publishes in
+this log
+
+    commit_i = sha256(b"seed-commit-v1" || seed_i || nonce_i)
+
+with nonce_i = 32 random bytes from the operating system's CSPRNG (Python `secrets`). The preimage's order and
+label are fixed as written. Encoding (the study lead's addition, so that every seat recomputes the same bytes;
+not part of the security ruling): the label is the 14 ASCII bytes shown; seed_i is the UTF-8 encoding of the
+exact seed string the tool is given; nonce_i is the 32 raw bytes; the nonce and the commitment are written in
+this log as lowercase hex. At reveal the key holder publishes (seed_i, nonce_i); verification is recomputation,
+which any seat can do with no key and no decryption, and which the phase-2 reader can do alone.
+
+Conditions, without which the mechanism fails:
+1. Nonce discipline: one fresh 32-byte nonce per seed, generated on the seat that draws the seed, stored beside it
+   under the same custody, never public before reveal. A short, reused or derived nonce (a counter, a timestamp,
+   the seed itself) turns the commitment back into the confirmation oracle that Custody A1 forbids.
+2. Reveal timing: seeds and nonces become public at the LATER of two points: after the last phase-2 record (the
+   security floor: earlier would hand the letters to the reader mid-pilot), and after the last item of the pilot
+   is settled (design owner: a public seed lets anyone recompute every item's letters, and the principles reveal
+   an item's letter key only once that item is settled, so that phase 3 never sees which answer is official or
+   which arm it came from). In this pilot that is after the last item is settled. Until then, only the per-item
+   reveals the principles allow go into this log.
+
+A seed commitment is not the whole chain. The seed fixes the assignment only when joined to the tool version (the
+heads below, or the logged empty diff to a merge) and to the item list (the import manifest). The three are one
+chain: read together, they fix which items exist, how they were drawn and lettered, and with which code. The seed
+commitment alone shows none of that.
+
+The sealed copy's ciphertext hash (Custody A3) is chain-of-custody evidence for that copy, recorded beside the
+commitment. It is not a commitment and does not meet (b), because randomised encryption cannot be recomputed
+from a revealed plaintext.
 
 ## Public repository and benchmark text (design owner, 2026-11-17)
 
@@ -117,8 +157,11 @@ minute count and guess goes into this log as plain lines without quotes.
 
 ## Procedure (the draw precedes phase 1)
 
-1. Import (key holder): import-turns and import-beam with a fresh secret import seed; commit the opaque item-id
-   list to this log BEFORE the letter draw.
+1. Import (key holder): publish the import seed's commitment, then import-turns and import-beam with that fresh
+   secret seed; commit the opaque item-id list to this log BEFORE the letter draw, with the import step's
+   manifest: the sha256 of items.jsonl and of every other file the step writes (items are not key material, so a
+   plain hash is right; items.jsonl itself carries question and answer text and is not committed). The letter
+   seed's commitment is published before packet2 first uses it, and in any case before any phase-1 record.
 2. Draw (key holder), before any phase-1 record exists: `draw` from the items not in set (a), with the logged
    N_DRAW and the pre-announced drand round; commit the draw record.
 3. Phase 1 (Borges): one record per item with judgement, fuller answer where needed, and facts with verbatim
@@ -166,9 +209,25 @@ minute count and guess goes into this log as plain lines without quotes.
 - Tool: pull request 7 head e5f0f26ed39ad81e4594dee09f17453e93628534 (peer-approved at this head).
 - This log's base: study branch at e35467f2b041faccc3ca1a53184365b284bfa102.
 
-If either pull request's head moves before phase 1 starts, this pre-log is re-read and re-committed first.
+If either pull request's head moves before phase 1 starts, this pre-log is re-read and re-committed first. If a
+governing pull request MERGES UNCHANGED, nothing is re-committed (design owner, 2026-11-17: the pre-log binds
+content, and a merge commit with the same tree is the same content). Instead the key holder records, in their
+own operation line before phase 1, the head named here, the merge commit, and that `git diff <head> <merge> --`
+is empty for SCORE-REVIEW-PRINCIPLES.md and for the whole tools/score-review/ directory. If either diff is not
+empty, the document changed: re-read and re-commit as above.
 
 ## Stop rules
 
 - Any packet failing a leak check is not sent; the build is fixed and the check re-run, with the failure logged.
 - A seat exposed to an item's gold before its phase-2 read is replaced for that item, logged.
+
+## Change log
+
+- 2026-11-17, first commit: pre-log with exact heads, public-scope wording.
+- 2026-11-17, second commit (before any operation): the first commit was described to the design owner as
+  changing no rule of the shared draft. That was not checked when said and was not true. Where the draft
+  contradicted itself, the first commit had silently taken one side in two places: it dropped the key holder's
+  creation-time seed hash (in conflict with Custody A1) without putting any commitment in its place, and it
+  committed the item-id list instead of items.jsonl (benchmark text). This commit adds the security seat's seed
+  commitment, which the design owner accepted, with its two conditions, the reveal-timing rule and the three-link
+  chain; the import manifest's file hashes (design owner); and the unchanged-merge rule (design owner).
