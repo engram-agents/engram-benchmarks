@@ -136,7 +136,7 @@ class Store:
 
     def record(self, item, phase, reviewer, vd, chat=True, extra=()):
         f = write_json(self.root / ("vf-%s-%s-%s.json" % (item, phase, reviewer)), vd)
-        args = ["record", "--verdicts", self.verdicts, "--items", self.items, "--phase", phase,
+        args = ["record", "--verdicts", self.verdicts, "--items", self.items, "--grades", self.grades, "--phase", phase,
                 "--reviewer", reviewer, "--file", f]
         if chat:
             args += ["--chat", self.chat]
@@ -199,10 +199,11 @@ def build_flow(root):
     """The standard scenario used by the map/report/export tests.
 
     i01 full, not selected; i02 partial a1; i03 zero a1; i04 full + drawn control; i05 key wrong;
-    i06 phase 1 grading error on a2, phase 2 disagrees.
+    i06 phase 1 grading error on a2, phase 2 disagrees; i07 a1 has one line at exactly half the scale
+    max (partial, so set a), the only thing that puts it in phase 2.
     """
-    plan = {"i02": {"a1": [0.37, 0.37]}, "i03": {"a1": [0.0, 0.0]}}
-    s = Store(root, plan=plan)
+    plan = {"i02": {"a1": [0.37, 0.37]}, "i03": {"a1": [0.0, 0.0]}, "i07": {"a1": [1.0, 0.5]}}
+    s = Store(root, item_ids=ITEM_IDS + ["i07"], plan=plan)
     s.write_draws(["i04"])
     for item in s.item_ids:
         j = s.honest(item)
@@ -214,7 +215,7 @@ def build_flow(root):
         if item == "i02":
             facts = [s.fact(s.oid(item)), s.fact(s.a1(item), direction="against", against_own=True)]
         s.p1(item, j, facts=facts, fuller=("fuller text" if item == "i05" else None))
-    for item in ["i02", "i03", "i04", "i05", "i06"]:
+    for item in ["i02", "i03", "i04", "i05", "i06", "i07"]:
         j = s.honest(item)
         if item == "i05":
             j[s.oid(item)] = "partly"

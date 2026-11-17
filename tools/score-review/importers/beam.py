@@ -8,20 +8,28 @@ class ImportError_(ValueError):
     pass
 
 
-def _flatten_ids(v):
+def _as_list(v, field, kind):
+    """A list, or a dict of lists flattened in key order, of strings (kind str) or integers (kind int).
+
+    None, an empty list and an empty dict give []. Anything else is refused, naming the field.
+    """
     if v is None:
         return []
     if isinstance(v, dict):
-        out = []
-        for x in v.values():
-            out += _flatten_ids(x)
-        return out
-    if isinstance(v, (list, tuple)):
-        out = []
-        for x in v:
-            out += _flatten_ids(x)
-        return out
-    return [int(v)]
+        parts = list(v.values())
+        if not all(isinstance(x, (list, tuple)) for x in parts):
+            raise ImportError_("%s: a dict must hold lists" % field)
+        flat = [y for x in parts for y in x]
+    elif isinstance(v, (list, tuple)):
+        flat = list(v)
+    else:
+        raise ImportError_("%s must be a list or a dict of lists, not %s" % (field, type(v).__name__))
+    for y in flat:
+        ok = (isinstance(y, int) and not isinstance(y, bool)) if kind is int else isinstance(y, str)
+        if not ok:
+            raise ImportError_("%s must hold only %s values, found %r"
+                               % (field, "integer" if kind is int else "text", y))
+    return flat
 
 
 def _parse_probing(raw):
@@ -38,8 +46,43 @@ def _parse_probing(raw):
             raise ImportError_("probing_questions is neither JSON nor a Python literal: %s" % exc)
 
 
-_KNOWN = {"question", "ideal_answer", "answer", "rubric", "source_chat_ids"}
+_REFERENCE_KEYS = ("ideal_answer", "answer", "ideal_response", "ideal_summary")
+_CRITERION_LISTS = ("compliance_indicators", "non_compliance_signs")
 _CONV_COLUMNS = ("conversation_id", "conv_id", "id")
+
+
+def questions_from_probing(probing):
+    """Flatten a probing_questions mapping into question dicts (dict order, then list order).
+
+    The reference text is the first present of ideal_answer, answer, ideal_response, ideal_summary
+    (reference_kind "answer"); failing those, expected_compliance (reference_kind "criterion").
+    """
+    questions = []
+    n = 0
+    for category, lst in probing.items():
+        for q in lst:
+            n += 1
+            if "question" not in q or "rubric" not in q:
+                raise ImportError_("question %d lacks question or rubric" % n)
+            used = next((k for k in _REFERENCE_KEYS if q.get(k) is not None), None)
+            kind = "answer"
+            if used is None and q.get("expected_compliance") is not None:
+                used, kind = "expected_compliance", "criterion"
+            if used is None:
+                raise ImportError_("question %d has no reference (%s or expected_compliance)"
+                                   % (n, ", ".join(_REFERENCE_KEYS)))
+            rubric = _as_list(q["rubric"], "rubric", str)
+            if not rubric:
+                raise ImportError_("question %d has an empty rubric" % n)
+            cited = _as_list(q.get("source_chat_ids"), "source_chat_ids", int)
+            meta = {k: v for k, v in q.items() if k not in ("question", "rubric", "source_chat_ids", used)}
+            for k in _CRITERION_LISTS:
+                if k in meta:
+                    meta[k] = _as_list(meta[k], k, str)
+            json.dumps(meta)  # must be plain JSON
+            questions.append({"question_no": n, "question": q["question"], "answer": str(q[used]), "rubric": rubric,
+                              "cited_ids": cited, "category": category, "metadata": meta, "reference_kind": kind})
+    return questions
 
 
 def load_questions(parquet_path, conv):
@@ -58,22 +101,7 @@ def load_questions(parquet_path, conv):
     if len(hit) != 1:
         raise ImportError_("conversation %r matched %d rows (expected exactly 1)" % (conv, len(hit)))
     probing = _parse_probing(table.column("probing_questions").to_pylist()[hit[0]])
-    questions = []
-    n = 0
-    for category, lst in probing.items():
-        for q in lst:
-            n += 1
-            answer = q.get("ideal_answer", q.get("answer"))
-            if "question" not in q or answer is None or "rubric" not in q:
-                raise ImportError_("question %d lacks question, ideal_answer/answer or rubric" % n)
-            rubric = q["rubric"]
-            rubric = [rubric] if isinstance(rubric, str) else list(rubric)
-            meta = {k: v for k, v in q.items() if k not in _KNOWN}
-            json.dumps(meta)  # must be plain JSON
-            questions.append({"question_no": n, "question": q["question"], "answer": str(answer), "rubric": rubric,
-                              "cited_ids": _flatten_ids(q.get("source_chat_ids")), "category": category,
-                              "metadata": meta})
-    return questions, sha
+    return questions_from_probing(probing), sha
 
 
 def opaque_id(seed, item_id, original_index):
@@ -97,6 +125,7 @@ def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix
         if len(set(arms_seen)) != len(arms_seen):
             raise ImportError_("question %d has two answers from one arm" % q["question_no"])
         item_id = "%s-q%02d" % (conv, q["question_no"])
+        criterion = q.get("reference_kind", "answer") == "criterion"
         originals = [{"text": q["answer"], "cited_ids": list(q["cited_ids"]), "arm": None, "scores": None}]
         for r in rows:
             sc = r.get("rubric_scores")
@@ -108,15 +137,24 @@ def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix
         ids = [opaque_id(seed, item_id, i) for i in range(len(originals))]
         if len(set(ids)) != len(ids):
             raise ImportError_("answer id collision in %s; change the seed" % item_id)
-        answers = [{"answer_id": ids[i], "text": o["text"], "cited_ids": o["cited_ids"]} for i, o in enumerate(originals)]
+        # A criterion is not an answer: it never enters items.jsonl (the phase-2 builder renders what items holds).
+        shown = range(1, len(originals)) if criterion else range(len(originals))
+        answers = [{"answer_id": ids[i], "text": originals[i]["text"], "cited_ids": originals[i]["cited_ids"]} for i in shown]
         answers.sort(key=lambda a: a["answer_id"])
         items.append({"schema_version": 1, "item_id": item_id, "question": q["question"], "answers": answers})
-        grades.append({
+        meta = dict(q.get("metadata") or {})
+        if criterion and q["cited_ids"]:
+            meta["source_chat_ids"] = list(q["cited_ids"])
+        g = {
             "schema_version": 1, "item_id": item_id, "study": dataset, "conv": conv, "question_no": q["question_no"],
-            "official_id": ids[0], "rubric_lines": list(q["rubric"]),
+            "reference_kind": "criterion" if criterion else "answer",
+            "official_id": None if criterion else ids[0], "rubric_lines": list(q["rubric"]),
             "scores": {ids[i]: originals[i]["scores"] for i in range(1, len(originals))},
-            "scale": {"max": 1.0, "min": 0.0}, "category": q.get("category"), "metadata": q.get("metadata") or {},
+            "scale": {"max": 1.0, "min": 0.0}, "category": q.get("category"), "metadata": meta,
             "arms": {ids[i]: originals[i]["arm"] for i in range(1, len(originals))},
             "source_ref": {"dataset": dataset, "data_sha256_prefix": data_sha256_prefix, "conv": conv},
-        })
+        }
+        if criterion:
+            g["criterion_text"] = q["answer"]
+        grades.append(g)
     return items, grades, skipped

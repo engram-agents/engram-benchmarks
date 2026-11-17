@@ -15,7 +15,7 @@ Nothing the phase-2 reviewer must not see lives in a file the phase-2 path reads
 | file | holds | read by |
 |---|---|---|
 | `items.jsonl` | only what phase 2 may see: question, answer texts under opaque ids, cited message ids | everything |
-| `grades.jsonl` | rubric, scores, scale, category, metadata, **which id is the official answer**, **which arm produced each answer** | phase-1 packet, `draw`, `map`, `report`, `export-phase3`; never the phase-2 builder |
+| `grades.jsonl` | rubric, scores, scale, category, metadata, **which id is the official answer** (or, for a criterion item, the criterion text), **which arm produced each answer** | phase-1 packet, `draw`, `map`, `report`, `export-phase3`; never the phase-2 builder |
 | `keys/<item>.json` | the letter key for one item's phase-2 packet | `map` and `export-phase3` (the key-holder runs them); `report --unblind --keys-dir` |
 | `verdicts.jsonl` | every phase's verdicts | `map`, `report`, `export-phase3`, `draw` (existence check); never the phase-2 builder |
 | `draws.jsonl` | the control draw (set c) | `map`; never the phase-2 builder |
@@ -43,7 +43,9 @@ One line per question. Nothing is graded and nothing is labelled official.
 `sha256("<seed>|<item_id>|<original_index>")`, where `original_index` is 0 for the official answer and 1, 2, ... for the
 agent answers in the order the answers file lists them. The `answers` list is then sorted by id. An id therefore carries
 no meaning, is not stable across items, and neither the id nor the list position says which answer is official or which
-arm produced it. `import-beam --seed` sets the seed; the same seed gives the same ids. An id is lowercase letters and
+arm produced it. An item holds one or more answers: an answer-type item has the official answer plus at least one agent
+answer; a **criterion-type item holds only agent answers** (see "Criterion items" below), because the criterion is not an
+answer and must not reach the phase-2 builder, which renders whatever `answers` holds. `import-beam --seed` sets the seed; the same seed gives the same ids. An id is lowercase letters and
 digits and is never `official` or `ambiguous`.
 
 ## grades.jsonl
@@ -60,6 +62,14 @@ One line per question.
  "arms": {"b7720de1": "arm-x", "e0c4417a": "arm-y"},
  "source_ref": {"dataset": "BEAM", "data_sha256_prefix": "0123456789ab", "conv": "c1"}}
 ```
+
+**Reference kind.** `reference_kind` is `"answer"` (the reference is a text the benchmark calls the ideal answer: the first present
+of `ideal_answer`, `answer`, `ideal_response`, `ideal_summary`) or `"criterion"` (instruction- and preference-following items,
+where the benchmark gives no answer, only `expected_compliance`). `reference_kind` lives only here, never in `items.jsonl`.
+An answer-type grade has `official_id` (one of the item's answers) and no `criterion_text`. A criterion-type grade has
+`official_id: null` and `criterion_text` (the `expected_compliance` text); the criterion lists (`compliance_indicators`,
+`non_compliance_signs`) stay in `metadata`, as lists, and the item's `source_chat_ids` (if any) in `metadata.source_chat_ids`.
+`load_grades` enforces exactly this. A grades file written before this field existed reads as `"answer"`.
 
 `scores` holds the benchmark's grade for each **agent** answer, one score per rubric line; the official answer is the key
 and carries none. `arms` is rendered only by `report --unblind`.
@@ -80,16 +90,20 @@ leaves the file byte-identical.
  "record_sha256": "<64 hex>"}
 ```
 
-- **Keys.** Phases 1 and 3 key the judgement by answer id (`keyed_by: "label"`). Phase 2 keys it by letter (`A`, `B`, ...;
-  `keyed_by: "letter"`). Values are `correct`, `partly` or `wrong`. The item as a whole may instead be
+- **Keys.** Phases 1 and 3 key the judgement by answer id (`keyed_by: "label"`); on a criterion item they add one key,
+  `criterion`, beside the agent answer ids. Phase 2 keys it by letter (`A`, `B`, ...; `keyed_by: "letter"`).
+- **`step`** is `null` except for phase 2 of a criterion item, where it is `"2a"` or `"2b"` (see "Criterion items"). The verdict
+  file may carry `step`; `record` takes `--grades` so it knows each item's kind, and refuses a step on an answer item or a
+  phase-2 record without one on a criterion item. Values are `correct`, `partly` or `wrong`. The item as a whole may instead be
   `{"ambiguous": "source"}`; phase 3 may also write `{"ambiguous": "reviewers split"}`.
 - **Facts.** `bears_on` must be a key of the same judgement. With `--chat`, `quote` must be a verbatim substring of
   message `msg_id`; `quote-check` re-runs that check over a whole file.
-- **Guesses** (phase 2 only): `{"official": "<letter>", "arms": {"<letter>": "<arm name>"}}`. They name letters and arms,
+- **Guesses** (phase 2 only; on a criterion item, in the 2a record only, as `{"arms": {...}}` with no official guess):
+  `{"official": "<letter>", "arms": {"<letter>": "<arm name>"}}`. They name letters and arms,
   so `map` converts only the official guess (to an answer id and a hit flag) and `export-phase3` drops guesses entirely.
 - **`record_sha256`** is the sha256 of the record without that field, serialised as canonical JSON: keys sorted, separators
   `,` and `:` with no spaces, non-ASCII characters not escaped, UTF-8.
-- **Supersession.** One effective verdict per (item, phase, reviewer). A second record for the same triple is accepted only
+- **Supersession.** One effective verdict per (item, phase, step, reviewer). A second record for the same triple is accepted only
   with `--supersedes <record_sha256 of the current one>` and a non-empty `--reason`; both are stored. Superseded records
   stay in the file. `map` supports one reviewer per item per phase and refuses otherwise.
 - `fuller_answer` is expected whenever the official answer is judged not correct; `record` cannot check it (it never reads
@@ -126,10 +140,37 @@ For an item without one, `export-phase3` refuses, and `map` does not read the ke
 phase-2 entry, and says on stderr (`refused: ...`) if a key file is present. A verdict whose hash does not recompute makes
 `map` refuse.
 
+## Criterion items (instruction- and preference-following)
+
+A criterion is visibly not an answer, so an A/B blind between "official" and agent answers cannot hold. For
+`reference_kind = "criterion"` items phase 2 is two steps, enforced by the tool:
+
+- **2a.** `packet2` as for any item. `items.jsonl` holds only the agent answers, so the packet shows the question, the chat and
+  the agent answers under letters, and no criterion (the criterion text lives only in `grades.jsonl`, which `packet2` cannot
+  read). The reviewer judges each lettered answer. `fuller_answer` states what a complying answer must do and the message id
+  that sets the instruction or preference. `record --phase 2` stores it with `step: "2a"`; a 2a may carry an arm guess
+  (`{"arms": ...}`), never an official-answer guess.
+- **2b.** `export-criterion --items I --grades G --verdicts V --item ID --reviewer R --out X.json` refuses unless a phase-2
+  `step: "2a"` record by that reviewer exists for the item (every record's `record_sha256` must recompute), and writes only
+  `criterion_text`, `criterion_lists` (from metadata), the item id, the reviewer, the time and the 2a record's hash. The
+  reviewer then records `step: "2b"`, whose judgement has exactly one key, `criterion`: `correct`, `partly` or `wrong`.
+  `record` refuses a 2b carrying any other key (an agent-answer judgement, a letter, `ambiguous`) or a guess, and refuses a 2b
+  without a 2a by the same reviewer.
+- **Changing a 2a after a 2b** needs a new 2a with `--supersedes` and `--reason` (the supersession key includes the step).
+- **Phases 1 and 3** are not blind: they judge `criterion` plus the agent answer ids directly. `packet1` and `report` print
+  the criterion text where they print the official answer for an answer-type item.
+- **Mapping.** `map` and `export-phase3` build a criterion item's phase-2 view only once both the 2a and the 2b are
+  recorded: the 2b `criterion` judgement stands in the official answer's place in outcome rows 2-4, beside the 2a judgements
+  re-keyed to answer ids. With only a 2a, the item is `phase2_pending`. Routing and agreement are unchanged (levels are
+  agent-answer-only). `official_id` is `null` and there is no official-answer guess.
+
+**Two limits.** A packet without an official answer tells the reviewer the item's kind (the reviewer can see the item is not an
+A/B). And with one agent answer (single-arm data) there is no A/B at all, only an unanchored read of that answer.
+
 ## outcomes.jsonl (written by `map`, regenerated, never hand-edited)
 
 One line per item: `official_id`, `official_levels`, `routing` (`set_a`, `set_b`, `set_c`, `in_phase2`, `in_phase3`,
-`unquestioned_control`, `phase3_required`), `phases` (per recorded phase: `reviewer`, `record_sha256`, answer-id-keyed
+`unquestioned_control`, `phase3_required`), `reference_kind`, `phases` (per recorded phase: `reviewer`, `record_sha256`, answer-id-keyed
 `judgement`, `outcome`, `flagged`, `fuller_answer`; phase 2 adds `official_guess`), `agreement` (`p1_p2`, `all`), `status`,
 `adjusted` (`method` and a per-answer entry), `facts` (the merged fact list). It contains no letter, no letter-to-answer
 pair and no arm label.
@@ -165,7 +206,8 @@ remaining split is recorded as a phase-3 `reviewers split`), `ambiguous_split`.
    committed.
 4. Phase 2: the key-holder runs `packet2` for each item in the phase-2 set (in a random order) and hands out only the files
    in `packets/phase2/`. The reviewer returns a verdict JSON keyed by letters; the study lead runs `record --phase 2`.
-   Commit the verdicts.
+   Commit the verdicts. For a criterion item, that record is the 2a; the key-holder then runs `export-criterion` for the
+   same reviewer, hands out only its output, and records the returned 2b (see "Criterion items").
 5. The key-holder runs `map`, then `export-phase3` for each phase-3 item. Phase 3 records `record --phase 3`.
 6. `report` (without `--unblind` until the adjusted set is frozen) renders the log.
 

@@ -77,8 +77,8 @@ def load_items(path):
         if iid in items:
             raise UserError("items file: duplicate item %s" % iid)
         ans = r.get("answers")
-        if not isinstance(r.get("question"), str) or not isinstance(ans, list) or len(ans) < 2:
-            raise UserError("items file: item %s needs a question and at least two answers" % iid)
+        if not isinstance(r.get("question"), str) or not isinstance(ans, list) or len(ans) < 1:
+            raise UserError("items file: item %s needs a question and at least one answer" % iid)
         ids = []
         for a in ans:
             aid = a.get("answer_id")
@@ -101,10 +101,25 @@ def load_grades(path, items):
         if iid not in items:
             raise UserError("grades file names an item that is not in the items file: %r" % (iid,))
         ids = [a["answer_id"] for a in items[iid]["answers"]]
+        kind = r.get("reference_kind", "answer")
         off = r.get("official_id")
-        if off not in ids:
-            raise UserError("grades: item %s official_id is not one of its answers" % iid)
-        agents = sorted(i for i in ids if i != off)
+        if kind == "criterion":
+            if off is not None:
+                raise UserError("grades: item %s is criterion-type, so official_id must be null" % iid)
+            if not isinstance(r.get("criterion_text"), str) or not r["criterion_text"].strip():
+                raise UserError("grades: item %s is criterion-type and needs a non-empty criterion_text" % iid)
+            agents = sorted(ids)
+        elif kind == "answer":
+            if "criterion_text" in r:
+                raise UserError("grades: item %s is answer-type and must not carry a criterion_text" % iid)
+            if off not in ids:
+                raise UserError("grades: item %s official_id is not one of its answers" % iid)
+            if len(ids) < 2:
+                raise UserError("grades: item %s is answer-type and needs the official answer and at least one agent answer"
+                                % iid)
+            agents = sorted(i for i in ids if i != off)
+        else:
+            raise UserError("grades: item %s has an unknown reference_kind %r" % (iid, kind))
         if sorted(r.get("scores", {})) != agents:
             raise UserError("grades: item %s needs rubric scores for exactly the agent answers" % iid)
         n = len(r.get("rubric_lines", []))
@@ -160,7 +175,8 @@ def outcome_for(judgement, official_id, levels):
     """First matching row of the outcome table. judgement is keyed by answer ids (or {"ambiguous": v})."""
     if "ambiguous" in judgement:
         return ("ambiguous_split" if judgement["ambiguous"] == "reviewers split" else "ambiguous_source"), []
-    if judgement.get(official_id) != "correct":
+    reference = official_id if official_id is not None else "criterion"  # a criterion item's reference is its criterion
+    if judgement.get(reference) != "correct":
         return "key_wrong", []
     flagged = sorted(aid for aid, lv in levels.items() if JUDGEMENT_LEVEL.get(judgement.get(aid)) != lv)
     if flagged:
@@ -198,6 +214,8 @@ def merge_facts(records):
             m = dict(f)
             m["phase"] = rec["phase"]
             m["reviewer"] = rec["reviewer"]
+            if rec.get("step"):
+                m["step"] = rec["step"]
             merged.append(m)
     return merged
 
@@ -205,11 +223,11 @@ def merge_facts(records):
 # ------------------------------------------------------------------ record
 
 FACT_KEYS = {"msg_id", "quote", "bears_on", "direction", "against_own"}
-FILE_KEYS = {"item_id", "keyed_by", "judgement", "fuller_answer", "facts", "guesses", "minutes_spent", "notes"}
+FILE_KEYS = {"item_id", "step", "keyed_by", "judgement", "fuller_answer", "facts", "guesses", "minutes_spent", "notes"}
 REVIEWER_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-def validate_verdict(vd, item, phase, chat):
+def validate_verdict(vd, item, phase, chat, grade):
     if not isinstance(vd, dict):
         raise UserError("the verdict file must hold one JSON object")
     extra = set(vd) - FILE_KEYS
@@ -217,23 +235,38 @@ def validate_verdict(vd, item, phase, chat):
         raise UserError("unknown field(s) in the verdict file: %s" % ", ".join(sorted(extra)))
     if vd.get("item_id") != item["item_id"]:
         raise UserError("the verdict file's item_id does not match the item")
-    keyed = "letter" if phase == 2 else "label"
+    criterion = grade.get("reference_kind", "answer") == "criterion"
+    step = vd.get("step")
+    if criterion and phase == 2:
+        if step not in ("2a", "2b"):
+            raise UserError("a phase-2 record for a criterion-type item must carry step 2a or 2b")
+    elif step is not None:
+        raise UserError("step belongs to phase 2 of a criterion-type item only")
+    keyed = "label" if (phase != 2 or step == "2b") else "letter"
     if vd.get("keyed_by", keyed) != keyed:
-        raise UserError("phase %d must be keyed by %s" % (phase, "letter" if phase == 2 else "label (answer id)"))
+        raise UserError("phase %d%s must be keyed by %s" % (phase, " step 2b" if step == "2b" else "",
+                                                           "letter" if keyed == "letter" else "label (answer id)"))
     j = vd.get("judgement")
     if not isinstance(j, dict) or not j:
         raise UserError("judgement must be a non-empty object")
     ids = [a["answer_id"] for a in item["answers"]]
-    if "ambiguous" in j:
+    if step == "2b":
+        if set(j) != {"criterion"} or j["criterion"] not in JUDGEMENT_LEVEL:
+            raise UserError("a 2b record's judgement has exactly one key, criterion, with the value correct, partly or wrong")
+    elif "ambiguous" in j:
         allowed = {"source"} if phase in (1, 2) else {"source", "reviewers split"}
         if len(j) != 1 or j["ambiguous"] not in allowed:
             raise UserError("ambiguous must stand alone with the value %s in phase %d"
                             % (" or ".join(sorted(allowed)), phase))
     else:
-        expected = set(LETTERS[:len(ids)]) if phase == 2 else set(ids)
+        if phase == 2:
+            expected = set(LETTERS[:len(ids)])
+        else:
+            expected = set(ids) | ({"criterion"} if criterion else set())
         if set(j) != expected:
-            raise UserError("phase %d judgement must be keyed by %s, exactly one entry for each of %d answers"
-                            % (phase, "letters" if phase == 2 else "answer ids", len(ids)))
+            raise UserError("phase %d judgement must be keyed by %s, exactly one entry for each of %d answers%s"
+                            % (phase, "letters" if phase == 2 else "answer ids", len(ids),
+                               " plus criterion" if (criterion and phase != 2) else ""))
         for k, v in j.items():
             if v not in JUDGEMENT_LEVEL:
                 raise UserError("judgement for %s must be correct, partly or wrong, not %r" % (k, v))
@@ -264,14 +297,16 @@ def validate_verdict(vd, item, phase, chat):
         check_quotes(facts, chat)
     g = vd.get("guesses")
     if g is not None:
-        if phase != 2:
-            raise UserError("guesses belong to phase 2 only")
+        if phase != 2 or step == "2b":
+            raise UserError("guesses belong to phase 2 (a 2a record, for a criterion-type item) only")
         valid = set(LETTERS[:len(ids)])
-        if (not isinstance(g, dict) or set(g) != {"official", "arms"} or g["official"] not in valid
+        shape = {"arms"} if criterion else {"official", "arms"}
+        if (not isinstance(g, dict) or set(g) != shape or ("official" in g and g["official"] not in valid)
                 or not isinstance(g["arms"], dict) or not set(g["arms"]) <= valid
                 or not all(isinstance(v, str) for v in g["arms"].values())):
-            raise UserError("guesses must be {official: <letter>, arms: {<letter>: <arm>}}")
-    return {"keyed_by": keyed, "judgement": j, "fuller_answer": fa, "facts": facts, "guesses": g,
+            raise UserError("guesses must be %s" % ("{arms: {<letter>: <arm>}} (a criterion has no official-answer guess)"
+                                                    if criterion else "{official: <letter>, arms: {<letter>: <arm>}}"))
+    return {"step": step, "keyed_by": keyed, "judgement": j, "fuller_answer": fa, "facts": facts, "guesses": g,
             "minutes_spent": mins, "notes": notes}
 
 
@@ -303,13 +338,18 @@ def cmd_record(a):
     if item is None:
         raise UserError("the verdict file names an item that is not in the items file")
     chat = load_chat(a.chat) if a.chat else None
-    body = validate_verdict(vd, item, phase, chat)
+    grade = load_grades(a.grades, items)[item["item_id"]]
+    body = validate_verdict(vd, item, phase, chat, grade)
     rows = load_verdicts(a.verdicts)
+    if body["step"] == "2b" and not any(
+            (r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (item["item_id"], 2, "2a", a.reviewer)
+            for r in effective(rows)):
+        raise UserError("a 2b record needs a recorded 2a record for this item by the same reviewer")
     prior = [r for r in effective(rows)
-             if (r["item_id"], r["phase"], r["reviewer"]) == (item["item_id"], phase, a.reviewer)]
+             if (r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (item["item_id"], phase, body["step"], a.reviewer)]
     if prior:
         if not a.supersedes or not (a.reason or "").strip():
-            raise UserError("a record for this item, phase and reviewer already exists: record again only with "
+            raise UserError("a record for this item, phase, step and reviewer already exists: record again only with "
                             "--supersedes <its record_sha256> and a --reason")
         if a.supersedes != prior[0]["record_sha256"]:
             raise UserError("--supersedes must name the current record's record_sha256")
@@ -392,7 +432,10 @@ def cmd_packet1(a):
         raise UserError("unknown item %s" % a.item)
     it, g = items[a.item], grades[a.item]
     chat = load_chat(a.chat) if a.chat else None
-    L = ["Item %s" % a.item, "", "Question: %s" % it["question"], "", "Answers:"]
+    L = ["Item %s" % a.item, "", "Question: %s" % it["question"], ""]
+    if g.get("reference_kind") == "criterion":
+        L += ["Criterion (the reference for this item; it is not an answer): %s" % g["criterion_text"], ""]
+    L += ["Answers:"]
     for ans in it["answers"]:
         mark = " (official)" if ans["answer_id"] == g["official_id"] else ""
         L.append("- [%s]%s %s" % (ans["answer_id"], mark, ans["text"]))
@@ -424,12 +467,44 @@ class Ctx:
         self.keys_dir = keys_dir
         self.levels = {i: official_levels(self.grades[i]) for i in self.items}
 
-    def phase_record(self, item, phase):
-        recs = [r for r in effective(self.rows) if r["item_id"] == item and r["phase"] == phase]
+    def phase_record(self, item, phase, step=None):
+        recs = [r for r in effective(self.rows)
+                if r["item_id"] == item and r["phase"] == phase and r.get("step") == step]
         if len(recs) > 1:
-            raise UserError("item %s has %d reviewers recorded for phase %d; this version supports one"
-                            % (item, len(recs), phase))
+            raise UserError("item %s has %d reviewers recorded for phase %d%s; this version supports one"
+                            % (item, len(recs), phase, (" step " + step) if step else ""))
         return recs[0] if recs else None
+
+    def is_criterion(self, item):
+        return self.grades[item].get("reference_kind", "answer") == "criterion"
+
+    def has_phase2_record(self, item):
+        if self.is_criterion(item):
+            return self.phase_record(item, 2, "2a") is not None
+        return self.phase_record(item, 2) is not None
+
+    def phase2(self, item):
+        """The label-keyed phase-2 record, or None while it is incomplete.
+
+        An answer-type item has one phase-2 record. A criterion-type item has a 2a (agent answers) and a 2b
+        (the criterion); both must be recorded, by one reviewer, and the judgement is the two merged: the 2b
+        `criterion` judgement stands where an official answer's would, beside the re-keyed 2a judgements.
+        """
+        if not self.is_criterion(item):
+            rec = self.phase_record(item, 2)
+            return self.rekey(item, rec) if rec is not None else None
+        r2a, r2b = self.phase_record(item, 2, "2a"), self.phase_record(item, 2, "2b")
+        if r2a is None or r2b is None:
+            return None
+        if r2a["reviewer"] != r2b["reviewer"]:
+            raise UserError("item %s: the 2a and 2b records are by different reviewers" % item)
+        out = self.rekey(item, r2a)
+        if "ambiguous" not in out["judgement"]:
+            out["judgement"] = dict(out["judgement"], criterion=r2b["judgement"]["criterion"])
+        out["facts"] = list(out["facts"]) + [dict(f) for f in r2b["facts"]]
+        out["record_sha256_2b"] = r2b["record_sha256"]
+        out["fuller_answer_2b"] = r2b.get("fuller_answer")
+        return out
 
     def key_path(self, item):
         return os.path.join(self.keys_dir, "%s.json" % item)
@@ -462,7 +537,7 @@ class Ctx:
         out["judgement"], out["facts"] = jj, facts
         g = rec.get("guesses")
         out["official_guess"] = None
-        if g:
+        if g and "official" in g:
             gid = letters[g["official"]]
             out["official_guess"] = {"guessed_id": gid, "correct": gid == self.grades[item]["official_id"]}
         out.pop("guesses", None)
@@ -476,16 +551,18 @@ class Ctx:
              "outcome": out, "flagged": flagged, "fuller_answer": rec.get("fuller_answer")}
         if phase == 2:
             v["official_guess"] = rec.get("official_guess")
+            if rec.get("record_sha256_2b"):
+                v["record_sha256_2b"] = rec["record_sha256_2b"]
+                v["fuller_answer_2b"] = rec.get("fuller_answer_2b")
         return v
 
 
 def compute_outcomes(ctx, draws, note):
     p1o, p2o, recs, views = {}, {}, {}, {}
     for item in ctx.items:
-        r1, r2, r3 = (ctx.phase_record(item, p) for p in (1, 2, 3))
-        if r2 is not None:
-            r2 = ctx.rekey(item, r2)
-        elif os.path.exists(ctx.key_path(item)):
+        r1, r3 = ctx.phase_record(item, 1), ctx.phase_record(item, 3)
+        r2 = ctx.phase2(item)
+        if r2 is None and not ctx.has_phase2_record(item) and os.path.exists(ctx.key_path(item)):
             note("refused: %s has a key file but no recorded phase-2 verdict; the key is not read, nothing is re-keyed"
                  % item)
         recs[item] = (r1, r2, r3)
@@ -523,7 +600,8 @@ def compute_outcomes(ctx, draws, note):
             status = "disagreement"
         out.append({
             "schema_version": SCHEMA, "item_id": item, "generated_at": now(),
-            "official_id": ctx.grades[item]["official_id"], "official_levels": ctx.levels[item],
+            "official_id": ctx.grades[item]["official_id"],
+            "reference_kind": ctx.grades[item].get("reference_kind", "answer"), "official_levels": ctx.levels[item],
             "routing": rt, "phases": v, "agreement": agr, "status": status,
             "adjusted": adjusted_entry(status, v, ctx.levels[item]),
             "facts": merge_facts([r for r in (r1, r2, r3) if r]),
@@ -562,24 +640,52 @@ def cmd_export_phase3(a):
     ctx = Ctx(a.items, a.grades, a.verdicts, a.keys_dir)
     if a.item not in ctx.items:
         raise UserError("unknown item %s" % a.item)
-    r1, r2 = ctx.phase_record(a.item, 1), ctx.phase_record(a.item, 2)
+    r1, r2 = ctx.phase_record(a.item, 1), ctx.phase2(a.item)
     if r1 is None or r2 is None:
-        raise UserError("item %s needs both a phase-1 and a phase-2 verdict before phase 3" % a.item)
-    r2 = ctx.rekey(a.item, r2)
+        raise UserError("item %s needs both a phase-1 and a complete phase-2 verdict (a criterion-type item needs its "
+                        "2a and its 2b) before phase 3" % a.item)
     it, g = ctx.items[a.item], ctx.grades[a.item]
     v1, v2 = ctx.phase_view(a.item, 1, r1), ctx.phase_view(a.item, 2, r2)
     v1["notes"] = r1.get("notes", "")
     v2.pop("official_guess", None)  # the guesses name letters and arms; phase 3 does not receive them
     export = {
         "schema_version": SCHEMA, "item_id": a.item, "exported_at": now(), "question": it["question"],
-        "answers": it["answers"], "official_id": g["official_id"], "official_levels": ctx.levels[a.item],
+        "answers": it["answers"], "official_id": g["official_id"],
+        "reference_kind": g.get("reference_kind", "answer"), "official_levels": ctx.levels[a.item],
         "phase1": v1, "phase2": v2, "agreement": {"p1_p2": agree(r1["judgement"], r2["judgement"])},
         "facts": merge_facts([r1, r2]),
     }
+    if g.get("reference_kind") == "criterion":
+        export["criterion_text"] = g["criterion_text"]
     with open(a.out, "w", encoding="utf-8") as fh:
         json.dump(export, fh, sort_keys=True, indent=2)
         fh.write("\n")
     print("export-phase3: wrote %s" % a.out)
+
+
+def cmd_export_criterion(a):
+    """Step 2b: hand the criterion to a phase-2 reviewer, only after that reviewer's 2a record is in the file."""
+    items = load_items(a.items)
+    grades = load_grades(a.grades, items)
+    if a.item not in items:
+        raise UserError("unknown item %s" % a.item)
+    g = grades[a.item]
+    if g.get("reference_kind") != "criterion":
+        raise UserError("item %s is not criterion-type; there is no criterion to export" % a.item)
+    rows = load_verdicts(a.verdicts, required=False)  # every record's record_sha256 must recompute
+    r2a = [r for r in effective(rows) if (r["item_id"], r["phase"], r.get("step"), r["reviewer"])
+           == (a.item, 2, "2a", a.reviewer)]
+    if not r2a:
+        raise UserError("no recorded 2a record for item %s by reviewer %s; the criterion is not released before it"
+                        % (a.item, a.reviewer))
+    meta = g.get("metadata") or {}
+    export = {"schema_version": SCHEMA, "item_id": a.item, "reviewer": a.reviewer, "exported_at": now(),
+              "after_2a_record_sha256": r2a[0]["record_sha256"], "criterion_text": g["criterion_text"],
+              "criterion_lists": {k: meta[k] for k in ("compliance_indicators", "non_compliance_signs") if k in meta}}
+    with open(a.out, "w", encoding="utf-8") as fh:
+        json.dump(export, fh, sort_keys=True, indent=2)
+        fh.write("\n")
+    print("export-criterion: wrote %s" % a.out)
 
 
 # ------------------------------------------------------------------ report
@@ -593,7 +699,7 @@ def cmd_report(a):
         if o["item_id"] not in items:
             raise UserError("outcomes name an item that is not in the items file: %s" % o["item_id"])
         for p, v in o["phases"].items():
-            if v["record_sha256"] not in shas:
+            if v["record_sha256"] not in shas or v.get("record_sha256_2b", v["record_sha256"]) not in shas:
                 raise UserError("outcomes are stale: %s phase %s cites a record that is not in the verdicts file; "
                                 "run map again" % (o["item_id"], p))
     arm_stats = None
@@ -613,6 +719,8 @@ def cmd_report(a):
     for o in outcomes:
         it, g = items[o["item_id"]], grades[o["item_id"]]
         L += ["## Item %s" % o["item_id"], "", "Question: %s" % it["question"], "", "Status: **%s**" % o["status"], ""]
+        if g.get("reference_kind") == "criterion":
+            L += ["Criterion (the reference; not an answer): %s" % g["criterion_text"], ""]
         L += ["| answer | official level | adjusted | text |", "|---|---|---|---|"]
         for ans in it["answers"]:
             aid = ans["answer_id"]
@@ -637,6 +745,8 @@ def cmd_report(a):
                     json.dumps(v["judgement"], sort_keys=True)))
                 if v.get("fuller_answer"):
                     L.append("  - fuller answer: %s" % v["fuller_answer"])
+                if v.get("fuller_answer_2b"):
+                    L.append("  - fuller answer (2b): %s" % v["fuller_answer_2b"])
             elif o["routing"]["in_phase3"] and p == "3" and o["status"] in ("pending", "disagreement"):
                 L.append("- Phase 3: **pending**")
         L += ["", "Merged fact list (%d fact(s); none dropped):" % len(o["facts"])]
@@ -763,9 +873,10 @@ def build_parser():
     add("draw", cmd_draw, "--items", "--grades", "--run", "--n", "--seed", "--draws", "--verdicts")
     add("packet1", cmd_packet1, "--items", "--grades", "--item", ("--chat", opt))
     add("packet2", cmd_packet2, "--items", "--item", "--seed", "--keys-dir", "--out-dir", ("--chat", opt))
-    add("record", cmd_record, "--verdicts", "--items", "--phase", "--reviewer", "--file", ("--chat", opt),
+    add("record", cmd_record, "--verdicts", "--items", "--grades", "--phase", "--reviewer", "--file", ("--chat", opt),
         ("--supersedes", opt), ("--reason", opt))
     add("map", cmd_map, "--items", "--grades", "--verdicts", "--keys-dir", "--draws", "--out")
+    add("export-criterion", cmd_export_criterion, "--items", "--grades", "--verdicts", "--item", "--reviewer", "--out")
     add("export-phase3", cmd_export_phase3, "--items", "--grades", "--verdicts", "--keys-dir", "--item", "--out")
     add("quote-check", cmd_quote_check, "--verdicts", "--chat")
     add("report", cmd_report, "--items", "--grades", "--verdicts", "--outcomes",
