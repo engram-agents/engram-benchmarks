@@ -88,9 +88,18 @@ this log
 
 with nonce_i = 32 random bytes from the operating system's CSPRNG (Python `secrets`). The preimage's order and
 label are fixed as written. Encoding (the study lead's addition, so that every seat recomputes the same bytes;
-not part of the security ruling): the label is the 14 ASCII bytes shown; seed_i is the UTF-8 encoding of the
-exact seed string the tool is given; nonce_i is the 32 raw bytes; the nonce and the commitment are written in
-this log as lowercase hex. At reveal the key holder publishes (seed_i, nonce_i); verification is recomputation,
+not part of the security ruling, read by the security seat as not conflicting with it, with three amendments
+of theirs folded in):
+- The label is the 14 ASCII bytes shown.
+- Each seed is canonical from creation: a fixed-length lowercase-hex string (64 characters, from
+  `secrets.token_hex(32)`), with no surrounding whitespace or newline. That exact string is what the tool
+  receives, and its ASCII bytes are seed_i in the preimage.
+- nonce_i is the 32 raw bytes; the nonce and the commitment are written in this log as lowercase hex.
+- The log declares the number of seeds and indexes each commitment ("n seeds, indexes 0..n-1": index 0 the import
+  seed, index 1 the letter seed), and the sha256 of the commitment entry goes into the commit that adds it, so a
+  missing seed is visible and not merely absent.
+- A verifier lowercases both hex strings before comparing.
+At reveal the key holder publishes (seed_i, nonce_i); verification is recomputation,
 which any seat can do with no key and no decryption, and which the phase-2 reader can do alone.
 
 Conditions, without which the mechanism fails:
@@ -231,3 +240,6 @@ empty, the document changed: re-read and re-commit as above.
   committed the item-id list instead of items.jsonl (benchmark text). This commit adds the security seat's seed
   commitment, which the design owner accepted, with its two conditions, the reveal-timing rule and the three-link
   chain; the import manifest's file hashes (design owner); and the unchanged-merge rule (design owner).
+- 2026-11-17, third commit (before any operation): the security seat's three amendments to the study lead's
+  encoding: canonical 64-character lowercase-hex seeds, a declared and indexed seed count with the entry's hash
+  in its commit, and lowercase comparison by the verifier.
