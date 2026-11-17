@@ -40,9 +40,10 @@ An **item** is one question. In a study with several arms, an item carries one a
 | 2, the external exam expert | the union of: (a) every item where any arm's answer is below full official score; (b) every item where the phase-1 outcome is anything other than "Key stands"; (c) a fixed number of the remaining items, drawn with a seed |
 | 3, the district official | every phase-2 item **except** the unquestioned controls: items where every arm's answer has full official score and both phase 1 and phase 2 map to "Key stands" |
 
-The number drawn in (c) and its seed are fixed before anyone looks: in the study's pre-registration for a scored
-study, in the study's log for a pilot. An item that phase 2 does not review keeps its official grade in both
-columns.
+The number drawn in (c) and its seed are fixed and logged **before any phase-1 outcome exists for that run**, so
+the sample cannot follow the results: in the study's pre-registration for a scored study, in the study's log for
+a pilot. A pilot on items phase 1 has already seen says so in its log. An item that phase 2 does not review keeps
+its official grade in both columns.
 
 Phase 2 receives the items in a random order, without being told which set each came from. Otherwise the
 selection itself tells the reviewer which items someone doubted.
@@ -52,8 +53,10 @@ selection itself tells the reviewer which items someone doubted.
 The study lead reviews every item, presuming neither the official answer nor any agent's answer correct. The
 answers, and the messages each cites, are used as pointers into the source material; the reviewer answers the
 question from the source and writes the answer-level judgement of section 6, including a fuller correct
-answer when the official answer is not fully correct. In a scored study the teacher sees the answers without
-arm labels (the study's pre-registration freezes the adjusted set before arm labels are unblinded).
+answer when the official answer is not fully correct. Phase 1 is not lettered: its packet marks which answer is
+the official one, so its outcome is mapped directly and can decide phase-2 selection (section 2, set b). In a
+scored study the teacher sees the agents' answers without arm labels (the study's pre-registration freezes the
+adjusted set before arm labels are unblinded).
 
 *Known limit:* the teacher has seen the rubric, the question's category, and, on single-arm data, which answer
 is the agent's. Phase 1 is the least blind phase. Phases 2 and 3 exist to check it.
@@ -93,9 +96,10 @@ material; the reviewers bring the facts:
   message it comes from. Each reviewer also lists the facts that cut **against** their own judgement. The two
   lists are merged mechanically: no fact is dropped by either reviewer.
 
-The project lead's ruling is one of the outcomes in section 6, with the settled answer where the key is wrong.
-**The phases agree** on an item when they reach the same outcome and, where the key is wrong, their settled
-answers do not differ on a load-bearing point. If all three agree, the outcome is settled. If not, the three
+The project lead's ruling is written in the same answer-level form as phases 1 and 2 (section 6), with the
+settled answer where the key is wrong, and is mapped by the same table. **The phases agree** on an item when
+their judgements are identical answer by answer: the same judgement of the official answer, the same judgement
+of every agent answer, and, where the key is wrong, settled answers that do not differ on a load-bearing point. If all three agree, the outcome is settled. If not, the three
 discuss it once, with the fact list in front of them. If they still disagree after that, the outcome is
 **Ambiguous** and every ruling is published.
 
@@ -111,8 +115,13 @@ against both of them is visible in the log.
 
 - A script builds the phase-2 packets. It draws the letter order from a logged seed and writes the letter key
   to a separate file whose hash is published before the phase-2 read. The key is held by a named seat that
-  reviews no item in that round, recorded in the study's log, and is opened only after phase 3 rules on the
-  item (or, for an unquestioned control, after phase 2).
+  reviews no item in that round, recorded in the study's log.
+- **The key-holder's duties, in one line:** the key-holder runs the mapping script, which reads the key and
+  prints each item's phase-2 outcome (never the letters); the key itself is revealed only into the study's
+  log, only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every
+  reveal is logged with its time. An unlogged reveal is the one way this seat can break the design.
+- *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
+  belongs to the team under test.
 - Each phase's judgement is committed with a hash before the next phase sees anything of it. Phase 2 never sees
   the phase-1 judgement. Phase 3 sees both, with the merged fact list.
 - The fact lists are merged by script (concatenate, keep every fact, mark which reviewer contributed it), never
@@ -125,14 +134,18 @@ for each agent answer, one of **correct**, **partly correct**, or **wrong**; or,
 **ambiguous** (the source supports more than one reading). When the official answer is not judged correct, the
 reviewer also writes the fuller correct answer.
 
-**From judgement to outcome** (applied by script once the letter key is opened):
+**Grade levels.** An official grade is **full** when every rubric line is met, **zero** when none is, and
+**partial** otherwise, whatever the benchmark's own scale. A judgement of correct, partly correct or wrong
+corresponds to full, partial or zero.
+
+**From judgement to outcome** (applied by script; the first matching row decides):
 
 | judgement | outcome |
 |---|---|
 | the item is ambiguous | **Ambiguous** |
 | the official answer is partly correct or wrong | **Key wrong or incomplete** |
-| the official answer is correct, and each agent answer's judgement matches its official grade (correct = full, partly correct = partial, wrong = zero) | **Key stands** |
-| the official answer is correct, and some agent answer's judgement differs from its official grade | **Grading error** (for that answer) |
+| the official answer is correct, and every agent answer's judgement corresponds to its official grade level | **Key stands** |
+| the official answer is correct, and one or more agent answers' judgements do not correspond to their official grade levels | **Grading error**, for exactly those answers |
 
 How each outcome scores:
 
@@ -140,8 +153,9 @@ How each outcome scores:
 - **Key wrong or incomplete:** the rubric is rewritten (below), and every arm's answer to the item is re-scored
   against it for the adjusted column, whatever its official grade. This is applied only once phase 3 settles
   the item.
-- **Grading error:** the official column keeps the benchmark's own grade; the adjusted column takes the corrected
-  grade. Logged under its own heading.
+- **Grading error:** the official column keeps the benchmark's own grade. For each flagged answer, the adjusted
+  column takes a re-grade against the unchanged official rubric, applied line by line by the study lead, checked
+  by the second reviewer, and settled in phase 3. Logged under its own heading.
 - **Ambiguous:** the item keeps its official grade in both columns, and all readings are published. Ambiguous is
   a legitimate outcome, not a failure to decide.
 
@@ -169,7 +183,8 @@ check is blind to them.
   judgement, each phase-2 reviewer's guess about which answer was the official one, and the outcome.
 - An open invitation to dispute any item, at the head of the log. A dispute that succeeds after publication is
   handled as a correction under METHODOLOGY section 7: a dated correction block on the artifact.
-- Every correction applied to all arms identically (section 6). In a scored study, the adjusted set is frozen
+- Every correction to the key applied to all arms identically (section 6); a grading error is corrected for the
+  answer it names. In a scored study, the adjusted set is frozen
   before arm labels are unblinded; an item still "pending" at the freeze counts at its official grade, is
   listed as pending, and the adjusted column is labelled provisional until none is pending. On single-arm tuning
   data, every reviewed item is flagged as reviewed with the agent's answer in view.
@@ -212,7 +227,9 @@ Each stays open until the named party closes it; closing one is a new version.
   grading errors to phase 3, the definition of agreement, and hiding why an item was selected. The project lead
   added: no rubric or category in the phase-2 packet. The BEAM study's design owner added: adoption through the
   pre-registration, the "pending" rule, measuring the phase-2 guess, facts against one's own judgement, the
-  published independence sentence, "ambiguous" as an outcome, and naming who closes each open question. Two
-  review rounds on this file supplied: the rubric-rewrite rule, re-scoring every arm on a corrected item, the
-  answer-level judgement and its outcome table, the mechanics of section 5a, and the fit with a pre-registration
+  published independence sentence, "ambiguous" as an outcome, naming who closes each open question, fixing the
+  control draw before any phase-1 outcome exists, and the key-holder's duties. Three review rounds on this file
+  supplied: the rubric-rewrite rule, re-scoring every arm on a corrected item, the answer-level judgement and its
+  outcome table, an unlettered phase 1 and a key read only by script, agreement answer by answer, the grade
+  levels and the re-grade for a grading error, the mechanics of section 5a, and the fit with a pre-registration
   that already defines both scores and limits reruns. Decided by the project lead.
