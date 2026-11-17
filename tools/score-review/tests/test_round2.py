@@ -339,7 +339,17 @@ class CStore:
         letters = json.loads((self.keys / ("%s.json" % item)).read_text())["letters"]
         return [L for L, v in letters.items() if v == aid][0]
 
+    def has_p1(self, item):
+        return any(r["item_id"] == item and r["phase"] == 1 for r in read_jsonl(self.verdicts))
+
+    def r1_p1(self):
+        """A phase-1 verdict for the answer-type item r1 (level_j is for criterion items)."""
+        r = self.ids["r1"]
+        return self.ok("r1", 1, "lead", self.vd("r1", {r["official"]: "correct", r["x"]: "correct"}))
+
     def p2a(self, item, judgement_by_key, reviewer="expert", guesses_arms=None, fuller="Answer in one sentence (msg 1)."):
+        if not self.has_p1(item):  # the order rule (S2): phase 2 follows phase 1
+            self.p1(item)
         if not (self.keys / ("%s.json" % item)).exists():
             self.packet2(item)
         j = {self.letter(item, self.ids[item][k]): v for k, v in judgement_by_key.items()}
@@ -418,7 +428,8 @@ def test_cell17_export_criterion_refuses_a_2a_whose_hash_does_not_recompute(tmp_
     s = CStore(tmp_path)
     s.p2a("k2", {"x": "correct", "y": "partly"})
     rows = read_jsonl(s.verdicts)
-    rows[0]["notes"] = "edited after the fact"
+    two_a = [r for r in rows if r.get("step") == "2a"][0]
+    two_a["notes"] = "edited after the fact"
     s.verdicts.write_text("".join(json.dumps(r) + "\n" for r in rows))
     cp, out = s.export_criterion("k2")
     assert_refused(cp)
@@ -427,6 +438,7 @@ def test_cell17_export_criterion_refuses_a_2a_whose_hash_does_not_recompute(tmp_
 
 def test_cell17_export_criterion_refuses_for_a_non_criterion_item(tmp_path):
     s = CStore(tmp_path)
+    s.r1_p1()
     s.packet2("r1")
     letters = json.loads((s.keys / "r1.json").read_text())["letters"]
     s.ok("r1", 2, "expert", s.vd("r1", {L: "correct" for L in letters}))
@@ -466,7 +478,7 @@ def _bytes(s):
 
 def test_cell18_a_2b_with_any_key_other_than_criterion_is_refused(tmp_path):
     s = CStore(tmp_path)
-    s.p2a("k2", {"x": "correct", "y": "partly"})
+    s.p2a("k2", {"x": "correct", "y": "partly"})  # (records the phase-1 verdict first)
     before = s.verdicts.read_bytes()
     x = s.ids["k2"]["x"]
     for j in ({"criterion": "correct", x: "correct"}, {"criterion": "correct", "A": "correct"},
@@ -483,6 +495,7 @@ def test_cell18_a_2b_with_any_key_other_than_criterion_is_refused(tmp_path):
 
 def test_cell18_a_2b_needs_a_2a_by_the_same_reviewer(tmp_path):
     s = CStore(tmp_path)
+    s.p1("k2")  # the order rule is met, so the refusals below are about the missing 2a
     _refused(s, lambda: s.record("k2", 2, "expert", s.vd("k2", {"criterion": "correct"}, step="2b")))
     s.p2a("k2", {"x": "correct", "y": "partly"}, reviewer="expert")
     _refused(s, lambda: s.record("k2", 2, "other", s.vd("k2", {"criterion": "correct"}, step="2b")))
@@ -490,14 +503,17 @@ def test_cell18_a_2b_needs_a_2a_by_the_same_reviewer(tmp_path):
 
 def test_cell18_step_rules(tmp_path):
     s = CStore(tmp_path)
+    s.p1("k2")  # the order rule is met for both items, so each refusal below is about the step
+    s.r1_p1()
     s.packet2("k2")
     s.packet2("r1")
     lj = {s.letter("k2", s.ids["k2"]["x"]): "correct", s.letter("k2", s.ids["k2"]["y"]): "partly"}
     for bad in (None, "2c", "1", "2"):  # a criterion item's phase-2 record must say 2a or 2b
         _refused(s, lambda: s.record("k2", 2, "expert", s.vd("k2", lj, step=bad)))
+    before = _bytes(s)
     cp = run("record", "--verdicts", s.verdicts, "--items", s.items, "--phase", 2, "--reviewer", "expert",
              "--file", write_json(tmp_path / "nogr.json", s.vd("k2", lj, step="2a")))
-    assert cp.returncode != 0 and not s.verdicts.exists()  # record without --grades cannot know the item's kind
+    assert cp.returncode != 0 and _bytes(s) == before  # record without --grades cannot know the item's kind
     rl = {L: "correct" for L in json.loads((s.keys / "r1.json").read_text())["letters"]}
     _refused(s, lambda: s.record("r1", 2, "expert", s.vd("r1", rl, step="2a")))  # no steps on answer items
     _refused(s, lambda: s.record("r1", 1, "lead", dict(s.vd("r1", {}, step="2a"))))
@@ -506,15 +522,19 @@ def test_cell18_step_rules(tmp_path):
 
 
 def test_cell18_judgement_keys_per_phase_for_a_criterion_item(tmp_path):
-    s = CStore(tmp_path)
-    good = s.level_j("k2")
-    miss_crit = {k: v for k, v in good.items() if k != "criterion"}
-    miss_agent = {k: v for k, v in good.items() if k != s.ids["k2"]["y"]}
     for ph in (1, 3):
+        s = CStore(tmp_path / ("ph%d" % ph))
+        good = s.level_j("k2")
+        miss_crit = {k: v for k, v in good.items() if k != "criterion"}
+        miss_agent = {k: v for k, v in good.items() if k != s.ids["k2"]["y"]}
+        if ph == 3:  # the order rule is met (p1, 2a, 2b recorded), so the refusals are about the judgement keys
+            s.p2a("k2", {"x": "correct", "y": "partly"})
+            s.p2b("k2", "correct")
         _refused(s, lambda: s.record("k2", ph, "lead", s.vd("k2", miss_crit)))
         _refused(s, lambda: s.record("k2", ph, "lead", s.vd("k2", miss_agent)))
         _refused(s, lambda: s.record("k2", ph, "lead", s.vd("k2", good, step="2a")))
-    s.p1("k2", good)  # control
+        s.ok("k2", ph, "lead", s.vd("k2", good))  # control: the right keys are accepted
+    s = CStore(tmp_path / "answer-item")
     # an answer item still refuses a stray criterion key
     r = s.ids["r1"]
     bad = {r["official"]: "correct", r["x"]: "correct", "criterion": "correct"}
@@ -523,13 +543,14 @@ def test_cell18_judgement_keys_per_phase_for_a_criterion_item(tmp_path):
 
 def test_cell18_2a_guesses_carry_arms_only(tmp_path):
     s = CStore(tmp_path)
+    s.p1("k2")
     s.packet2("k2")
     A, B = s.letter("k2", s.ids["k2"]["x"]), s.letter("k2", s.ids["k2"]["y"])
     lj = {A: "correct", B: "partly"}
     _refused(s, lambda: s.record("k2", 2, "expert", s.vd("k2", lj, step="2a",
                                                                guesses={"official": A, "arms": {A: "x"}})))
     s.ok("k2", 2, "expert", s.vd("k2", lj, step="2a", guesses={"arms": {A: "x", B: "y"}}))
-    assert read_jsonl(s.verdicts)[0]["step"] == "2a"
+    assert read_jsonl(s.verdicts)[-1]["step"] == "2a"
 
 
 def test_cell18_supersession_key_includes_the_step(tmp_path):
@@ -608,7 +629,7 @@ def test_cell19_map_merges_the_facts_of_2a_and_2b(tmp_path):
     s.p1("k2", s.level_j("k2"))
     s.packet2("k2")
     A = s.letter("k2", s.ids["k2"]["x"])
-    fact = lambda b: {"msg_id": 1, "quote": "one short sentence", "bears_on": b, "direction": "supports",
+    fact =lambda b: {"msg_id": 1, "quote": "one short sentence", "bears_on": b, "direction": "supports",
                       "against_own": False}
     s.ok("k2", 2, "expert", s.vd("k2", {A: "correct", s.letter("k2", s.ids["k2"]["y"]): "partly"}, step="2a",
                                  facts=[fact(A)]))

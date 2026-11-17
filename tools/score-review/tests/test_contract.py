@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, read_jsonl, run
+from helpers import Store, assert_refused, build_flow, forge_verdict, read_jsonl, run
 
 
 
@@ -93,8 +93,13 @@ def _cases(s):
 def test_record_refuses_and_leaves_file_byte_identical(tmp_path, idx):
     s = Store(tmp_path)
     s.p1("i03")  # a pre-existing valid verdict, so "byte-identical" is a real comparison
-    before = s.verdicts.read_bytes()
     name, phase, reviewer, vd, extra = _cases(s)[idx]
+    # the order rules (S2) are met, so each refusal below is refused for the reason it names, not for its order
+    if phase in (2, 3):
+        s.p1("i02")
+    if phase == 3:
+        s.p2("i02", s.honest("i02"))
+    before = s.verdicts.read_bytes()
     cp = s.record("i02", phase, reviewer, vd, extra=extra)
     assert_refused(cp)
     assert s.verdicts.read_bytes() == before, name
@@ -124,9 +129,10 @@ def test_record_duplicate_needs_supersedes_and_reason(tmp_path):
     assert cp.returncode == 0, cp.stderr
     rows = read_jsonl(s.verdicts)
     assert len(rows) == 2 and rows[1]["supersedes"] == sha1 and rows[1]["reason"] == "fixed a typo"
-    # a different reviewer for the same (item, phase) is a different key and needs no supersedes
-    cp = s.record("i02", 1, "other", vd)
-    assert cp.returncode == 0, cp.stderr
+    # a different reviewer is not a way round it either (S1): the second EFFECTIVE reviewer needs the same supersede
+    before = s.verdicts.read_bytes()
+    assert_refused(s.record("i02", 1, "other", vd))
+    assert s.verdicts.read_bytes() == before
 
 
 def test_record_accepts_and_sha_recomputes(tmp_path):
@@ -146,9 +152,10 @@ def test_record_accepts_and_sha_recomputes(tmp_path):
 
 def test_record_phase2_is_keyed_by_letter(tmp_path):
     s = Store(tmp_path)
+    s.p1("i02")
     s.packet2("i02")
     s.p2("i02", s.honest("i02"))
-    assert read_jsonl(s.verdicts)[0]["keyed_by"] == "letter"
+    assert read_jsonl(s.verdicts)[1]["keyed_by"] == "letter"
 
 
 # ---------------------------------------------------------------- cell 3: outcome table
@@ -339,7 +346,8 @@ def test_packet2_shows_only_what_phase2_may_see(tmp_path):
     for tok in ("alpha", "beta", "gamma"):
         assert text.count("text-i02-%s zorp" % tok) == 1
     assert "Question text i02?" in text
-    assert text.count("(no messages cited)") == 1
+    # the fixture's answers differ in whether they cite (B1): no per-answer cited line, one neutral line
+    assert text.count("Cited messages: not shown for this item") == 1 and "(no messages cited)" not in text
     assert "Answer A" in text and "Answer B" in text and "Answer C" in text
     # printed key hash equals the file's hash
     key_path = s.keys / "i02.json"
@@ -352,11 +360,11 @@ def test_packet2_shows_only_what_phase2_may_see(tmp_path):
 
 
 def test_packet2_with_chat_prints_cited_message_text(tmp_path):
-    s = Store(tmp_path)
+    s = Store(tmp_path, cited={"official": [1], "a1": [1, 2], "a2": [2]})  # every answer cites (B1)
     _, text = _packet_text(s, chat=True)
     assert "The synthetic plant sits on the north shelf." in text
     assert "Watering happens every Tuesday." in text
-    _, bare = _packet_text(Store(tmp_path / "b"), chat=False)
+    _, bare = _packet_text(Store(tmp_path / "b", cited={"official": [1], "a1": [1, 2], "a2": [2]}), chat=False)
     assert "north shelf" not in bare
 
 
@@ -630,7 +638,9 @@ def test_cell12_export_phase3(tmp_path):
     assert not out.exists()
     # phase 2 only: a fresh store with a phase-2 verdict and no phase-1 verdict
     t = Store(tmp_path / "t")
-    t.p2("i02", t.honest("i02"))
+    t.packet2("i02")
+    forge_verdict(t.verdicts, item_id="i02", phase=2, reviewer="expert", keyed_by="letter",
+                  judgement={t.letter_of("i02", a): v for a, v in t.honest("i02").items()})  # record refuses this order
     cp = run("export-phase3", "--items", t.items, "--grades", t.grades, "--verdicts", t.verdicts,
              "--keys-dir", t.keys, "--item", "i02", "--out", tmp_path / "t.json")
     assert_refused(cp)

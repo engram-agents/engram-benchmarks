@@ -191,17 +191,22 @@ def agree(j1, j2):
     return j1 == j2
 
 
-def route(levels, p1, p2, drawn):
-    """levels {item: {answer_id: level}}, p1/p2 {item: outcome}, drawn: set of item ids."""
+def route(levels, p1, p2, drawn, forced=()):
+    """levels {item: {answer_id: level}}, p1/p2 {item: outcome}, drawn: set of item ids.
+
+    forced: items whose 2a was changed after their 2b (amendment 4). Whatever the outcomes, such an item is
+    never an unquestioned control and is always in phase 3.
+    """
     out = {}
     for item, lv in levels.items():
         a = any(v != "full" for v in lv.values())
         b = item in p1 and p1[item] != "key_stands"
         c = item in drawn
-        in2 = a or b or c
-        control = (not a) and p1.get(item) == "key_stands" and p2.get(item) == "key_stands"
+        f = item in forced
+        in2 = a or b or c or f
+        control = (not a) and (not f) and p1.get(item) == "key_stands" and p2.get(item) == "key_stands"
         in3 = in2 and not control
-        out[item] = {"set_a": a, "set_b": b, "set_c": c, "in_phase2": in2, "in_phase3": in3,
+        out[item] = {"set_a": a, "set_b": b, "set_c": c, "forced_phase3": f, "in_phase2": in2, "in_phase3": in3,
                      "unquestioned_control": control, "phase3_required": in3}
     return out
 
@@ -319,6 +324,20 @@ def check_quotes(facts, chat):
             raise UserError("quote is not verbatim in message %d: %r" % (f["msg_id"], f["quote"]))
 
 
+def check_order(live, iid, phase, step, reviewer, criterion):
+    """Phases are recorded in order (S2): 2 after 1, 3 after both (a criterion item: after 1, 2a and 2b)."""
+    def has(ph, st=None):
+        return any((r["item_id"], r["phase"], r.get("step")) == (iid, ph, st) for r in live)
+    if phase >= 2 and not has(1):
+        raise UserError("phase %d needs a recorded phase-1 verdict for this item; the phases are recorded in order" % phase)
+    if phase == 3 and not (has(2, "2a") and has(2, "2b") if criterion else has(2)):
+        raise UserError("phase 3 needs a recorded phase-2 verdict for this item%s; the phases are recorded in order"
+                        % (" (both its 2a and its 2b)" if criterion else ""))
+    if step == "2b" and not any((r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (iid, 2, "2a", reviewer)
+                                for r in live):
+        raise UserError("a 2b record needs a recorded 2a record for this item by the same reviewer")
+
+
 def cmd_record(a):
     try:
         phase = int(a.phase)
@@ -341,26 +360,31 @@ def cmd_record(a):
     grade = load_grades(a.grades, items)[item["item_id"]]
     body = validate_verdict(vd, item, phase, chat, grade)
     rows = load_verdicts(a.verdicts)
-    if body["step"] == "2b" and not any(
-            (r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (item["item_id"], 2, "2a", a.reviewer)
-            for r in effective(rows)):
-        raise UserError("a 2b record needs a recorded 2a record for this item by the same reviewer")
-    prior = [r for r in effective(rows)
-             if (r["item_id"], r["phase"], r.get("step"), r["reviewer"]) == (item["item_id"], phase, body["step"], a.reviewer)]
+    iid = item["item_id"]
+    live = effective(rows)
+    check_order(live, iid, phase, body["step"], a.reviewer, grade.get("reference_kind", "answer") == "criterion")
+    # one EFFECTIVE record per (item, phase, step), whoever the reviewer: a second reviewer would make `map` refuse
+    # the whole study, so it is refused here unless it supersedes the current record, with a reason
+    prior = [r for r in live if (r["item_id"], r["phase"], r.get("step")) == (iid, phase, body["step"])]
     if prior:
         if not a.supersedes or not (a.reason or "").strip():
-            raise UserError("a record for this item, phase, step and reviewer already exists: record again only with "
-                            "--supersedes <its record_sha256> and a --reason")
+            raise UserError("a record for this item, phase and step already exists (reviewer %s): record again only "
+                            "with --supersedes <its record_sha256> and a --reason" % prior[0]["reviewer"])
         if a.supersedes != prior[0]["record_sha256"]:
             raise UserError("--supersedes must name the current record's record_sha256")
     elif a.supersedes:
         raise UserError("--supersedes names a record, but there is none to supersede")
-    rec = {"schema_version": SCHEMA, "item_id": item["item_id"], "phase": phase, "reviewer": a.reviewer,
+    rec = {"schema_version": SCHEMA, "item_id": iid, "phase": phase, "reviewer": a.reviewer,
            "recorded_at": now(), "supersedes": a.supersedes if prior else None,
            "reason": a.reason.strip() if prior else None}
     rec.update(body)
     rec["record_sha256"] = canonical_sha(rec)
-    line = (json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+    if phase == 2 and body["step"]:
+        who = {r["step"]: r["reviewer"] for r in effective(rows + [rec]) if r["item_id"] == iid and r["phase"] == 2}
+        if len(set(who.values())) > 1:
+            raise UserError("this record would leave the 2a and the 2b of item %s with different reviewers (%s); "
+                            "both steps are by one reviewer" % (iid, ", ".join("%s: %s" % kv for kv in sorted(who.items()))))
+    line =(json.dumps(rec, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
     fd = os.open(a.verdicts, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
         os.write(fd, line)
@@ -478,10 +502,13 @@ class Ctx:
     def is_criterion(self, item):
         return self.grades[item].get("reference_kind", "answer") == "criterion"
 
+    def _opening_step(self, item):
+        """The step that opens an item's phase 2: none for an answer-type item, the 2a for a criterion-type one."""
+        return "2a" if self.is_criterion(item) else None
+
     def has_phase2_record(self, item):
-        if self.is_criterion(item):
-            return self.phase_record(item, 2, "2a") is not None
-        return self.phase_record(item, 2) is not None
+        """THE is-it-recorded predicate for phase 2 (one definition: `phase2` asks it too)."""
+        return self.phase_record(item, 2, self._opening_step(item)) is not None
 
     def phase2(self, item):
         """The label-keyed phase-2 record, or None while it is incomplete.
@@ -489,22 +516,49 @@ class Ctx:
         An answer-type item has one phase-2 record. A criterion-type item has a 2a (agent answers) and a 2b
         (the criterion); both must be recorded, by one reviewer, and the judgement is the two merged: the 2b
         `criterion` judgement stands where an official answer's would, beside the re-keyed 2a judgements.
+        When the 2a was changed after the 2b (see `criterion_change`), the latest 2a is the one merged and the
+        original is carried under `original_2a`.
         """
-        if not self.is_criterion(item):
-            rec = self.phase_record(item, 2)
-            return self.rekey(item, rec) if rec is not None else None
-        r2a, r2b = self.phase_record(item, 2, "2a"), self.phase_record(item, 2, "2b")
-        if r2a is None or r2b is None:
+        if not self.has_phase2_record(item):
             return None
-        if r2a["reviewer"] != r2b["reviewer"]:
+        head = self.phase_record(item, 2, self._opening_step(item))
+        if not self.is_criterion(item):
+            return self.rekey(item, head)
+        r2b = self.phase_record(item, 2, "2b")
+        if r2b is None:
+            return None
+        if head["reviewer"] != r2b["reviewer"]:
             raise UserError("item %s: the 2a and 2b records are by different reviewers" % item)
-        out = self.rekey(item, r2a)
+        out = self.rekey(item, head)
         if "ambiguous" not in out["judgement"]:
             out["judgement"] = dict(out["judgement"], criterion=r2b["judgement"]["criterion"])
         out["facts"] = list(out["facts"]) + [dict(f) for f in r2b["facts"]]
         out["record_sha256_2b"] = r2b["record_sha256"]
         out["fuller_answer_2b"] = r2b.get("fuller_answer")
+        change = self.criterion_change(item)
+        if change:
+            before = self.rekey(item, change[0])
+            out["original_2a"] = {"reviewer": before["reviewer"], "record_sha256": before["record_sha256"],
+                                  "judgement": before["judgement"], "fuller_answer": before.get("fuller_answer"),
+                                  "facts": before["facts"], "change_reason": head.get("reason")}
         return out
+
+    def criterion_change(self, item):
+        """(original 2a, latest 2a) when the item's 2a was superseded AFTER its 2b was recorded, else None.
+
+        Order is the file's: the append-only verdicts file witnesses it, a timestamp (one-second grain) does not.
+        The 2b that counts is the reviewer's first, the nearest witness to the moment the criterion was shown;
+        the original is the reviewer's last 2a before it, i.e. the 2a as it stood when the criterion was shown.
+        """
+        r2a, r2b = self.phase_record(item, 2, "2a"), self.phase_record(item, 2, "2b")
+        if r2a is None or r2b is None:
+            return None
+        mine = [(n, r) for n, r in enumerate(self.rows)
+                if (r["item_id"], r["phase"], r["reviewer"]) == (item, 2, r2b["reviewer"])]
+        first_2b = next((n for n, r in mine if r.get("step") == "2b"), None)
+        before = [r for n, r in mine if r.get("step") == "2a" and n < first_2b]
+        after = [r for n, r in mine if r.get("step") == "2a" and n > first_2b and r.get("supersedes")]
+        return (before[-1], r2a) if (before and after) else None
 
     def key_path(self, item):
         return os.path.join(self.keys_dir, "%s.json" % item)
@@ -554,6 +608,8 @@ class Ctx:
             if rec.get("record_sha256_2b"):
                 v["record_sha256_2b"] = rec["record_sha256_2b"]
                 v["fuller_answer_2b"] = rec.get("fuller_answer_2b")
+            if rec.get("original_2a"):
+                v["original_2a"] = rec["original_2a"]
         return v
 
 
@@ -574,7 +630,8 @@ def compute_outcomes(ctx, draws, note):
     drawn = set()
     for d in draws:
         drawn |= set(d.get("drawn_item_ids", []))
-    routing = route(ctx.levels, p1o, p2o, drawn)
+    forced = {item for item in ctx.items if ctx.criterion_change(item)}
+    routing = route(ctx.levels, p1o, p2o, drawn, forced)
     out = []
     for item in ctx.items:
         r1, r2, r3 = recs[item]
@@ -648,6 +705,7 @@ def cmd_export_phase3(a):
     v1, v2 = ctx.phase_view(a.item, 1, r1), ctx.phase_view(a.item, 2, r2)
     v1["notes"] = r1.get("notes", "")
     v2.pop("official_guess", None)  # the guesses name letters and arms; phase 3 does not receive them
+    original_2a = v2.pop("original_2a", None)  # present when the 2a was changed after the 2b: phase 3 sees both
     export = {
         "schema_version": SCHEMA, "item_id": a.item, "exported_at": now(), "question": it["question"],
         "answers": it["answers"], "official_id": g["official_id"],
@@ -657,6 +715,8 @@ def cmd_export_phase3(a):
     }
     if g.get("reference_kind") == "criterion":
         export["criterion_text"] = g["criterion_text"]
+    if original_2a:
+        export["phase2_original_2a"] = original_2a
     with open(a.out, "w", encoding="utf-8") as fh:
         json.dump(export, fh, sort_keys=True, indent=2)
         fh.write("\n")
@@ -699,7 +759,9 @@ def cmd_report(a):
         if o["item_id"] not in items:
             raise UserError("outcomes name an item that is not in the items file: %s" % o["item_id"])
         for p, v in o["phases"].items():
-            if v["record_sha256"] not in shas or v.get("record_sha256_2b", v["record_sha256"]) not in shas:
+            cited = [v["record_sha256"], v.get("record_sha256_2b", v["record_sha256"]),
+                     (v.get("original_2a") or v)["record_sha256"]]
+            if any(c not in shas for c in cited):
                 raise UserError("outcomes are stale: %s phase %s cites a record that is not in the verdicts file; "
                                 "run map again" % (o["item_id"], p))
     arm_stats = None
@@ -747,6 +809,11 @@ def cmd_report(a):
                     L.append("  - fuller answer: %s" % v["fuller_answer"])
                 if v.get("fuller_answer_2b"):
                     L.append("  - fuller answer (2b): %s" % v["fuller_answer_2b"])
+                if v.get("original_2a"):
+                    o2 = v["original_2a"]
+                    L.append("  - 2a changed after the criterion was shown (reason: %s); original 2a (record %s, reviewer %s): %s"
+                             % (o2.get("change_reason") or "none given", o2["record_sha256"][:12], o2["reviewer"],
+                                json.dumps(o2["judgement"], sort_keys=True)))
             elif o["routing"]["in_phase3"] and p == "3" and o["status"] in ("pending", "disagreement"):
                 L.append("- Phase 3: **pending**")
         L += ["", "Merged fact list (%d fact(s); none dropped):" % len(o["facts"])]
@@ -888,10 +955,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         args.fn(args)
-    except UserError as exc:
-        print("score-review: refused: %s" % exc, file=sys.stderr)
-        return 1
-    except ValueError as exc:
+    except (UserError, ValueError) as exc:
         print("score-review: refused: %s" % exc, file=sys.stderr)
         return 1
     return 0

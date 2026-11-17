@@ -18,6 +18,7 @@ CHAT = (
 )
 QUOTE_OK = "north shelf"
 
+DEFAULT_CITED = {"official": [1], "a1": [1, 2], "a2": []}  # mixed on purpose: some answers cite, one does not
 TEXT_TOKEN = {"official": "alpha", "a1": "beta", "a2": "gamma"}
 ITEM_IDS = ["i01", "i02", "i03", "i04", "i05", "i06"]
 
@@ -43,6 +44,20 @@ def write_json(path, obj):
     return str(path)
 
 
+def forge_verdict(verdicts_path, **fields):
+    """Append a hand-built, hash-valid verdict that `record` itself would refuse (for fixtures of states the
+    order rules forbid, e.g. a phase-2 record with no phase-1 record)."""
+    import score_review
+    rec = {"schema_version": 1, "recorded_at": "2026-01-01T00:00:00Z", "step": None, "keyed_by": "label",
+           "fuller_answer": None, "facts": [], "guesses": None, "minutes_spent": None, "notes": "",
+           "supersedes": None, "reason": None}
+    rec.update(fields)
+    rec["record_sha256"] = score_review.canonical_sha(rec)
+    with open(verdicts_path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(rec, sort_keys=True) + "\n")
+    return rec["record_sha256"]
+
+
 def level(scores):
     if all(s == 1.0 for s in scores):
         return "full"
@@ -61,10 +76,11 @@ def hid(*parts):
 class Store:
     """A synthetic study store: items, grades, chat, with opaque per-item answer ids."""
 
-    def __init__(self, root, item_ids=ITEM_IDS, plan=None):
+    def __init__(self, root, item_ids=ITEM_IDS, plan=None, cited=None):
         self.root = pathlib.Path(root)
         self.item_ids = list(item_ids)
         self.plan = plan or {}
+        self.cited = dict(DEFAULT_CITED, **(cited or {}))
         self.items = self.root / "items.jsonl"
         self.grades = self.root / "grades.jsonl"
         self.verdicts = self.root / "verdicts.jsonl"
@@ -81,7 +97,7 @@ class Store:
             roles = ["official", "a1", "a2"]
             ids = {r: hid("fx", iid, r) for r in roles}
             self.meta[iid] = ids
-            cited = {"official": [1], "a1": [1, 2], "a2": []}
+            cited = self.cited
             answers = [
                 {"answer_id": ids[r], "text": "text-%s-%s zorp" % (iid, TEXT_TOKEN[r]), "cited_ids": cited[r]}
                 for r in roles

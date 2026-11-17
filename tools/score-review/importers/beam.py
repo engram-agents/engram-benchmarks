@@ -109,13 +109,20 @@ def opaque_id(seed, item_id, original_index):
     return hashlib.sha256(("%s|%s|%d" % (seed, item_id, original_index)).encode("utf-8")).hexdigest()[:8]
 
 
-def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix):
-    """Return (items, grades) as lists of dicts, split by audience.
+def opaque_item_id(seed, conv, question_no):
+    """First 10 hex of sha256 over seed, conversation and question number: the item id carries neither."""
+    return hashlib.sha256(("%s|%s|%d" % (seed, conv, question_no)).encode("utf-8")).hexdigest()[:10]
 
-    Answer ids are opaque and per item; the list is sorted by id, so neither the id nor the position
-    says which answer is official or which arm produced an answer. That fact lives in grades only.
+
+def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix):
+    """Return (items, grades, skipped) as lists, split by audience.
+
+    Item ids and answer ids are opaque; the answer list is sorted by id, so neither an id nor a position
+    says which answer is official or which arm produced an answer, and no item id says which conversation or
+    question it is (the question number maps to the category). Those facts live in grades only.
     """
     items, grades, skipped = [], [], []
+    seen_items = set()
     for q in questions:
         rows = [r for r in agent_rows if r["question_no"] == q["question_no"]]
         if not rows:
@@ -124,7 +131,10 @@ def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix
         arms_seen = [r["arm"] for r in rows]
         if len(set(arms_seen)) != len(arms_seen):
             raise ImportError_("question %d has two answers from one arm" % q["question_no"])
-        item_id = "%s-q%02d" % (conv, q["question_no"])
+        item_id = opaque_item_id(seed, conv, q["question_no"])
+        if item_id in seen_items:
+            raise ImportError_("item id collision at question %d; change the seed" % q["question_no"])
+        seen_items.add(item_id)
         criterion = q.get("reference_kind", "answer") == "criterion"
         originals = [{"text": q["answer"], "cited_ids": list(q["cited_ids"]), "arm": None, "scores": None}]
         for r in rows:

@@ -32,12 +32,19 @@ those files absent from disk.
 One line per question. Nothing is graded and nothing is labelled official.
 
 ```json
-{"schema_version": 1, "item_id": "c1-q07", "question": "Where does the plant sit?",
+{"schema_version": 1, "item_id": "3fa9c21b07", "question": "Where does the plant sit?",
  "answers": [
    {"answer_id": "1f3a9c20", "text": "On the north shelf.", "cited_ids": [4, 9]},
    {"answer_id": "b7720de1", "text": "By the window.", "cited_ids": []},
    {"answer_id": "e0c4417a", "text": "North shelf, per message 4.", "cited_ids": [4]}]}
 ```
+
+**Item ids are opaque.** `import-beam` sets `item_id` to the first 10 hex digits of
+`sha256("<seed>|<conv>|<question_no>")`. The conversation and the question number live only in `grades.jsonl`
+(`conv`, `question_no`): a positional id such as `<conv>-q07` maps deterministically to the question's category in
+BEAM's flattened order, which phase 2 must not see. The id appears in `items.jsonl`, `keys/`, the packet title and every
+packet file name, so none of those carries the conversation or the question number. Residual: the rows of `items.jsonl`
+are in question order; the phase-2 reviewer is handed packet files, never that file.
 
 **Answer ids are opaque and per item.** Each id is the first 8 hex digits of
 `sha256("<seed>|<item_id>|<original_index>")`, where `original_index` is 0 for the official answer and 1, 2, ... for the
@@ -53,7 +60,7 @@ digits and is never `official` or `ambiguous`.
 One line per question.
 
 ```json
-{"schema_version": 1, "item_id": "c1-q07", "study": "BEAM", "conv": "c1", "question_no": 7,
+{"schema_version": 1, "item_id": "3fa9c21b07", "study": "BEAM", "conv": "c1", "question_no": 7,
  "official_id": "1f3a9c20",
  "rubric_lines": ["says north shelf", "cites message 4"],
  "scores": {"b7720de1": [0.0, 0.0], "e0c4417a": [1.0, 1.0]},
@@ -80,7 +87,7 @@ One line per recorded verdict. `record` validates, stamps `recorded_at` and `rec
 leaves the file byte-identical.
 
 ```json
-{"schema_version": 1, "item_id": "c1-q07", "phase": 1, "reviewer": "lead", "recorded_at": "2026-01-02T03:04:05Z",
+{"schema_version": 1, "item_id": "3fa9c21b07", "phase": 1, "reviewer": "lead", "recorded_at": "2026-01-02T03:04:05Z",
  "keyed_by": "label",
  "judgement": {"1f3a9c20": "correct", "b7720de1": "wrong", "e0c4417a": "correct"},
  "fuller_answer": null,
@@ -103,17 +110,22 @@ leaves the file byte-identical.
   so `map` converts only the official guess (to an answer id and a hit flag) and `export-phase3` drops guesses entirely.
 - **`record_sha256`** is the sha256 of the record without that field, serialised as canonical JSON: keys sorted, separators
   `,` and `:` with no spaces, non-ASCII characters not escaped, UTF-8.
-- **Supersession.** One effective verdict per (item, phase, step, reviewer). A second record for the same triple is accepted only
-  with `--supersedes <record_sha256 of the current one>` and a non-empty `--reason`; both are stored. Superseded records
-  stay in the file. `map` supports one reviewer per item per phase and refuses otherwise.
+- **Supersession.** One effective verdict per (item, phase, step), whoever the reviewer. A second record for the same
+  triple, by the same reviewer or by another, is accepted only with `--supersedes <record_sha256 of the current one>` and a
+  non-empty `--reason`; both are stored. Superseded records stay in the file. `record` also refuses a record that would
+  leave a criterion item's 2a and 2b with different reviewers. So a verdicts file written through `record` never holds two
+  effective reviewers for one (item, phase, step), and `map` (which supports one and refuses otherwise) never meets two.
+- **Order.** `record` refuses phase 2 for an item with no recorded phase-1 verdict, and phase 3 for an item without both
+  a phase-1 and a phase-2 verdict (a criterion item: its phase 1, its 2a and its 2b). Order is also witnessed outside the
+  tool, by the git commit of each phase's verdicts (see "Procedure").
 - `fuller_answer` is expected whenever the official answer is judged not correct; `record` cannot check it (it never reads
   grades), so `report` prints it where present.
 
 ## draws.jsonl
 
 ```json
-{"schema_version": 1, "run": "pilot-1", "n": 2, "seed": "s1", "drawn_item_ids": ["c1-q02", "c1-q09"],
- "eligible_item_ids": ["c1-q02", "c1-q05", "c1-q09"], "drawn_at": "2026-01-02T03:04:05Z"}
+{"schema_version": 1, "run": "pilot-1", "n": 2, "seed": "s1", "drawn_item_ids": ["9b04d7e1aa", "e41a6b7c05"],
+ "eligible_item_ids": ["9b04d7e1aa", "58c2e0f3d9", "e41a6b7c05"], "drawn_at": "2026-01-02T03:04:05Z"}
 ```
 
 `draw` samples from the items outside set (a) (items where every agent answer has full official score), seeded by the
@@ -123,11 +135,13 @@ phase-1 outcome exists), if the run was already drawn, or if `--n` exceeds the e
 ## keys/<item>.json
 
 ```json
-{"schema_version": 1, "item_id": "c1-q07", "seed": "pilot-seed", "letters": {"A": "e0c4417a", "B": "1f3a9c20", "C": "b7720de1"}}
+{"schema_version": 1, "item_id": "3fa9c21b07", "seed": "pilot-seed", "letters": {"A": "e0c4417a", "B": "1f3a9c20", "C": "b7720de1"}}
 ```
 
-Letters map to **answer ids** (the packet builder cannot know which is official). `packet2` writes the file, never
-overwrites one, and prints its sha256; publish that hash before the phase-2 read. **The letter order is derived from
+Letters map to **answer ids** (the packet builder cannot know which is official). `packet2` writes the packet first and the
+key last, each through a temporary file and an atomic rename (the key through a hard link, which fails rather than
+overwrite), so a failure leaves neither a key without its packet nor a half-written file. It never overwrites a key and
+prints its sha256; publish that hash before the phase-2 read. **The letter order is derived from
 `(seed, item_id)`**: `random.Random("<seed>\x1f<item_id>")` shuffles the id-sorted answer list, so one seed gives a different
 order for every item and the same seed and item always give the same letters.
 
@@ -157,6 +171,14 @@ A criterion is visibly not an answer, so an A/B blind between "official" and age
   `record` refuses a 2b carrying any other key (an agent-answer judgement, a letter, `ambiguous`) or a guess, and refuses a 2b
   without a 2a by the same reviewer.
 - **Changing a 2a after a 2b** needs a new 2a with `--supersedes` and `--reason` (the supersession key includes the step).
+  Such a change, made after the criterion was shown (the new 2a comes after the 2b in the append-only file), **forces the item
+  into the phase-3 set whatever the outcomes**: it is never an unquestioned control (`routing.forced_phase3`). The latest 2a is
+  the one mapped. `map` carries the original 2a (the reviewer's last 2a before the 2b) under `phases["2"].original_2a`, and
+  `export-phase3` carries it, re-keyed to answer ids, as `phase2_original_2a`, beside the latest in `phase2`; `report`
+  names it and cites its record. A 2a changed before the 2b is an ordinary supersession and forces nothing.
+- **Where things live.** The arm guess is in the 2a record only (a 2b with `guesses` is refused). Item-level `ambiguous` is a 2a
+  matter only (a 2b with it is refused). A 2b may carry `fuller_answer` (the fuller criterion) when its judgement is not
+  `correct`; `map` and `report` carry it as `fuller_answer_2b`.
 - **Phases 1 and 3** are not blind: they judge `criterion` plus the agent answer ids directly. `packet1` and `report` print
   the criterion text where they print the official answer for an answer-type item.
 - **Mapping.** `map` and `export-phase3` build a criterion item's phase-2 view only once both the 2a and the 2b are
@@ -164,14 +186,26 @@ A criterion is visibly not an answer, so an A/B blind between "official" and age
   re-keyed to answer ids. With only a 2a, the item is `phase2_pending`. Routing and agreement are unchanged (levels are
   agent-answer-only). `official_id` is `null` and there is no official-answer guess.
 
-**Two limits.** A packet without an official answer tells the reviewer the item's kind (the reviewer can see the item is not an
-A/B). And with one agent answer (single-arm data) there is no A/B at all, only an unanchored read of that answer.
+## Limits of the phase-2 blind
+
+- **Item kind.** A packet without an official answer tells the reviewer the item's kind (the reviewer can see the item is not
+  an A/B).
+- **Answer count.** With one agent answer (single-arm data) there is no A/B at all, only an unanchored read of that answer.
+  A criterion item shows one answer fewer than an answer-type item, which is a count signal of the same kind.
+- **The cited-messages line.** The benchmark's reference answer cites messages and an agent's answer (from `import-turns`)
+  cannot, so a per-answer cited line would name the official answer. The rule: `packet2` lists cited ids (and, with `--chat`,
+  their text) **only if every answer in the item has a non-empty cited list**, in the same form under each answer;
+  otherwise it lists none for any answer and prints one neutral line, `Cited messages: not shown for this item`. Residual
+  limit: when every answer does cite, the packet shows each list, and the lists themselves may differ in length or in
+  which messages they name.
 
 ## outcomes.jsonl (written by `map`, regenerated, never hand-edited)
 
 One line per item: `official_id`, `official_levels`, `routing` (`set_a`, `set_b`, `set_c`, `in_phase2`, `in_phase3`,
-`unquestioned_control`, `phase3_required`), `reference_kind`, `phases` (per recorded phase: `reviewer`, `record_sha256`, answer-id-keyed
-`judgement`, `outcome`, `flagged`, `fuller_answer`; phase 2 adds `official_guess`), `agreement` (`p1_p2`, `all`), `status`,
+`unquestioned_control`, `phase3_required`, `forced_phase3`), `reference_kind`, `phases` (per recorded phase: `reviewer`,
+`record_sha256`, answer-id-keyed `judgement`, `outcome`, `flagged`, `fuller_answer`; phase 2 adds `official_guess`, and for a
+criterion item `record_sha256_2b`, `fuller_answer_2b` and, when its 2a changed after its 2b, `original_2a`), `agreement`
+(`p1_p2`, `all`), `status`,
 `adjusted` (`method` and a per-answer entry), `facts` (the merged fact list). It contains no letter, no letter-to-answer
 pair and no arm label.
 
@@ -216,4 +250,4 @@ remaining split is recorded as a phase-3 `reviewers split`), `ambiguous_split`.
 - Free text (`fuller_answer`, `notes`) is not scanned: a phase-2 reviewer who writes a letter inside prose carries that
   letter through to the report. `export-phase3` leaves out phase-2 `notes` and `guesses` for this reason.
 - A fact's `quote` is checked as a verbatim substring of the message body, with surrounding whitespace trimmed.
-- One effective reviewer per item per phase.
+- One effective reviewer per item per phase and step: enforced when recording (see "Supersession"), and again by `map`.
