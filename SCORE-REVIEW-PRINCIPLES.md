@@ -56,7 +56,7 @@ question from the source and writes the answer-level judgement of section 6, inc
 answer when the official answer is not fully correct. Phase 1 is not lettered: its packet marks which answer is
 the official one, so its outcome is mapped directly and can decide phase-2 selection (section 2, set b). In a
 scored study the teacher sees the agents' answers without arm labels, each under an **arm-blind answer id**
-(agent answer 1, 2, ...) that stays the same for that item through phase 3 (the study's pre-registration freezes
+(an id that carries no meaning, section 5a) that stays the same for that item through phase 3 (the study's pre-registration freezes
 the adjusted set before arm labels are unblinded).
 
 *Known limit:* the teacher has seen the rubric, the question's category, and, on single-arm data, which answer
@@ -97,12 +97,19 @@ tooling:
 - **Step 2a.** The packet holds the question, the source material and the agent answers under letters, and no
   criterion. The reviewer judges each agent answer and writes what a complying answer must do, with the message
   that sets the instruction or preference. This judgement is committed with its hash.
-- **Step 2b.** Only after the step-2a judgement exists is the reviewer shown the criterion, and judges the criterion
+- **Step 2b.** Only after the step-2a judgement is committed does a separate export, run by the study lead, show
+  the reviewer the criterion (an exception to "Not given" above, for this step only, recorded in the reviewer's
+  per-item exposure log). The reviewer judges the criterion
   itself (correct, partly correct or wrong: does the source support it, and does it ask for the right thing). A
   step-2b judgement cannot change step 2a; a change of mind is a superseding step-2a record with its reason,
   visible to phase 3.
 
-For these items there is no official-answer guess; the arm guess is still recorded. *Known limits:* a packet with
+**Everywhere else in this document, for a criterion item:** "the official answer" means the criterion, "the settled
+answer" means the settled criterion, and rewriting a rubric starts from the settled criterion. The phase-1 packet
+shows the criterion where it would mark the official answer; phase 3 and the re-keyed output label it "criterion".
+
+For these items there is no official-answer guess (they are left out of that guess rate); the arm guess is still
+recorded. *Known limits:* a packet with
 no official answer tells the reviewer what kind of item it is, so the category is not hidden for these items; and
 with a single agent answer (single-arm data) there is nothing to compare it with, only an unanchored read.
 
@@ -147,7 +154,8 @@ rules, so any such ruling is visible in the log.
 - **The key-holder's duties, in one line:** the key-holder runs the mapping script, which reads the key and
   prints each item's phase-2 outcome and phase-2 judgement re-keyed from letters to "official" and the arm-blind
   answer ids (never the letters, never arm labels), into the phase-3 packet. It re-keys an item only after that
-  item's phase-2 judgement is recorded with its hash. The key file itself is revealed only into the study's log,
+  item's phase-2 judgement is recorded with its hash (for a criterion item: the latest step-2a record, superseding
+  ones included, together with the step-2b record). The key file itself is revealed only into the study's log,
   only once the item is settled (after phase 3, or after phase 2 for an unquestioned control), and every reveal is
   logged with its time. An unlogged reveal is the one way this seat can break the design.
 - *Known limit:* METHODOLOGY section 5 asks for a named non-participant. The key-holder reviews no item but
@@ -221,7 +229,8 @@ check is blind to them.
   came from), the outcome, and for each adjusted entry the grading method that produced it (the official judge
   re-run against a rewritten rubric, or a hand re-grade for a grading error).
 - The phase-2 guess rates reported beside the rate a blind guess would reach (1 / the number of answers in the
-  packet for the official answer; 1 / the number of arms for the arm guess).
+  packet for the official answer, over items that have an official answer; 1 / the number of arms for the arm
+  guess).
 - An open invitation to dispute any item, at the head of the log. A dispute that succeeds after publication is
   handled as a correction under METHODOLOGY section 7: a dated correction block on the artifact.
 - Every correction to the key applied to all arms identically (section 6); a grading error is corrected for the
@@ -267,8 +276,9 @@ Each stays open until the named party closes it; closing one is a new version.
   official answer, or a letter order fixed across items, would tell the reviewer which answer is which; section 5a
   now requires meaningless per-item ids and a per-item letter order. (3) Re-keying a phase-2 judgement before it is
   recorded would let anyone holding both forms read that item's key; section 5a now orders it. (4) The commit of
-  each phase before the next phase's packets go out is stated as the outside witness of order. Proposed by the
-  study lead from the design owner's rulings; awaiting the project lead's read.
+  each phase before the next phase's packets go out is stated as the outside witness of order. Also: the guess-rate
+  sentence no longer names a version. Proposed by the study lead from the design owner's rulings; the project
+  lead's decision is recorded on the pull request that merges this version.
 - **v0.1, 2026-11-17.** First version. *Why:* during the BEAM study's tuning, our corrections to the official
   key were first checked by a second read that was blind to our verdict and to the agent's answer, but showed
   the reviewer the official answer first, framed the way the key frames it. The project lead judged that this
