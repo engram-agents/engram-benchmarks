@@ -45,6 +45,9 @@ def write_json(path, obj):
     return str(path)
 
 
+MEMORY_INDEX = ("- [Old pointer](feedback_old.md) \u2014 a pointer kept from before\n"
+                "- [Other pointer](feedback_other.md) \u2014 another pointer kept from before\n")
+
 # ---- a synthetic arm home for plant-control.py (no real model, no real preserved home) ----
 SEED = (
     "import os, sys\n"
@@ -75,6 +78,7 @@ def arm_home_template(tmp_path_factory):
     (h / "work").mkdir()
     proj = h / ".claude" / "projects" / "-synthetic-work"
     (proj / "memory").mkdir(parents=True)
+    (proj / "memory" / "MEMORY.md").write_text(MEMORY_INDEX)  # the index the student reads the folder through
     (proj / "session-0001.jsonl").write_text(json.dumps({"type": "user", "message": "an ordinary turn"}) + "\n")
     (h / ".claude" / "plugins" / "memory").mkdir(parents=True)  # a 'memory' dir under plugins/: memcheck excludes it
     r = subprocess.run([sys.executable, "-c", SEED, str(h)], capture_output=True, text=True,

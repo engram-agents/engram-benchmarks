@@ -145,6 +145,12 @@ def check_question_args(ap, args):
         ap.error("--question-file cannot be combined with --questions (dataset questions)")
     if args.ask:
         ap.error("--question-file cannot be combined with --ask (practice questions)")
+    if not args.resume:
+        ap.error("--question-file requires --resume SESSION (answering resumes the run's own session)")
+    if args.setup_only:
+        ap.error("--question-file cannot be combined with --setup-only")
+    if args.first_session:
+        ap.error("--question-file cannot be combined with --first-session")
     try:
         return load_question_file(args.question_file)
     except ValueError as e:

@@ -2,9 +2,9 @@
 
 Needs P1_ENGRAM_PLUGIN (an ENGRAM plugin tree that holds engram_observation.py) and a python that can run ENGRAM
 (the interpreter running pytest). No student model, no real preserved home."""
-import hashlib, json, os, shutil, subprocess, sys
+import hashlib, json, os, re, shutil, subprocess, sys
 import pytest
-from conftest import TOOLS, memory_dir
+from conftest import TOOLS, MEMORY_INDEX, memory_dir
 
 TOOL = os.path.join(TOOLS, "plant-control.py")
 MEMCHECK = os.path.join(TOOLS, "pilot-memcheck.sh")
@@ -30,8 +30,15 @@ def run_tool(home, ev, *extra, protected=None, builtin=BUILTIN, engram=ENGRAM, a
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
+def notes(arm_home):
+    """The planted note file(s): everything in the memory folder except the index and pre-existing files."""
+    return [p for p in memory_dir(arm_home).iterdir() if p.name not in ("MEMORY.md", "feedback_old.md")]
+
+
 def go(arm_home, tmp_path, *extra, **kw):
     kw.setdefault("protected", "/nonexistent-protected-home")
+    if not kw.pop("embeddings", False):
+        extra = (*extra, "--no-embeddings")  # most cells are about the files, not the embedder (R2-3 has its own)
     return run_tool(arm_home, tmp_path / "evidence", *extra, **kw)
 
 
@@ -68,7 +75,8 @@ def table_counts(home):
 
 # ---------------------------------------------------------------- refusals (exit 2, nothing written)
 def untouched(arm_home):
-    assert list(memory_dir(arm_home).iterdir()) == []
+    assert [p.name for p in memory_dir(arm_home).iterdir()] == ["MEMORY.md"]
+    assert (memory_dir(arm_home) / "MEMORY.md").read_text() == MEMORY_INDEX
     assert table_counts(arm_home)["nodes"] == 1  # only the fixture's seed axiom
 
 
@@ -138,7 +146,7 @@ def test_refuses_when_the_plugin_cannot_be_imported(arm_home, tmp_path):
     shutil.rmtree(arm_home / ".engram" / "marketplace")
     r = go(arm_home, tmp_path)
     assert r.returncode == 2 and "plugin" in (r.stderr + r.stdout).lower()
-    assert list(memory_dir(arm_home).iterdir()) == []
+    untouched(arm_home)
 
 
 # ---------------------------------------------------------------- the plant, and what it must look like
@@ -154,12 +162,12 @@ def test_plant_passes_and_prints_the_checks(arm_home, tmp_path):
 
 def test_builtin_file_is_where_pilot_memcheck_finds_it(arm_home, tmp_path):
     assert go(arm_home, tmp_path).returncode == 0
-    files = list(memory_dir(arm_home).iterdir())
+    files = notes(arm_home)
     assert len(files) == 1 and files[0].suffix == ".md"
     assert BUILTIN in files[0].read_text()
     m = subprocess.run(["bash", MEMCHECK, str(arm_home)], capture_output=True, text=True)
     assert m.returncode == 1  # memcheck exits 1 when any file exists in the memory folder
-    assert "auto-memory start state: 1 file(s) in 1 folder(s)" in m.stdout
+    assert "auto-memory start state: 2 file(s) in 1 folder(s)" in m.stdout  # the index and the planted note
 
 
 def test_builtin_file_mirrors_an_existing_files_front_matter(arm_home, tmp_path):
@@ -167,7 +175,7 @@ def test_builtin_file_mirrors_an_existing_files_front_matter(arm_home, tmp_path)
     existing.write_text('---\nname: old-note\ndescription: "an old one"\nmetadata: \n  node_type: memory\n'
                         '  type: feedback\n  originSessionId: 7e0097a0-ed6d\n---\nOld body.\n')
     assert go(arm_home, tmp_path).returncode == 0
-    new = [p for p in memory_dir(arm_home).iterdir() if p.name != "feedback_old.md"]
+    new = notes(arm_home)
     assert len(new) == 1
     text = new[0].read_text()
     assert text.startswith("---\n") and "\nname: " in text and "\ndescription: " in text
@@ -179,7 +187,7 @@ def test_builtin_file_mirrors_an_existing_files_front_matter(arm_home, tmp_path)
 
 def test_builtin_file_without_existing_files_still_has_front_matter(arm_home, tmp_path):
     assert go(arm_home, tmp_path).returncode == 0
-    text = next(memory_dir(arm_home).iterdir()).read_text()
+    text = notes(arm_home)[0].read_text()
     assert text.startswith("---\nname: ") and "\n---\n" in text
 
 
@@ -245,8 +253,9 @@ def test_cross_absence_fails_when_the_builtin_fact_is_already_in_the_store(arm_h
     first = go(arm_home, tmp_path, engram=BUILTIN, builtin="Some other invented sentence VX-1Q2W")
     assert first.returncode == 0, first.stdout + first.stderr  # plants BUILTIN's text as the engram fact
     shutil.rmtree(tmp_path / "evidence"); (tmp_path / "evidence").mkdir()
-    for p in memory_dir(arm_home).iterdir():
+    for p in notes(arm_home):
         p.unlink()
+    (memory_dir(arm_home) / "MEMORY.md").write_text(MEMORY_INDEX)
     r = go(arm_home, tmp_path)  # now BUILTIN is also in the store, where only the ENGRAM fact may be
     assert r.returncode == 1 and "FAIL" in r.stdout and "cross-absence" in r.stdout.lower()
 
@@ -277,3 +286,206 @@ def test_row_count_compare_unit():
     assert mod.changed_tables({"nodes": 1, "x": 2}, {"nodes": 3, "x": 3}, {"nodes"}) == ["x"]
     assert mod.changed_tables({"nodes": 1}, {"nodes": 1, "new_table": 0}, {"nodes"}) == ["new_table"]
     assert mod.changed_tables({"nodes": 1, "gone": 1}, {"nodes": 1}, {"nodes"}) == ["gone"]
+
+
+# ================================================================ ROUND 2 (contract-first)
+INDEX_LINE = re.compile(r"^- \[Reference note\]\((reference_note_[0-9a-f]{8}\.md)\) — a stored reference note$")
+
+
+def index_lines(arm_home):
+    return (memory_dir(arm_home) / "MEMORY.md").read_text().splitlines()
+
+
+# ---- R2-2: the MEMORY.md index line
+def test_one_neutral_index_line_is_appended_in_the_format_of_the_existing_lines(arm_home, tmp_path):
+    assert go(arm_home, tmp_path).returncode == 0
+    lines = index_lines(arm_home)
+    assert lines[:2] == MEMORY_INDEX.splitlines()  # the existing lines are untouched
+    assert len(lines) == 3
+    m = INDEX_LINE.match(lines[2])
+    assert m, lines[2]
+    assert [p.name for p in notes(arm_home)] == [m.group(1)]  # the link names the planted file
+    assert (memory_dir(arm_home) / "MEMORY.md").read_text().endswith("\n")
+
+
+def test_the_index_line_mirrors_another_bullet_and_separator_style(arm_home, tmp_path):
+    (memory_dir(arm_home) / "MEMORY.md").write_text("* [Alpha](a.md): first hook\n* [Beta](b.md): second hook")  # no final newline
+    assert go(arm_home, tmp_path).returncode == 0
+    lines = index_lines(arm_home)
+    assert lines[:2] == ["* [Alpha](a.md): first hook", "* [Beta](b.md): second hook"]
+    assert len(lines) == 3 and re.fullmatch(r"\* \[Reference note\]\(reference_note_[0-9a-f]{8}\.md\): a stored reference note", lines[2]), lines
+
+
+def test_the_index_line_has_a_default_shape_when_the_index_is_empty(arm_home, tmp_path):
+    (memory_dir(arm_home) / "MEMORY.md").write_text("")
+    assert go(arm_home, tmp_path).returncode == 0
+    assert [INDEX_LINE.fullmatch(l) is not None for l in index_lines(arm_home)] == [True]
+
+
+def test_no_fact_text_is_in_the_index(arm_home, tmp_path):
+    assert go(arm_home, tmp_path).returncode == 0
+    idx = (memory_dir(arm_home) / "MEMORY.md").read_text().lower()
+    for fact in (BUILTIN, ENGRAM, ABSENT):
+        assert fact.lower() not in idx
+    for token in ("QX-7Z4R", "MN-4K9T", "ZP-3L8W"):
+        assert token.lower() not in idx
+
+
+def test_the_absent_fact_gets_no_index_line_and_no_file(arm_home, tmp_path):
+    assert go(arm_home, tmp_path).returncode == 0
+    assert len(index_lines(arm_home)) == len(MEMORY_INDEX.splitlines()) + 1  # one line, for the built-in note only
+    assert len(notes(arm_home)) == 1
+    assert "harbor" not in (memory_dir(arm_home) / "MEMORY.md").read_text().lower()
+    assert anywhere(arm_home / ".claude", ABSENT) is None
+
+
+def test_refuses_when_there_is_no_memory_index(arm_home, tmp_path):
+    (memory_dir(arm_home) / "MEMORY.md").unlink()
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 2 and "MEMORY.md" in r.stderr + r.stdout
+    assert list(memory_dir(arm_home).iterdir()) == []  # no note was invented either
+    assert not os.listdir(tmp_path / "evidence") and table_counts(arm_home)["nodes"] == 1
+
+
+@pytest.mark.parametrize("name", ["builtin", "engram", "absent"])
+def test_the_index_check_fails_when_a_fact_is_in_the_index(arm_home, tmp_path, name):
+    fact = {"builtin": BUILTIN, "engram": ENGRAM, "absent": ABSENT}[name]
+    (memory_dir(arm_home) / "MEMORY.md").write_text(MEMORY_INDEX + f"- [Stray](s.md) — {fact}\n")
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 1 and "FAIL" in r.stdout and "index" in r.stdout.lower()
+
+
+# ---- the control question's content words must not be in the index line
+@pytest.mark.parametrize("question,word", [
+    ("What does the stored note say about the lantern?", "stored"),
+    ("Which REFERENCE was kept?", "reference"),
+    ("Where is the note?", "note"),
+])
+def test_refuses_when_the_neutral_line_would_contain_a_question_word(arm_home, tmp_path, question, word):
+    r = go(arm_home, tmp_path, "--question", question)
+    assert r.returncode == 2 and word in (r.stderr + r.stdout).lower() and "question" in (r.stderr + r.stdout).lower()
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence") and table_counts(arm_home)["nodes"] == 1
+
+
+def test_a_question_with_no_shared_content_word_is_accepted(arm_home, tmp_path):
+    # 'what', 'the' are stopwords; 'is', 'of' and 'qx' are 3 characters or fewer; 'lantern' appears nowhere in the line
+    r = go(arm_home, tmp_path, "--question", "What is the colour of the lantern at QX?")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert len(index_lines(arm_home)) == 3
+
+
+def test_stopwords_and_short_words_do_not_count_as_question_words(arm_home, tmp_path):
+    # 'a' (1 char) is in the line's own text, and 'for', 'and', 'what', 'the' are stopwords or short: none may refuse
+    r = go(arm_home, tmp_path, "--question", "a for the and what")
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_the_content_word_rule_unit():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("plant_control", TOOL)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    assert mod.content_words("What is the STORED note, QX-7Z4R's lantern?") == {"stored", "note", "lantern"}
+    assert mod.content_words("a an the for and") == set()
+    assert mod.content_words("abc xyz") == set()  # 3 characters or fewer
+
+
+# ---- R2-3: embeddings on by default, through the arm's own embedding path (a stub embedder stands in for the model)
+STUB = (
+    "import os, runpy, sys\n"
+    "home, ev, mode, tool = sys.argv[1:5]\n"
+    "os.environ['ENGRAM_HOME'] = home + '/.engram'; os.environ['HOME'] = home\n"
+    "os.environ['ENGRAM_EVIDENCE_ARCHIVE'] = os.path.realpath(ev)\n"
+    "sys.path.insert(0, home + '/.engram/marketplace/plugins/engram')\n"
+    "import engram_core\n"
+    "class Stub:\n"
+    "    _revive_cooldown = {}\n"
+    "    def is_available(self): return mode != 'off'\n"
+    "    def embed(self, text, model_name):\n"
+    "        return None if mode == 'broken' else [((i * 7) % 13) / 13.0 for i in range(384)]\n"
+    "    def revive(self, *a, **k): return None\n"
+    "    def cosine_similarity(self, a, b): return 0.0\n"
+    "engram_core._embedder = Stub()\n"
+    "sys.argv = [tool] + sys.argv[5:]\n"
+    "runpy.run_path(tool, run_name='__main__')\n")
+
+
+def run_stub(arm_home, tmp_path, mode, *extra):
+    """Run the tool with ENGRAM's embedder replaced by a stub (mode ok | broken | off), imported from the home's plugin."""
+    cmd = [sys.executable, "-c", STUB, str(arm_home), str(tmp_path / "evidence"), mode, TOOL,
+           "--home", str(arm_home), "--builtin-fact", BUILTIN, "--engram-fact", ENGRAM, "--absent-fact", ABSENT,
+           "--evidence-dir", str(tmp_path / "evidence"), *extra]
+    return subprocess.run(cmd, capture_output=True, text=True,
+                          env={"PATH": os.environ["PATH"], "P1_PROTECTED": "/nonexistent-protected-home"})
+
+
+def embedded(arm_home):
+    import sqlite3
+    c = sqlite3.connect(f"file:{arm_home}/.engram/knowledge.db?mode=ro", uri=True)
+    try:
+        return [r[0] for r in c.execute("select id from nodes where id like 'ob_%' and embedding is not null")]
+    finally:
+        c.close()
+
+
+def test_embeddings_are_on_by_default_and_the_tool_says_so(arm_home, tmp_path):
+    r = run_stub(arm_home, tmp_path, "ok")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "embeddings: ON" in r.stdout and "embeddings: OFF" not in r.stdout
+    assert len(embedded(arm_home)) == 1  # the planted observation carries an embedding
+    assert "FAIL" not in r.stdout and "embedded" in r.stdout.lower()
+
+
+def test_no_embeddings_opts_out_and_the_tool_says_so(arm_home, tmp_path):
+    r = go(arm_home, tmp_path)  # go() passes --no-embeddings
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "embeddings: OFF" in r.stdout and "embeddings: ON" not in r.stdout
+    assert embedded(arm_home) == []
+
+
+@pytest.mark.parametrize("mode", ["broken", "off"])
+def test_exits_2_when_the_embedder_cannot_load_and_plants_nothing(arm_home, tmp_path, mode):
+    r = run_stub(arm_home, tmp_path, mode)
+    assert r.returncode == 2 and "embed" in (r.stderr + r.stdout).lower()
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence") and table_counts(arm_home)["nodes"] == 1
+
+
+def test_an_inherited_no_embeddings_variable_is_not_silently_honoured_by_default(arm_home, tmp_path):
+    cmd = [sys.executable, TOOL, "--home", str(arm_home), "--builtin-fact", BUILTIN, "--engram-fact", ENGRAM,
+           "--absent-fact", ABSENT, "--evidence-dir", str(tmp_path / "evidence")]
+    r = subprocess.run(cmd, capture_output=True, text=True, env={
+        "PATH": os.environ["PATH"], "P1_PROTECTED": "/nonexistent-protected-home", "ENGRAM_NO_EMBEDDINGS": "1"})
+    assert r.returncode == 2 and "embed" in (r.stderr + r.stdout).lower()
+    untouched(arm_home)
+
+
+def test_the_real_embedding_model_path_when_it_can_load(arm_home, tmp_path):
+    """Not a stub: the arm's own embedder. Skipped (not passed) when this host cannot load the model."""
+    r = go(arm_home, tmp_path, embeddings=True)
+    if r.returncode == 2 and "embed" in (r.stderr + r.stdout).lower():
+        pytest.skip("the embedding model cannot load on this host: " + (r.stderr + r.stdout).strip()[-200:])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "embeddings: ON" in r.stdout and len(embedded(arm_home)) == 1
+
+
+# ---- R2-4: the store reads must not change recall counters
+def recall_counts(arm_home):
+    import sqlite3
+    c = sqlite3.connect(f"file:{arm_home}/.engram/knowledge.db?mode=ro", uri=True)
+    try:
+        return dict(c.execute("select id, recall_count from nodes"))
+    finally:
+        c.close()
+
+
+def test_the_checks_read_the_store_without_changing_recall_counters(arm_home, tmp_path):
+    """The read-back and cross-absence reads find the planted observation: with refresh_recall=True each hit would
+    bump its recall_count. The counter must be exactly what the write left (0), for every node."""
+    before = recall_counts(arm_home)
+    assert go(arm_home, tmp_path).returncode == 0
+    after = recall_counts(arm_home)
+    obs = [k for k in after if k.startswith("ob_")]
+    assert len(obs) == 1
+    assert all(v in (0, None) for v in after.values()), after
+    assert {k: v for k, v in after.items() if k in before} == before

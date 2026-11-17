@@ -25,8 +25,17 @@ After planting it prints and enforces (exit 0 only if every line passes, else 1)
   than those ENGRAM's observation write touches changed.
 Run it with the python of the arm home's own ENGRAM venv (the plugin's dependencies live there).
 
+Round 2: the built-in note is also listed in the folder's MEMORY.md (the index the student finds the folder
+through) by ONE appended line in the format of an existing line, with NEUTRAL text and a link naming the note
+(`- [Reference note](reference_note_<hash8>.md) \u2014 a stored reference note`); the tool exits 2 if there is no
+MEMORY.md, and with --question TEXT it exits 2 if the index line holds any content word of that question
+(lowercase letters-only words, longer than 3 characters, not stopwords). No fact text may be in the index (checked). The
+ENGRAM observation is written with embeddings ON by default, through the arm's own embedder (exit 2 if it cannot
+load; an inherited ENGRAM_NO_EMBEDDINGS fails the same way, never silently); --no-embeddings opts out. The tool
+prints which. The store reads of the checks never refresh recall (the recall counters are left as the write made them).
+
 usage: plant-control.py --home DISPOSABLE_HOME --builtin-fact TEXT --engram-fact TEXT --absent-fact TEXT
-                        --evidence-dir DIR [--allowed-tables CSV]
+                        --evidence-dir DIR [--allowed-tables CSV] [--question TEXT] [--no-embeddings]
 """
 import argparse, hashlib, json, os, re, sqlite3, sys
 
@@ -94,6 +103,15 @@ def leak_hits(home, memdir, text):
     return [p for p in leak_scan_files(home, memdir) if contains(p, text)]
 
 
+def embedded_ids(db):
+    """Ids of nodes that carry an embedding (read-only)."""
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return {r[0] for r in c.execute("select id from nodes where embedding is not null")}
+    finally:
+        c.close()
+
+
 def table_counts(db):
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
@@ -155,6 +173,30 @@ def build_memory_file(fact, template_lines, slug):
     return "---\n" + "\n".join(fm) + "\n---\n" + fact + "\n"
 
 
+STOPWORDS = frozenset("""about above after again against all also and any are because been before being below between both
+but can could did does doing down during each few for from further had has have having her here hers him his how into its
+itself just more most not now off once only other our ours out over own same she should some such than that the their
+theirs them then there these they this those through too under until very was were what when where which while who whom
+why will with would you your yours""".split())
+
+
+def content_words(text):
+    """Lowercase letters-only words of `text` that are longer than 3 characters and not stopwords."""
+    return {w for w in re.findall(r"[a-z]+", text.lower()) if len(w) > 3 and w not in STOPWORDS}
+
+
+def index_line_for(existing_text, fname):
+    """ONE neutral index line, in the bullet and separator style of the first parseable line of `existing_text`
+    (default: `- [..](..) \u2014 ..`)."""
+    bullet, sep = "- ", " \u2014 "
+    for ln in existing_text.splitlines():
+        m = re.match(r"(\s*[-*+]\s+)\[[^\]]*\]\([^)]*\)(\s*(?:\u2014|\u2013|-|:)\s*)", ln)
+        if m:
+            bullet, sep = m.group(1), m.group(2)
+            break
+    return f"{bullet}[Reference note]({fname}){sep}a stored reference note"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True); ap.add_argument("--evidence-dir", required=True)
@@ -162,6 +204,9 @@ def main():
     ap.add_argument("--absent-fact", required=True)
     ap.add_argument("--allowed-tables", help="comma-separated; replaces the default list of tables the observation "
                     "write may change")
+    ap.add_argument("--question", help="the control question's text: the index line must hold none of its content words")
+    ap.add_argument("--no-embeddings", action="store_true",
+                    help="plant the ENGRAM observation without an embedding (default: embeddings ON, as for the student's own writes)")
     a = ap.parse_args()
 
     # ---- refusals: nothing is written before every one of these has passed
@@ -190,6 +235,17 @@ def main():
     if len(mems) > 1:
         refuse(f"{len(mems)} memory folders found; refusing to choose one")
     memdir = mems[0]
+    index_path = os.path.join(memdir, "MEMORY.md")
+    if not os.path.isfile(index_path):
+        refuse("the memory folder has no MEMORY.md index (the student finds the folder through it); "
+               "choose a home that has one")
+    tag = hashlib.sha256(a.builtin_fact.encode()).hexdigest()[:8]
+    note_name = f"reference_note_{tag}.md"
+    index_line = index_line_for(open(index_path, encoding="utf-8", errors="replace").read(), note_name)
+    if a.question:
+        shared = sorted(content_words(a.question) & content_words(index_line))
+        if shared:
+            refuse(f"the index line would contain content word(s) of the control question: {', '.join(shared)}")
     ev = os.path.realpath(a.evidence_dir)
     if under(ev, os.path.join(home, "work")):
         refuse("the evidence dir is inside the arm home's work folder (the student's)")
@@ -208,7 +264,8 @@ def main():
     os.environ["ENGRAM_HOME"] = os.path.join(home, ".engram")
     os.environ["HOME"] = home
     os.environ["ENGRAM_EVIDENCE_ARCHIVE"] = ev
-    os.environ.setdefault("ENGRAM_NO_EMBEDDINGS", "1")
+    if a.no_embeddings:
+        os.environ["ENGRAM_NO_EMBEDDINGS"] = "1"
     sys.path.insert(0, plug)
     try:
         import engram_core, engram_observation, engram_query  # noqa: E401
@@ -218,15 +275,39 @@ def main():
         if not under(m.__file__, plug):
             refuse(f"{m.__name__} was imported from {m.__file__}, not from the arm home's plugin")
 
+    # ---- embeddings: ON unless --no-embeddings. Proven on the arm's own embedder BEFORE anything is written.
+    if a.no_embeddings:
+        print("embeddings: OFF (--no-embeddings)")
+    else:
+        try:
+            model = engram_core._get_embedding_config().get("model", engram_core.DEFAULT_EMBEDDING_MODEL)
+            avail = engram_core._embedder.is_available()
+            vec = engram_core._embedder.embed("embedding self-test", model) if avail else None
+        except Exception as e:  # noqa: BLE001
+            avail, vec, model = False, None, f"{type(e).__name__}: {e}"
+        if not avail:
+            refuse("embeddings are required (the student's own writes are embedded) but the embedder is not available "
+                   "(ENGRAM_NO_EMBEDDINGS set, or sentence-transformers missing); pass --no-embeddings to plant without")
+        if not vec:
+            refuse(f"embeddings are required but the embedding model {model!r} could not load or returned no vector; "
+                   "pass --no-embeddings to plant without")
+        print(f"embeddings: ON (model {model}, {len(vec)} dimensions)")
+
     allowed_arg = {t for t in a.allowed_tables.split(",") if t} if a.allowed_tables else None
     before = table_counts(db)
 
     # ---- plant, built-in channel: one markdown file
-    tag = hashlib.sha256(a.builtin_fact.encode()).hexdigest()[:8]
     slug = f"note-{tag}"
-    mpath = os.path.join(memdir, f"reference_note_{tag}.md")
+    mpath = os.path.join(memdir, note_name)
     with open(mpath, "w", encoding="utf-8") as f:
         f.write(build_memory_file(a.builtin_fact, front_matter_of(memdir), slug))
+    with open(index_path, "a+", encoding="utf-8") as f:  # the neutral index line, so the folder lists the note
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(size - 1, 0))
+        if size and f.read(1) != "\n":
+            f.write("\n")
+        f.write(index_line + "\n")
 
     # ---- plant, ENGRAM channel: evidence file outside the work folder, then ONE observation via ENGRAM's own code
     body = (a.engram_fact + "\n").encode()
@@ -273,6 +354,12 @@ def main():
     found, err, ids = store_has(a.engram_fact)
     line("engram observation read back", bool(ob_id) and found and not err and ob_id in ids,
          ob_id or "no observation id")
+    # the index: no fact text in MEMORY.md (the student reads the folder through it)
+    idx_text = open(index_path, encoding="utf-8", errors="replace").read().lower()
+    idx_hits = [k for k, v in facts.items() if v.lower() in idx_text]
+    line("index: no fact text in MEMORY.md", not idx_hits, ", ".join(idx_hits) or "none")
+    if not a.no_embeddings:
+        line("engram observation embedded", bool(ob_id) and ob_id in embedded_ids(db), ob_id or "no observation id")
     # check 3: transcript leak, for all three facts
     for k, v in facts.items():
         hits = leak_hits(home, memdir, v)

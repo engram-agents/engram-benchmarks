@@ -74,6 +74,21 @@ def test_refusals_exit_2(arrow_python, synthetic_parquet, tmp_path, name, payloa
     assert word in r.stderr.lower(), r.stderr
 
 
+@pytest.mark.parametrize("name,extra,word", [
+    ("without --resume", [], "--resume"),
+    ("with --setup-only", ["--resume", "S", "--setup-only"], "--setup-only"),
+    ("with --first-session", ["--resume", "S", "--first-session"], "--first-session"),
+])
+def test_question_file_requires_resume_and_refuses_setup_flags(arrow_python, synthetic_parquet, tmp_path, name, extra, word):
+    """R2-1: answering always resumes the run's own session; setup phases have no business with a frozen list."""
+    qf = write_json(tmp_path / "q.json", QS)
+    r = run_feed4(arrow_python, synthetic_parquet, tmp_path, "--turns", "0", "--force-compact",
+                  "--question-file", qf, "--dump-plan", *extra)
+    assert r.returncode == 2, (name, r.returncode, r.stderr)
+    assert r.stdout == ""
+    assert "unrecognized arguments" not in r.stderr and "--question-file" in r.stderr and word in r.stderr, r.stderr
+
+
 def test_refusal_not_json_and_missing_file(arrow_python, synthetic_parquet, tmp_path):
     bad = tmp_path / "bad.json"; bad.write_text("{not json")
     for path in (str(bad), str(tmp_path / "absent.json")):

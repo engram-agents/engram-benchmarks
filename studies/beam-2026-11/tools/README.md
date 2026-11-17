@@ -124,7 +124,8 @@ its usage; the tuning log has their outputs.
 `feed4.py --question-file F` delivers a frozen list (a JSON list of `{"id", "question"}`) in file order, once each, after
 the optional `/compact`, one message per item (`PROCTOR + " " + QUESTION_PREFIX + question`). An answering run is
 `--resume SESSION --turns 0 --force-compact --question-file F`; `--dump-plan` shows exactly `[compact, q1..qN]`. It is
-refused (exit 2, before any student process or model unload) with `--questions` or `--ask`, with duplicate ids, an empty
+refused (exit 2, before any student process or model unload) without `--resume`, with `--setup-only`,
+`--first-session`, `--questions` or `--ask`, with duplicate ids, an empty
 question, an empty list, or a file that is not a list of such objects. Each question's turn record carries
 `"kind": "question"` and its `"id"`. Without the flag the plan and the turn records are unchanged.
 
@@ -137,6 +138,9 @@ control, for a **disposable copy** of an arm home only (refuses without `COPY/.d
 with an evidence dir inside `COPY/work`, or with a fact shorter than 6 characters). The built-in fact goes in as one
 markdown file in the arm's memory folder; the ENGRAM fact through `engram_observation._add_observation_impl` (what the
 `engram_add_observation` tool calls), imported in-process from the copy's own plugin, with its evidence file in DIR. It
+also lists the note in the folder's `MEMORY.md` by one neutral appended line in the format of an existing line (exit 2 if
+there is no `MEMORY.md`; `--question TEXT` exits 2 if that line holds a content word of the question); the observation is
+embedded by default through the copy's own embedder (`--no-embeddings` opts out; exit 2 if the model cannot load). It
 then checks read-back, that no fact is in any transcript, cross-absence between the two channels, that the absent fact
 is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv.
 
