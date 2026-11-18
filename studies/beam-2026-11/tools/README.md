@@ -153,8 +153,16 @@ the write (FAIL exits 1). The checks that need the built-in fact print `SKIP (no
 not change the exit code; all other checks and the exit-3 post-condition run as in the two-channel mode, which is
 unchanged when `--builtin-fact` is given.
 
-`control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), reports
-from the turn's own tool calls where the answer came from; it never decides abstention for the `none` control.
+`control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), decides
+each planted fact on REACHABILITY, not on the answer. An engram/folder fact PASSES iff (a) a read through its intended
+channel (a pinned ENGRAM read tool; a `Read` of the folder file) in a turn after the compaction returned the token in
+that call's tool result, (b) the student's own query text echoed back in a result never counts (every string of the
+call's own input, `payload_json` decoded, is stripped from the result first; a stored value equal to the query string is
+stripped too, a false negative toward FAIL), (c) no read through the other channel returned the token anywhere in the
+session, and (d) the evidence file or the run directory (the optional per-control `run_dir`) was not opened before that
+first read (opened after it is noted, not void). The answer is printed beside the verdict and decides nothing: a refusal
+that quotes the token passes only if a channel read returned it. Other tool kinds (Bash grep, ToolSearch, writes) are
+listed and neither pass nor fail. It never decides abstention for the `none` control.
 
 Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
 cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.

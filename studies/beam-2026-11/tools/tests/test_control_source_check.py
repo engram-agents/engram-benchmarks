@@ -1,7 +1,11 @@
 """Part D cells: control-source-check.py on synthetic stream-json events + turn records. Contract-first.
 
 A turn's events are everything up to and including its `result` event; turns.jsonl row k belongs to the k-th result
-event (feed4.py's ask() returns at the first result event of each message)."""
+event (feed4.py's ask() returns at the first result event of each message).
+
+Rule under test (the design owner's ruling of 2026-11-18, clauses (a)-(d)): a planted fact PASSES on REACHABILITY, never on
+the answer text. The cells from "P1 REACHABILITY" on are the new contract; the earlier engram/folder cells were rewritten
+where they encoded the superseded answer-based rule."""
 import json, os, subprocess, sys
 import pytest
 from conftest import TOOLS
@@ -113,9 +117,11 @@ def engram_run(answer=f"The code is {T_ENGRAM}.", calls=None):
     return r
 
 
-def test_engram_fails_when_the_answer_lacks_the_token(tmp_path):
+def test_engram_answer_lacking_the_token_decides_nothing(tmp_path):
+    """Superseded rule: the answer needed the token. Now the answer is reported and decides nothing."""
     r = run_check(tmp_path, engram_run(answer="I do not remember."))
-    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL" and "token" in r.stdout.lower()
+    assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+    assert "I do not remember." in r.stdout
 
 
 def test_engram_fails_without_any_engram_read_call(tmp_path):
@@ -128,29 +134,33 @@ def test_an_engram_write_call_is_not_a_read(tmp_path):
     assert verdicts(r.stdout)["c-engram"] == "FAIL"
 
 
-def test_engram_fails_when_the_folder_file_was_read(tmp_path):
+def test_engram_fails_when_a_folder_read_returned_the_engram_token(tmp_path):
+    """(c), rewritten: the folder file read is a failure only when that Read RETURNED the token (a read of it that
+    does not return the token is the folder control's business, not a second channel for this fact)."""
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": FOLDER_FILE}, "text")]))
-    # the folder file is named on the folder control; the engram control must still not touch it
-    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder file" in r.stdout.lower()
+        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": FOLDER_FILE}, f"text {T_ENGRAM}")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower()
 
 
-def test_engram_fails_when_the_evidence_file_was_read(tmp_path):
+def test_engram_evidence_file_read_before_the_first_channel_read_fails(tmp_path):
+    """(d), rewritten: opening the evidence file BEFORE the first channel read voids the pass."""
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": EVID_FILE}, T_ENGRAM)]))
+        call("Read", {"file_path": EVID_FILE}, T_ENGRAM), call(ENG_Q, {"query": "v"}, ENG_HIT)]))
     assert verdicts(r.stdout)["c-engram"] == "FAIL" and "evidence" in r.stdout.lower()
 
 
-def test_engram_fails_when_a_grep_touched_the_evidence_file_by_name(tmp_path):
+def test_engram_a_grep_naming_the_evidence_file_before_the_first_channel_read_fails(tmp_path):
     r = run_check(tmp_path, engram_run(calls=[
-        call(ENG_Q, {"query": "v"}, ENG_HIT), call("Bash", {"command": "grep -r code /ev/9f2c0a7e1b.txt"}, "x")]))
+        call("Bash", {"command": "grep -r code /ev/9f2c0a7e1b.txt"}, "x"), call(ENG_Q, {"query": "v"}, ENG_HIT)]))
     assert verdicts(r.stdout)["c-engram"] == "FAIL"
 
 
-def test_engram_fails_when_a_non_engram_tool_result_shows_the_token(tmp_path):
+def test_engram_a_non_engram_tool_result_showing_the_token_neither_passes_nor_fails(tmp_path):
+    """Superseded rule: it failed the control. Now only the two channels matter (a)/(c); a Bash result is listed."""
     r = run_check(tmp_path, engram_run(calls=[
         call(ENG_Q, {"query": "v"}, ENG_HIT), call("Bash", {"command": "grep -r code /ev"}, f"/ev/x.txt: {T_ENGRAM}")]))
-    assert verdicts(r.stdout)["c-engram"] == "FAIL"
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+    assert "Bash" in r.stdout
 
 
 def test_a_folder_read_in_another_turn_does_not_fail_the_engram_turn(tmp_path):
@@ -169,9 +179,10 @@ def folder_run(answer=f"It is {T_FOLDER}.", calls=None):
     return r
 
 
-def test_folder_fails_when_the_answer_lacks_the_token(tmp_path):
+def test_folder_answer_lacking_the_token_decides_nothing(tmp_path):
     r = run_check(tmp_path, folder_run(answer="no idea"))
-    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "token" in r.stdout.lower()
+    assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert "no idea" in r.stdout
 
 
 def test_folder_fails_when_the_folder_file_was_not_read(tmp_path):
@@ -185,16 +196,17 @@ def test_folder_fails_when_an_engram_read_returned_the_token(tmp_path):
     assert verdicts(r.stdout)["c-folder"] == "FAIL" and "engram" in r.stdout.lower()
 
 
-def test_folder_fails_when_the_evidence_file_was_touched(tmp_path):
+def test_folder_evidence_file_read_before_the_first_channel_read_fails(tmp_path):
     r = run_check(tmp_path, folder_run(calls=[
-        call("Read", {"file_path": FOLDER_FILE}, "x"), call("Read", {"file_path": EVID_FILE}, "y")]))
+        call("Read", {"file_path": EVID_FILE}, "y"), call("Read", {"file_path": FOLDER_FILE}, f"x {T_FOLDER}")]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL" and "evidence" in r.stdout.lower()
 
 
-def test_a_folder_read_by_grep_of_the_file_name_counts_as_read(tmp_path):
+def test_a_bash_cat_of_the_folder_file_is_not_a_channel_read(tmp_path):
+    """Superseded rule: a Bash cat naming the file counted. Now only a `Read` is the folder channel."""
     r = run_check(tmp_path, folder_run(calls=[
         call("Bash", {"command": "cat /arm/.claude/projects/-w/memory/reference_note_dd439b25.md"}, T_FOLDER)]))
-    assert verdicts(r.stdout)["c-folder"] == "PASS"
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout
 
 
 # ---- none channel
@@ -291,15 +303,16 @@ def test_a_write_edit_stat_or_ls_never_counts_even_when_its_result_shows_the_tok
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
-def test_a_read_of_the_folder_file_counts_without_the_token_in_the_result(tmp_path):
+def test_a_read_of_the_folder_file_without_the_token_in_the_result_does_not_pass(tmp_path):
+    """(a): the token must be in THAT call's tool_result; a Read that returned a truncated view reached nothing."""
     r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": FOLDER_FILE}, "(truncated view)")]))
-    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "token" in r.stdout.lower(), r.stdout
 
 
 @pytest.mark.parametrize("path", ["/elsewhere/reference_note_dd439b25.md",
                                   "/arm/.claude/projects/-w/memory/../memory/reference_note_dd439b25.md"])
 def test_a_read_matches_by_resolved_path_or_basename(tmp_path, path):
-    r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": path}, "x")]))
+    r = run_check(tmp_path, folder_run(calls=[call("Read", {"file_path": path}, f"x {T_FOLDER}")]))
     assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
 
 
@@ -308,9 +321,10 @@ def test_a_read_of_another_file_is_not_a_folder_read(tmp_path):
     assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout
 
 
-def test_a_grep_tool_result_from_a_call_touching_the_folder_file_counts_when_it_holds_the_token(tmp_path):
+def test_a_grep_tool_result_from_a_call_touching_the_folder_file_is_not_a_channel_read(tmp_path):
+    """Superseded rule: it counted when it held the token. Now only `Read` is the folder channel."""
     r = run_check(tmp_path, folder_run(calls=[call("Grep", {"pattern": "code", "path": FOLDER_FILE}, f"line 4: {T_FOLDER}")]))
-    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout
 
 
 # ---- R3-4: a turn row's result text must equal the k-th result event's text
@@ -366,3 +380,202 @@ def test_fails_when_a_row_has_a_session_id_but_its_result_event_has_none(tmp_pat
             e.pop("session_id", None)
     out = run_check(tmp_path, r)
     assert out.returncode == 1 and "align" in out.stdout.lower() and "session" in out.stdout.lower(), out.stdout
+
+
+# ================================================================ P1 REACHABILITY (contract-first, ruling 2026-11-18)
+# A planted fact PASSES iff (a) an intended-channel read in a turn after the compaction returned the token in its tool
+# RESULT, (b) the student's own query/prompt echo never counts, (c) no read through the other channel returned it in the
+# session, (d) the evidence file / run directory was not opened BEFORE that first read (later is noted, not void).
+RUN_DIR = "/runs/r-0001"
+CONTROLS_RD = [dict(c, run_dir=RUN_DIR) for c in CONTROLS]
+
+
+def eng_default():
+    return [call(ENG_Q, {"query": "vault"}, ENG_HIT)]
+
+
+def fol_default():
+    return [call("Read", {"file_path": FOLDER_FILE}, f"x {T_FOLDER}")]
+
+
+def reach_run(eng=None, fol=None, eng_answer=f"The code is {T_ENGRAM}.", fol_answer=f"It is {T_FOLDER}.",
+              pre=None, mid=None, compact=True):
+    """pre: calls in a turn BEFORE the compaction; mid: calls in a question turn AFTER it, before the controls' turns."""
+    r = Run()
+    if pre is not None:
+        r.turn("warmup", None, "w", pre)
+    if compact:
+        r.turn("compact", None, "compacted")
+    if mid is not None:
+        r.turn("question", "mid", "m", mid)
+    r.turn("question", "c-engram", eng_answer, eng if eng is not None else eng_default())
+    r.turn("question", "c-folder", fol_answer, fol if fol is not None else fol_default())
+    good_none_turn(r)
+    return r
+
+
+def first_read_line(out):
+    return [ln for ln in out.splitlines() if ln.strip().startswith("first intended read:")]
+
+
+# ---- 1. refusal quoting the token: reach decides, the quote alone never does
+def test_a_refusal_quoting_the_token_passes_when_a_channel_read_returned_it(tmp_path):
+    r = run_check(tmp_path, reach_run(eng_answer=f'I did not answer "{T_ENGRAM}" because I was not sure.',
+                                      fol_answer=f'I will not state "{T_FOLDER}" as the answer.'))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS" and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert f'I did not answer "{T_ENGRAM}"' in r.stdout            # the refusal is reported beside the verdict
+
+
+def test_a_refusal_quoting_the_engram_token_without_a_channel_read_returning_it_fails(tmp_path):
+    """The mutant the ruling names: a quote alone must NOT pass."""
+    r = run_check(tmp_path, reach_run(eng=[call(ENG_Q, {"query": "vault"}, "{}")],
+                                      eng_answer=f'I did not answer "{T_ENGRAM}" ...'))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+def test_a_refusal_quoting_the_folder_token_without_a_channel_read_returning_it_fails(tmp_path):
+    r = run_check(tmp_path, reach_run(fol=[call("Read", {"file_path": FOLDER_FILE}, "(view)")],
+                                      fol_answer=f'I did not answer "{T_FOLDER}" ...'))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+    r = run_check(tmp_path, reach_run(fol=[], fol_answer=f'I did not answer "{T_FOLDER}" ...'))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_the_output_reports_the_first_intended_read_and_the_answer_excerpt(tmp_path):
+    long_answer = "A" * 400
+    r = run_check(tmp_path, reach_run(eng_answer=long_answer))
+    ln = first_read_line(r.stdout)
+    assert len(ln) == 2 and ENG_Q in ln[0] and "Read" in ln[1] and FOLDER_FILE in ln[1], r.stdout
+    assert "answer (reported, decides nothing): " + "A" * 300 in r.stdout and "A" * 301 not in r.stdout
+
+
+# ---- 2/3. (b) the query echo never counts; a stored value outside the echo does
+def _echo(token, form):
+    if form == "plain":
+        q = f"lantern {token} room"
+        return {"query": q}, json.dumps({"query": q, "results": []})
+    if form == "payload_json":
+        q = f"lantern {token} room"
+        return {"payload_json": json.dumps({"query": q, "limit": 5})}, json.dumps({"echo": q, "results": []})
+    q = f'the "{token}" lantern'           # a quote in the query: the result carries the JSON-escaped form
+    return {"query": q}, json.dumps({"query": q, "results": []})
+
+
+@pytest.mark.parametrize("form", ["plain", "payload_json", "quoted"])
+def test_an_echoed_query_does_not_fail_the_folder_control(tmp_path, form):
+    inp, res = _echo(T_FOLDER, form)
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, inp, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS" and r.returncode == 0, r.stdout
+
+
+@pytest.mark.parametrize("form", ["plain", "payload_json", "quoted"])
+def test_an_echoed_query_does_not_pass_the_engram_control(tmp_path, form):
+    inp, res = _echo(T_ENGRAM, form)
+    r = run_check(tmp_path, reach_run(eng=[call(ENG_Q, inp, res)]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "token" in r.stdout.lower(), r.stdout
+
+
+def test_a_stored_value_outside_the_echo_counts_for_the_engram_control(tmp_path):
+    q = f"vault {T_ENGRAM}"
+    res = json.dumps({"query": q, "results": [{"summary": f"code {T_ENGRAM}"}]})
+    r = run_check(tmp_path, reach_run(eng=[call(ENG_Q, {"query": q}, res)]))
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+
+
+def test_a_stored_value_outside_the_echo_fails_the_folder_control(tmp_path):
+    q = f"lantern {T_FOLDER}"
+    res = json.dumps({"query": q, "results": [{"summary": f"lantern code {T_FOLDER}"}]})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": q}, res)]))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-folder"] == "FAIL" and "engram" in r.stdout.lower(), r.stdout
+
+
+# ---- 4. (c) the other channel returned it in an EARLIER turn of the session
+def test_a_folder_read_returning_the_engram_token_in_an_earlier_turn_fails_the_engram_control(tmp_path):
+    r = run_check(tmp_path, reach_run(mid=[call("Read", {"file_path": FOLDER_FILE}, f"x {T_ENGRAM}")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
+
+
+def test_a_folder_read_returning_the_engram_token_before_the_compaction_also_fails_it(tmp_path):
+    r = run_check(tmp_path, reach_run(pre=[call("Read", {"file_path": FOLDER_FILE}, f"x {T_ENGRAM}")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+def test_a_folder_read_returning_the_engram_token_in_a_later_turn_also_fails_it(tmp_path):
+    r = run_check(tmp_path, reach_run(fol=[call("Read", {"file_path": FOLDER_FILE}, f"x {T_FOLDER} {T_ENGRAM}")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+def test_an_engram_read_returning_the_folder_token_in_an_earlier_turn_fails_the_folder_control(tmp_path):
+    r = run_check(tmp_path, reach_run(mid=[call(ENG_Q, {"query": "n"}, f'{{"results":[{{"summary":"{T_FOLDER}"}}]}}')]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "engram" in r.stdout.lower(), r.stdout
+
+
+# ---- 5. (d) the evidence file or the run directory opened before / after the first channel read
+@pytest.mark.parametrize("opener", [
+    call("Read", {"file_path": EVID_FILE}, "y"),
+    call("Bash", {"command": "cat 9f2c0a7e1b.txt"}, "y"),             # by base name
+    call("Bash", {"command": f"ls {RUN_DIR}"}, "r-0001 listing"),     # the run directory
+])
+def test_opening_the_evidence_file_or_run_dir_before_the_first_channel_read_fails(tmp_path, opener):
+    r = run_check(tmp_path, reach_run(eng=[opener] + eng_default(), fol=[opener] + fol_default()), controls=CONTROLS_RD)
+    assert r.returncode == 1, r.stdout
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+    assert "before" in r.stdout.lower()
+
+
+@pytest.mark.parametrize("opener", [
+    call("Read", {"file_path": EVID_FILE}, "y"),
+    call("Bash", {"command": f"ls {RUN_DIR}"}, "r-0001 listing"),
+])
+def test_opening_the_evidence_file_or_run_dir_after_the_first_channel_read_passes_with_a_note(tmp_path, opener):
+    # one opener, in the LAST of the two control turns: stream order puts it after BOTH controls' first channel reads
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [opener]), controls=CONTROLS_RD)
+    assert r.returncode == 0, r.stdout
+    assert verdicts(r.stdout)["c-engram"] == "PASS" and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert "does not void" in r.stdout.lower() and "after" in r.stdout.lower()
+
+
+def test_the_evidence_file_opened_in_an_earlier_turn_than_the_first_channel_read_fails(tmp_path):
+    r = run_check(tmp_path, reach_run(mid=[call("Read", {"file_path": EVID_FILE}, "y")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_a_control_without_run_dir_is_still_accepted_and_the_run_dir_is_then_not_watched(tmp_path):
+    opener = call("Bash", {"command": f"ls {RUN_DIR}"}, "listing")
+    r = run_check(tmp_path, reach_run(eng=[opener] + eng_default(), fol=[opener] + fol_default()))  # CONTROLS: no run_dir
+    assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+
+
+# ---- 6. other tool kinds (Bash grep, ToolSearch, writes) neither pass nor fail under (a)/(c); they are listed
+def test_a_bash_grep_of_the_folder_returning_the_token_neither_passes_nor_fails_the_folder_control(tmp_path):
+    grep = call("Bash", {"command": f"grep -r code {FOLDER_FILE}"}, f"{FOLDER_FILE}: {T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [grep]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout                     # did not fail it
+    r = run_check(tmp_path, reach_run(fol=[grep]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "not read" in r.stdout.lower(), r.stdout   # did not pass it
+    assert "Bash" in r.stdout
+
+
+def test_a_bash_grep_of_the_folder_returning_the_engram_token_does_not_fail_the_engram_control(tmp_path):
+    grep = call("Bash", {"command": f"grep -r code {FOLDER_FILE}"}, f"{FOLDER_FILE}: {T_ENGRAM}")
+    ts = call("ToolSearch", {"query": "engram"}, T_ENGRAM)
+    r = run_check(tmp_path, reach_run(eng=eng_default() + [grep, ts]))
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+    assert "Bash" in r.stdout and "ToolSearch" in r.stdout                        # the other kinds are listed
+
+
+# ---- 7. (a) only a turn after the compaction counts; with no compaction turn the run start is the resume
+def test_a_channel_read_only_before_the_compaction_does_not_pass(tmp_path):
+    r = run_check(tmp_path, reach_run(pre=[call(ENG_Q, {"query": "v"}, ENG_HIT), call("Read", {"file_path": FOLDER_FILE}, f"x {T_FOLDER}")],
+                                      eng=[call(ENG_Q, {"query": "v"}, "{}")], fol=[call("Read", {"file_path": FOLDER_FILE}, "(view)")]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_a_channel_read_in_an_earlier_turn_after_the_compaction_counts(tmp_path):
+    r = run_check(tmp_path, reach_run(mid=[call(ENG_Q, {"query": "v"}, ENG_HIT)], eng=[]))
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+
+
+def test_with_no_compaction_turn_the_reads_of_the_run_count(tmp_path):
+    r = run_check(tmp_path, reach_run(compact=False))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
