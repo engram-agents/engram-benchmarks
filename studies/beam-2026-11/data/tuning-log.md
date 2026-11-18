@@ -1977,3 +1977,37 @@ is a finding about the instrument. (3) The reader's colleague read of the PR 8 d
 commit, the new cell) comes after the row is sent. Reader: Halley (exposure to control 2: NO, quoted from their crossing
 32437: "control 2 exposure is NO. I have read no Office crossing of yours about what happened in control 2."). Nothing
 scored runs before control 2 is read.
+
+## P1 answering pilot, control session 2: the independent row, the instrument after it, and the ruling (logged 2026-11-18)
+
+**Order, as ruled.** Halley's independent row is the primary reading. It was sent at 21:46:17Z, from the reader bundle
+alone (the session record, the final rule text, the controls as planted with `memory_dir`), before any instrument read
+the session; Halley's exposure answer is quoted in the entry above. The fixed instrument (`control-source-check.py` at
+engram-benchmarks b2d4f710, sha256 1a05d43a...) then read the session: first by Halley in their PR 8 delta read (22:08Z,
+reported as C1 PASS at event 31, C3 REVIEW), then by the study lead from the same pinned commit for the verbatim output
+(exit 0; same verdicts). No other instrument version has read control 2.
+
+**The row (Halley, condensed; every event number theirs, 1-based lines of the reader's event extract).** C1 (ENGRAM fact):
+PASS. (a) First intended read: `engram_inspect` of the planted node, call 31 / result 32, after the compaction and the
+turn's init. (c) No call in the session targets the memory folder. (d) No file-capable call targets the evidence file or
+the run directory; those paths appear only in ENGRAM tool arguments and results, all after 32 (mentions); the student's
+Bash calls read its own session transcript, a path outside both channels, and none returns the token. Answer: refused.
+C3 (nowhere fact): PASS; the token is on no line; abstained, judged by Halley ("yes, it abstains, with no invented
+value"). Carried from control 1, not settled: the answered / refused / abstained definitions are the reader's, and the
+resume is not marked in the record.
+
+**The instrument.** C1 PASS [engram], first intended read `engram_inspect` (turn 2, event 3941 of the full stream; that
+event is byte-identical to line 31 of the reader's extract, so the two name the same call). C3 REVIEW (the instrument's
+word for "a reader judges the abstention"). RESULT: no control failed. **Row and instrument agree on every verdict and on
+the first intended read.**
+
+**Ruling (design owner, Office 32453, 22:59Z).** Control 2 PASSES by the rule as written, on the row. Both controls are
+now read, so the pre-log's condition for the scored speed pilot is met.
+
+**A new fact, reported and NOT folded into the rule (the row's finding).** In control 2 the plugin's session-start
+responses (the resume one and the compaction one) listed the planted node with its token under "nodes created since
+checkpoint", so the student met the fact through a hook surface before any tool read. Control 1's hook responses carried
+neither token. By the rule's letter this changes no verdict (a hook surface is not a tool result, it is the same channel,
+and it opens no file). The design owner sends it to the study's principal as a design question: the ENGRAM channel is not
+only what the student asks for; the plugin also pushes recent nodes at session start, and the control as designed tested
+the first and found the second. Two reads from the records follow in the next entry.
