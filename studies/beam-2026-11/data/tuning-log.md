@@ -1523,3 +1523,63 @@ Earlier fact bearing on the talk probe's question: in every practice sandbox the
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
 before the exam line. The first-session skill instructs those writes, so they show capability under
 instruction only.
+
+## P1 answering pilot: launcher, setup, question file and controls fixed (logged 2026-11-18, before any session runs)
+
+This entry completes the pre-log above (commit 80731986) with what it said would be published before the first control
+session. No control or answering session has run at this commit.
+
+**Launcher.** `tools/p1-session.py` and `tools/p1-question-file.py` at engram-benchmarks commit
+`0dc77c117a1b4ddb130491a3b71e7c130c88bca3`, the head of PR 11 (stacked on PR 8's head b057eb04). Review before use: three
+reviewer-fairy rounds with every finding folded, then a colleague read (the fallback seat, the two pairing seats not
+having answered) that APPROVED the previous head 45c63758 after testing the protected-home guard end to end: a control
+run exited 0 with the home unchanged, the same run with one line appended to the protected home exited 5, and so did that
+run under KeyboardInterrupt, SystemExit and an ordinary exception. Its two findings were documentation only and were
+folded as 0dc77c11 (README only), which the same reader re-approved after checking that both scripts are byte-identical
+across the two heads. The colleague did not verify the store-hash value or the 84-item count; those are the study lead's
+measurements. sha256 of `p1-session.py` at that commit: `8266de6c7d8c70769aecff5ca158f82d1e4239f846bb681e4c84753d515647cf`;
+of `p1-question-file.py`: `68251253dbcf0cdd19b8cd5fa1f7c681562b336e4edfef82d842dc9ddc783d33`. Every session runs from a
+checkout of that commit.
+
+**Answering setup.** Setup id `171fb069ead05fb42b47c843695a95ca67fac1f1da686497020679e569d1b2aa`, component file
+`data/p1-answering-setup.txt` (this commit). Built by `setup-id.py` from the same inputs as the reading runs; those inputs
+were checked by rebuilding the k = 1 run's own id from them with that run's feed script, which reproduced `d18b5d26...`
+exactly. Two components differ from the reading runs, and both apply to both end states alike: `feed4.py` is PR 8's
+(the question-file delivery; its student-visible FACT_SHEET and NUDGE segments are unchanged), and **Claude Code is
+2.1.327** on the host now, where every reading run used 2.1.325. There is no turns-per-round component, because
+answering has no rounds.
+
+**Question file.** `data/p1-questions.json` (this commit), built by `p1-question-file.py --list
+data/p1-keyfacts-final.md --expect-sha256 1895b151... --exclude F32 --seed 20261118`: 84 items (75 counting, 9
+abstention), questions only, sha256 `e79290e0dcdf45ed0c26f3a3b2df7e62f3cce80fa03d996e55da158d03a13943`. Checked apart from
+the tool: the order equals an independent `random.Random(20261118).shuffle` of the sorted ids, no gold text appears,
+and a second build is byte-identical. The order is the file's order.
+
+**Control facts** (invented; each distinctive word was searched for in conversation 9 and in both end states'
+transcripts, and none occurs; an earlier candidate using "locker" was dropped because that word does occur):
+- ENGRAM only (C1): "The courier code for the Halvorsen parcel is QX-7741." Asked: "What is the courier code for the
+  Halvorsen parcel?"
+- Built-in folder only (C2, K = 3 copy only): "The meeting room booked for the Tarnow review is Room Vespera." Asked:
+  "Which room is booked for the Tarnow review?"
+- Planted nowhere (C3): asked "What is the gate code for the Ilsabet boathouse?"; pass is an abstention, judged by the
+  study lead and reported verbatim.
+Control 1 (K = 3 copy) asks C1, C2, C3; control 2 (k = 1 copy) asks C1 and C3. Question files
+`data/p1-control-questions-k3.json` and `-k1.json` (this commit).
+
+**A disclosure about the preserved end states.** The store content hashes of the preserved homes were taken on
+2026-11-16, 2026-11-17 and once on 2026-11-18 by opening the store with sqlite in read-only mode. That mode still updates
+the store's `-shm` file (its modification time moved at the read; the database file, its WAL and the content hash did
+not change). So the preserved homes' `-shm` files are not byte-for-byte as their runs left them; their stored content
+is. From this entry on, every hash of a preserved home reads a temporary copy (the launcher's `protected_store_hash`),
+and a byte-and-modification-time check over the store files around such a read showed nothing changed.
+
+**Grading.** The pre-log above names a published judge as primary and a released judge as a sensitivity column; it was
+written before PR 9's final text. Grading follows the project lead's ruling as written in PR 9 (final text at d8214526,
+not yet merged): the question-seeing judge (shown the question, the rubric
+item and the response) scores every real answer; the no-question judge runs only inside PR 9's known-answer check and adds
+no column here. Grading stays blind to k.
+
+**The three preserved end states.** K = 3: the arm home as the K = 3 reading run left it (setup 7b73fe7b). K = 5: as the
+K = 5 run left it (setup 8262a444). k = 1: as the k = 1 re-run left it (setup d18b5d26; store content hash 29cac9e66d1ad603...
+logged 2026-11-17, reproduced by the launcher's hash function from a temporary copy). Their hashes before any session are
+the next entry.
