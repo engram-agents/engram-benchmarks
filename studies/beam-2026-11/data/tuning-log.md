@@ -1742,3 +1742,11 @@ fold and also held. The write-up reports all three rows, says rows 2 and 3 were 
 the instrument's output, and reports any disagreement between the independent reader and the instrument rather than
 reconciling it. No further version of this rule: if control 2 or the independent read shows it still does not fit, the
 question goes to the project lead as a design question about what a planted control can show for this student.
+
+## P1 answering pilot: control 1 row 3 written, held (logged 2026-11-18, before the independent reader's row)
+
+Control 1's row 3 (the final rule, read by the folded instrument, control-source-check.py at engram-benchmarks commit
+3ef1d400 on PR 8) is written and held with the other sealed texts until the independent reader's row is in; its sha256:
+`e70f3dbc3958cb4140ff566caec5abb0a73a0416ed78806960bd270b62df1412`. The instrument fixes for control 2 are pushed for review: PR 8 at 3ef1d400 (plant-control ENGRAM-only mode; the
+source check on the final rule) and PR 11 at dd611a77 (the launcher's engram-plus-nowhere plant set and the required
+BEAM_PARQUET). No session has run since control 1.
