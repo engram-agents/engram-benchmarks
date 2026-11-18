@@ -563,3 +563,7 @@ Each line is the study lead's own commit. Times are UTC.
   delivered as a team-world thing and downloaded back byte-identical. The study lead's hand grades stay as a second,
   labelled column, and agreement between the two columns is reported at settlement. Per-item grades are not
   published before settlement. Phase 2 continues unchanged: its packets carry no grades.
+- 2026-11-18: the key holder has not answered since 15:23Z. The re-run of the leak check on all 16 answer-type packets
+  under the clarified clause, and the rubric-framing test on the reference answers (the design owner's ruling of
+  15:21Z), stay with the key holder and are WAITING; the design owner has not reassigned them today. The three held
+  packets have not gone to the phase-2 reader. Nothing else in phase 2 changes.
