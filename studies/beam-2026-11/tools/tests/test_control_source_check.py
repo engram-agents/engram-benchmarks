@@ -1450,3 +1450,87 @@ def test_env_unwrap_is_exactly_one_key_result_string_json():
     assert m.parse_result(json.dumps({"result": "plain text"})) == {"result": "plain text"}
     assert m.parse_result(json.dumps({"result": inner})) == {"result": inner}
     assert m.parse_result("not json") is None
+
+
+# ---- S8: the PATH OF ORIGIN of a token a call OUTSIDE the folder returned (design owner's conformance ruling, 2026-11-18).
+# A call whose target is outside the folder (a grep of the folder's PARENT) is not a folder read. Whether it is an opening
+# depends on where the token came from: a printed in-folder path -> neither a folder read nor an opening (a note); a printed
+# path outside both channels -> an opening; no printed path -> read as an opening (toward FAIL), with its own message.
+PARENT = os.path.dirname(os.path.dirname(FOLDER_FILE))          # the folder's parent: not inside the folder
+IN_PATH = FOLDER_FILE                                           # a path inside the memory folder
+NOTE_TEXT = "returned the token from an in-folder path through a call outside the folder: not a folder read, not an opening"
+
+
+def parent_grep(result, tool="Bash"):
+    inp = {"command": f"grep -rn lantern {PARENT}"} if tool == "Bash" else {"pattern": "lantern", "path": PARENT}
+    return call(tool, inp, result)
+
+
+def test_s8_parent_grep_printing_an_in_folder_path_is_neither_a_folder_read_nor_an_opening(tmp_path):
+    for tool in ("Bash", "Grep"):
+        g = parent_grep(f"{IN_PATH}:4:the lantern code {T_FOLDER}", tool)
+        r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))     # the grep comes BEFORE the first in-folder Read
+        assert verdicts(r.stdout)["c-folder"] == "PASS", (tool, r.stdout)
+        assert NOTE_TEXT in r.stdout, (tool, r.stdout)
+        r = run_check(tmp_path, reach_run(fol=[g]))                     # and it is never itself the folder read
+        assert verdicts(r.stdout)["c-folder"] == "FAIL", (tool, r.stdout)
+
+
+def test_s8_parent_grep_printing_a_path_outside_both_channels_before_the_first_read_is_an_opening(tmp_path):
+    g = parent_grep(f"/scratch/other/n.txt:1:{T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "before" in r.stdout.lower() and "outside" in r.stdout.lower(), r.stdout
+    assert "no path of origin printed" not in r.stdout
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [g]))         # after the first read: only a note
+    assert verdicts(r.stdout)["c-folder"] == "PASS" and "does not void" in r.stdout.lower(), r.stdout
+
+
+def test_s8_a_call_outside_the_folder_returning_the_token_with_no_path_is_an_opening_with_its_own_message(tmp_path):
+    g = parent_grep(f"the lantern code {T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+    assert ("a call outside the folder returned the token (no path of origin printed; read as an opening, "
+            "which errs toward FAIL)") in r.stdout, r.stdout
+
+
+def test_s8_engram_control_a_parent_grep_returning_the_token_from_an_in_folder_path_does_not_fail_c(tmp_path):
+    """(c) names a read THROUGH the folder channel (target inside the folder); a parent grep's target is outside, so it is
+    not one, and the in-folder path of origin makes it no opening either: the engram control PASSes, with the note."""
+    g = parent_grep(f"{IN_PATH}:2:vault code {T_ENGRAM}")
+    for eng in ([g] + eng_default(), eng_default() + [g]):
+        r = run_check(tmp_path, reach_run(eng=eng))
+        assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+        assert NOTE_TEXT in r.stdout, r.stdout
+    # the contrast: the same return through a call whose TARGET is the folder does fail (c)
+    inside = call("Bash", {"command": f"grep -rn vault {os.path.dirname(FOLDER_FILE)}"}, f"{IN_PATH}:2:vault code {T_ENGRAM}")
+    r = run_check(tmp_path, reach_run(eng=eng_default() + [inside]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+@pytest.mark.parametrize("result", [
+    f"{IN_PATH}:4:the lantern code {T_FOLDER}\n/scratch/other/n.txt:1:{T_FOLDER}",   # one occurrence outside: an opening
+    f"{IN_PATH}:4:the lantern code {T_FOLDER}\nloose line {T_FOLDER}",               # one occurrence with no path: an opening
+    f"memory/reference_note_dd439b25.md:4:{T_FOLDER}",                               # a relative printed path is not resolved
+    f"{IN_PATH}-4-{T_FOLDER}",                                                       # a context-line shape is not a known shape
+    f"{os.path.dirname(FOLDER_FILE)}/{T_FOLDER}.md",                                 # the token only in a path: no printed origin
+    f"{PARENT}/memory/../x/n.txt:1:{T_FOLDER}",                                      # resolves outside the folder
+])
+def test_s8_unknown_or_mixed_origin_counts_as_an_opening(tmp_path, result):
+    r = run_check(tmp_path, reach_run(fol=[parent_grep(result)] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "before" in r.stdout.lower(), (result, r.stdout)
+
+
+def test_s8_only_bash_and_grep_prints_are_read_as_origin(tmp_path):
+    """A tool that is not a grep-shaped one (Task, WebFetch, another MCP server) printing an in-folder-looking line is not
+    trusted: unknown shape counts, toward FAIL."""
+    for name in ("Task", "WebFetch", "mcp__other__thing"):
+        g = call(name, {"x": PARENT}, f"{IN_PATH}:4:{T_FOLDER}")
+        r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
+        assert verdicts(r.stdout)["c-folder"] == "FAIL", (name, r.stdout)
+
+
+def test_s8_a_read_of_a_file_outside_the_folder_is_its_own_path_of_origin(tmp_path):
+    g = call("Read", {"file_path": "/scratch/n.txt"}, f"x {T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "outside" in r.stdout.lower(), r.stdout
+    assert "no path of origin printed" not in r.stdout

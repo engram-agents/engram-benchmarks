@@ -186,7 +186,13 @@ the run directory (the optional per-control `run_dir`) was not opened before tha
 not void); an opening is a FILE-CAPABLE call, by default-deny: every call except `ToolSearch`, `TodoWrite`,
 `ExitPlanMode`, `EnterPlanMode`, `AskUserQuestion` and any tool of the pinned ENGRAM server (so `Task`, `Agent`,
 `WebFetch`, a tool of another MCP server and unknown tools count) that names them or that returns the token from a path outside both channels, while a path in an MCP tool's
-arguments is only a mention. The answer is printed beside the verdict and decides nothing: a refusal that quotes the token
+arguments is only a mention. Path of origin (S8): a call whose target is outside the folder (a grep of its parent) is not a
+folder read; when its result prints the path each token occurrence came from (Bash or Grep, `path:line:text`; a Read is
+its own `file_path`), an in-folder path makes it neither a folder read nor an opening (a note), a path outside both
+channels makes it an opening, and no printed path (none, a relative path, a context line, any other tool) is read as an
+opening, which errs toward FAIL ("a call outside the folder returned the token (no path of origin printed; ...)"). One
+such occurrence in a mixed result opens. So an engram control is not failed under (c) by a parent grep that returns the
+token from an in-folder path (its target is not in the folder). The answer is printed beside the verdict and decides nothing: a refusal that quotes the token
 passes only if a channel read returned it. Other tool kinds are listed and neither pass nor fail. Stated bound (S7): a folder target the checker cannot resolve (a
 relative path, a glob, a variable other than HOME, a subshell path, a Grep with no `path`) is not seen, and a `Task` or
 `Agent` subagent that reads the memory folder returns the token with no folder target in this stream, so for the engram

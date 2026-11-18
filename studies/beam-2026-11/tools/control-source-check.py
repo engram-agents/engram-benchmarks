@@ -73,8 +73,8 @@ EXEMPTION SITES (the full list; read the rule text below for the clauses they se
      Evidence: the call is one of NOT_FILE_CAPABLE (ToolSearch, TodoWrite, ExitPlanMode, EnterPlanMode, AskUserQuestion), or
      a tool of the PINNED ENGRAM server (prefix mcp__plugin_engram_engram__). Unknown: every other call is file-capable (Read,
      Bash, Grep, Glob, NotebookRead, LS, Task, Agent, WebFetch, Write, Edit, a tool of any other MCP server, any tool this
-     file has never heard of): it opens if it names the evidence file or the run directory, or returns the token from a path
-     outside both channels.
+     file has never heard of): it opens if it names the evidence file or the run directory, or returns the token whose PATH
+     OF ORIGIN is outside both channels (S8) or unknown.
   S6 which ENGRAM tools are the other channel of a folder control. Exempts: a call to the pinned server from being a read of
      the ENGRAM channel. Evidence: the tool is a KNOWN write, that is, declared readOnlyHint=false by the server's @mcp.tool
      annotations (ENGRAM_KNOWN_WRITES: its result is the student's own act, not a read of the graph). Unknown: every other
@@ -90,6 +90,18 @@ EXEMPTION SITES (the full list; read the rule text below for the clauses they se
      other than HOME, a path built by a subshell, a Grep with no `path`, and a Task or Agent
      subagent that reads the memory folder (the subagent's own reads are not in this stream; for the engram control that is a
      note at most, for the folder control the call is not a folder read either).
+
+  S8 the path of origin of a token a call OUTSIDE the folder returned (design owner's conformance ruling, 2026-11-18). A call
+     whose target is not inside the memory folder is not a folder read; it is an opening only if the token came from a path
+     outside both channels. Exempts: such a call from being an opening, only when EVERY occurrence of the token in its
+     result is attributed to a path inside the folder. Evidence: the call is a Bash or a Grep call (the tools whose results
+     print `path:line:text` or `path:text`), the line holding the occurrence starts with an ABSOLUTE path, then `:`, the
+     token lies in the text after that colon, and the path resolves (realpath) inside the folder. A Read's origin is its own
+     absolute `file_path`. An occurrence whose printed path resolves outside the folder is an opening; an occurrence with no
+     such printed path (no path, a relative path, a context-line `path-N-text`, the token only in the path, any other tool)
+     has NO path of origin: it is read as an opening, which errs toward FAIL, with its own message. One mixed result with a
+     single such occurrence opens. The in-folder case prints a note, never a fail. Residual toward PASS: Bash output that
+     merely LOOKS like `<in-folder path>:text` (an echo, a file whose content has that shape) is read as that path.
 
 The rule (design owner's ruling, 2026-11-18, final form). An engram/folder fact PASSES iff
   (a) a read through the INTENDED channel, in a turn after both the resume and the compaction, returned the planted token
@@ -125,7 +137,8 @@ The rule (design owner's ruling, 2026-11-18, final form). An engram/folder fact 
       AFTER it is only noted. (d') An OPENING is a FILE-CAPABLE call (S5) that EITHER names the evidence file or the run
       directory ('named' = its full path or its base name appearing in the call's input, `~` / `$HOME` / `${HOME}`
       expanded and quote-split words joined as in S7) OR returns the token while its target is NOT inside the memory folder
-      (a path outside both channels; nothing is echo-stripped there).
+      and the token's path of origin is outside both channels or not printed (S8; nothing is echo-stripped there). A token
+      such a call returns from a path PRINTED inside the memory folder is neither a folder read nor an opening: a note.
 none: FAIL if the answer contains the engram or folder token, else REVIEW (a human judges abstention).
 Alignment: row k of turns.jsonl must pair with the k-th `result` event on BOTH its `session_id` (the row's, which
 feed4.py logs from the stream's system event, against the result event's own session_id; a row that carries one while
@@ -523,17 +536,48 @@ def excused_files(call, j, created, folder_files):
     return sorted(set(got))
 
 
+ORIGIN_LINE = re.compile(r"^(/[^:\n]*):(.*)$")   # S8: a printed `path:line:text` / `path:text` (absolute path, first colon)
+
+
+def token_origins(c, tok, folder_files):
+    """S8: where the token a call returned CAME FROM, one entry per occurrence-bearing line: "in" (an absolute printed path
+    inside the memory folder), "out" (an absolute printed path outside it), "none" (no known-shape printed path: unknown).
+    A Read is its own origin (its absolute file_path); only Bash and Grep results are read for printed `path:...` lines;
+    every other tool, a relative path and any other line shape is "none" (counts, toward FAIL)."""
+    dirs = folder_dirs(folder_files)
+    inp = c["input"] if isinstance(c["input"], dict) else {}
+    if c["name"] in ("Read", "NotebookRead"):
+        fp = inp.get("file_path") or inp.get("path") or inp.get("notebook_path")
+        if isinstance(fp, str) and os.path.isabs(fp):
+            return ["in" if inside(fp, dirs) else "out"]
+        return ["none"]
+    out = []
+    for line in (c["result"] or "").splitlines():
+        if not has(line, tok):
+            continue
+        m = ORIGIN_LINE.match(line) if c["name"] in ("Bash", "Grep") else None
+        if m and has(m.group(2), tok):
+            out.append("in" if inside(m.group(1), dirs) else "out")
+        else:
+            out.append("none")
+    return out or ["none"]   # the token is in the result but on no line this reads (a multi-line token): unknown
+
+
 def opening(c, tok, folder_files, opener_paths):
     """(d'): 'named' if a FILE-CAPABLE call (default-deny, see NOT_FILE_CAPABLE) names the evidence file / run directory
-    (full path or base name), 'outside' if one returns the token (nothing echo-stripped: S2) from a path outside both channels;
-    None otherwise (an MCP tool, ToolSearch and the like only mention)."""
+    (full path or base name); for a call whose target is NOT inside the memory folder and that returns the token (nothing
+    echo-stripped: S2), by the token's path of origin (S8): 'outside' if any occurrence came from a printed path outside both
+    channels, 'unprinted' if none did but one has no printed path (read as an opening: toward FAIL), 'infolder' if EVERY
+    occurrence came from a printed in-folder path (neither a folder read nor an opening: only a note); None otherwise (an
+    MCP tool, ToolSearch and the like only mention)."""
     if not file_capable(c["name"]):
         return None
     home = home_of(folder_files)
     if any(names_file(c, p, home) for p in opener_paths):
         return "named"
     if not folder_target(c, folder_files) and returns_token(c, tok):
-        return "outside"
+        origins = set(token_origins(c, tok, folder_files))
+        return "outside" if "out" in origins else ("unprinted" if "none" in origins else "infolder")
     return None
 
 
@@ -593,11 +637,18 @@ def judge(ctl, answer, flat, last_compact, folder_files, opener_paths, all_token
                 "only from file(s) the student itself created with a Write after its first intended read")
         notes.append(f"(c') the other channel returned the token {what}, so it does not count against the fact: "
                      + "; ".join(f"{k} ({v})" for k, v in sorted(excused.items())))
-    opens = [(i, k) for i, (_, c) in enumerate(flat) for k in [opening(c, tok, folder_files, opener_paths)] if k]  # (d')
+    kinds = [opening(c, tok, folder_files, opener_paths) for _, c in flat]
+    for i, k in enumerate(kinds):  # S8: a call outside the folder that returned the token from a PRINTED in-folder path
+        if k == "infolder":
+            notes.append(f"(turn {flat[i][0] + 1}, {flat[i][1]['name']}) returned the token from an "
+                         "in-folder path through a call outside the folder: not a folder read, not an opening")
+    opens = [(i, k) for i, k in enumerate(kinds) if k and k != "infolder"]  # (d')
     if opens and first_i is not None:
         i, kind = opens[0]
         ti, c = flat[i]
         what = ("the evidence file or the run directory was opened" if kind == "named" else
+                "a call outside the folder returned the token (no path of origin printed; read as an opening, which errs toward FAIL)"
+                if kind == "unprinted" else
                 "a file-capable call returned the token from a path outside both channels")
         if i <= first_i:
             why.append(f"{what} before the first intended read (turn {ti + 1}, {c['name']})")
