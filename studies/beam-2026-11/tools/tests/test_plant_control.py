@@ -1403,6 +1403,10 @@ ONLY_HOOK = (
     "        os.remove(target)\n"
     "    elif mode == 'same-size':\n"
     "        d = open(target, 'rb').read(); open(target, 'wb').write(b'Z' * len(d))\n"
+    "    elif mode in ('newmem', 'newdir'):\n"
+    "        os.makedirs(target)\n"
+    "    elif mode == 'chmod':\n"
+    "        os.chmod(target, 0o700 if os.path.isdir(target) else 0o600)\n"
     "    return orig(*a, **k)\n"
     "m.leak_hits = wrapped\n"
     "sys.argv = [tool] + sys.argv[4:]\n"
@@ -1420,3 +1424,59 @@ def test_the_folder_unchanged_check_fails_when_a_memory_folder_changes_after_the
     assert r.returncode == 1, r.stdout + r.stderr
     assert f"FAIL  {FOLDER_CHECK}" in r.stdout
     assert "FAIL  cross-absence" not in r.stdout and "FAIL  absent fact" not in r.stdout  # only the new check fired
+
+
+# ---- PR 8 round 2: the "memory folders unchanged" check covers the FULL entry set (files AND directories; type, mode and
+# sha256 for files) and the SET of memory folders found before and after; zero folders is reported as such.
+def hooked(arm_home, tmp_path, mode, target):
+    cmd = [sys.executable, "-c", ONLY_HOOK, TOOL, mode, str(target), "--home", str(arm_home),
+           "--engram-fact", ENGRAM, "--absent-fact", ABSENT, "--evidence-dir", str(tmp_path / "evidence"), "--no-embeddings"]
+    return subprocess.run(cmd, capture_output=True, text=True, env={"PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path)})
+
+
+def only_the_folder_check_failed(r):
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"FAIL  {FOLDER_CHECK}" in r.stdout, r.stdout
+    assert "FAIL  cross-absence" not in r.stdout and "FAIL  absent fact" not in r.stdout and "FAIL  transcript leak" not in r.stdout
+
+
+def test_a_memory_folder_created_during_the_write_fails_the_folder_check(tmp_path, arm_home):
+    new = arm_home / ".claude" / "projects" / "-another-work" / "memory"
+    r = hooked(arm_home, tmp_path, "newmem", new)
+    only_the_folder_check_failed(r)
+    assert "-another-work" in r.stdout          # the new folder is named in the detail
+
+
+def test_a_new_empty_directory_inside_a_memory_folder_fails_the_folder_check(tmp_path, arm_home):
+    r = hooked(arm_home, tmp_path, "newdir", memory_dir(arm_home) / "empty_subdir")
+    only_the_folder_check_failed(r)
+    assert "empty_subdir" in r.stdout
+
+
+def test_a_chmod_of_a_note_fails_the_folder_check(tmp_path, arm_home):
+    (memory_dir(arm_home) / "feedback_old.md").write_text("---\nname: old\n---\nOld body.\n")
+    r = hooked(arm_home, tmp_path, "chmod", memory_dir(arm_home) / "feedback_old.md")
+    only_the_folder_check_failed(r)
+    assert "feedback_old.md" in r.stdout
+
+
+def test_a_chmod_of_a_memory_folder_itself_fails_the_folder_check(tmp_path, arm_home):
+    r = hooked(arm_home, tmp_path, "chmod", memory_dir(arm_home))
+    only_the_folder_check_failed(r)
+
+
+def test_zero_memory_folders_before_and_after_is_reported_as_zero_folders_not_a_vacuous_pass(tmp_path, arm_home):
+    shutil.rmtree(memory_dir(arm_home))
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    line = [ln for ln in r.stdout.splitlines() if FOLDER_CHECK in ln]
+    assert len(line) == 1 and "0 folders, unchanged" in line[0] and "file(s)" not in line[0], r.stdout
+
+
+def test_the_passing_detail_counts_the_folders_and_the_entries(tmp_path, arm_home):
+    (memory_dir(arm_home) / "feedback_old.md").write_text("---\nname: old\n---\nOld body.\n")
+    (memory_dir(arm_home) / "sub").mkdir()
+    r = engram_only(arm_home, tmp_path)
+    line = [ln for ln in r.stdout.splitlines() if FOLDER_CHECK in ln]
+    assert r.returncode == 0 and len(line) == 1 and line[0].startswith("PASS") and "1 folder" in line[0] and "3 entries" in line[0] \
+        and "unchanged" in line[0], r.stdout        # MEMORY.md, feedback_old.md and sub/

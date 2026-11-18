@@ -83,8 +83,11 @@ ENGRAM-only mode (BEAM P1 control 2). --builtin-fact is OPTIONAL; without it the
 (the absent fact stays planted nowhere) and prints `mode: engram-only (no built-in plant)` before any write (with it:
 `mode: both channels`). In this mode it writes NOTHING under any built-in memory folder (no note, no MEMORY.md line), a
 missing MEMORY.md or a missing memory folder is not a refusal, and --question is refused (exit 2: it only qualifies
-the index line). A NEW check, printed as its own line, proves every memory folder found has the same file list and the
-same sha256 per file after the write as before (FAIL exits 1). The checks that need the built-in fact (its read-back,
+the index line). A NEW check, printed as its own line (`memory folders unchanged`, FAIL exits 1), proves that the SET of
+memory folders found is the same after the write as before (a newly created memory folder FAILS) and that every entry of
+every memory folder is the same: files AND directories (an empty new directory FAILS), with type, permission bits (a chmod
+FAILS) and, for a file, its sha256. With no memory folder before and after it reports `0 folders, unchanged`, never a
+vacuous pass line that hides the count. Bound: mtimes and extended attributes are not compared. The checks that need the built-in fact (its read-back,
 "built-in fact in the ENGRAM store", "no fact text in MEMORY.md") print `SKIP (no built-in plant)`, never PASS, and do
 not affect the exit code; every other check, and the post-condition (exit 3), run as in the two-channel mode, whose
 behaviour is unchanged.
@@ -316,16 +319,53 @@ def files_under(root):
             yield os.path.join(r, f)
 
 
+def folder_entry(p):
+    """(kind, permission bits, detail) of one entry, from lstat: a file's detail is its sha256 ('unreadable' if it cannot be
+    read), a symlink's its target; a directory has none."""
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return ("unreadable", 0, "")
+    mode = stat.S_IMODE(st.st_mode)
+    if stat.S_ISLNK(st.st_mode):
+        try:
+            return ("link", mode, os.readlink(p))
+        except OSError:
+            return ("link", mode, "unreadable")
+    if stat.S_ISDIR(st.st_mode):
+        return ("dir", mode, "")
+    if stat.S_ISREG(st.st_mode):
+        try:
+            with open(p, "rb") as f:
+                return ("file", mode, hashlib.sha256(f.read()).hexdigest())
+        except OSError:
+            return ("file", mode, "unreadable")
+    return ("other", mode, "")
+
+
 def folder_state(memdirs):
-    """{path: sha256 or 'unreadable'} of every file under every memory folder: the file list and the bytes."""
+    """{path: (kind, mode, detail)} of every ENTRY of every memory folder: the folder itself and everything under it, files
+    AND directories (an empty subdirectory is an entry), with type, permission bits and, for a file, its sha256."""
     out = {}
     for d in memdirs:
-        for p in files_under(d):
-            try:
-                with open(p, "rb") as f:
-                    out[p] = hashlib.sha256(f.read()).hexdigest()
-            except OSError:
-                out[p] = "unreadable"
+        out[d] = folder_entry(d)
+        for r, dirs, files in os.walk(d):
+            for n in dirs + files:
+                p = os.path.join(r, n)
+                out[p] = folder_entry(p)
+    return out
+
+
+def folder_diff(dirs_before, before, dirs_after, after, home):
+    """What differs between two folder_state snapshots AND between the SETS of memory folders found: a newly created or
+    removed memory folder, an entry added, removed or changed (type, mode, sha256). Empty list = unchanged."""
+    rel = lambda p: os.path.relpath(p, home)  # noqa: E731
+    out = [f"new memory folder {rel(d)}" for d in sorted(set(dirs_after) - set(dirs_before))]
+    out += [f"memory folder gone {rel(d)}" for d in sorted(set(dirs_before) - set(dirs_after))]
+    moved = tuple(set(dirs_after) ^ set(dirs_before))
+    for p in sorted(set(before) | set(after)):
+        if before.get(p) != after.get(p) and not (moved and any(p == m or p.startswith(m + os.sep) for m in moved)):
+            out.append(f"{'added' if p not in before else 'removed' if p not in after else 'changed'} {rel(p)}")
     return out
 
 
@@ -586,7 +626,8 @@ def _main(state):
 
     allowed_arg = {t for t in a.allowed_tables.split(",") if t} if a.allowed_tables else None
     before = table_counts(db)
-    folders_before = None if both else folder_state(mem_roots)
+    dirs_before = None if both else find_memory_dirs(home)   # the SET of memory folders, and every entry of each
+    folders_before = None if both else folder_state(dirs_before)
 
     # ---- plant, built-in channel: one markdown file (not in ENGRAM-only mode)
     if both:
@@ -678,13 +719,16 @@ def _main(state):
     ev_a = [p for p in files_under(ev) if contains(p, a.absent_fact)]
     line("absent fact in neither channel", not mem_a and not found_a and not err_a and not ev_a,
          err_a or ("; ".join(os.path.basename(p) for p in mem_a + ev_a) + (" store" if found_a else "") if (mem_a or ev_a or found_a) else "absent"))
-    # ENGRAM-only mode: no built-in memory folder may have changed (file list and sha256 of every file)
+    # ENGRAM-only mode: no built-in memory folder may have changed: the set of memory folders found, and every entry
+    # (files and directories; type, mode, sha256 of a file) of each
     if not both:
-        folders_after = folder_state(mem_roots)
-        diff = sorted(set(folders_before) ^ set(folders_after) |
-                      {p for p in set(folders_before) & set(folders_after) if folders_before[p] != folders_after[p]})
+        dirs_after = find_memory_dirs(home)
+        folders_after = folder_state(dirs_after)
+        diff = folder_diff(dirs_before, folders_before, dirs_after, folders_after, home)
+        n, m = len(dirs_after), len(folders_after) - len(dirs_after)
         line("memory folders unchanged", not diff,
-             "; ".join(os.path.relpath(p, home) for p in diff) if diff else f"{len(folders_after)} file(s), same bytes")
+             "; ".join(diff) if diff else (f"{n} folder{'' if n == 1 else 's'}, {m} entr{'y' if m == 1 else 'ies'}, unchanged"
+                                           if n else "0 folders, unchanged"))
     # addendum: row counts, before and after (after is read last, so a write by any read above would show)
     after = table_counts(db)
     allowed = allowed_arg if allowed_arg is not None else default_allowed(before, after)
