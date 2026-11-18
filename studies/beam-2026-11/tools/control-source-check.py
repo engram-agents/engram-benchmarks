@@ -17,14 +17,19 @@ Inputs (all written by feed4.py and the planting step):
               an optional per-control field (a control file without it is accepted unchanged); the run directories of all
               controls are watched together, like the evidence files.
 
-The rule (design owner's ruling, 2026-11-18). An engram/folder fact PASSES iff
+The rule (design owner's ruling, 2026-11-18, final form). An engram/folder fact PASSES iff
   (a) a read through the INTENDED channel, in a turn after both the resume and the compaction, returned the planted token
-      in the tool RESULT. engram = a call to one of the pinned ENGRAM read tools (the tool name is exactly
-      mcp__plugin_engram_engram__engram_{query,inspect,get_subgraph,list,list_focused,query_pattern,surface}: the server
-      prefix is pinned, a different mcp server never counts); folder = a `Read` whose file_path equals the folder file
-      after realpath or has its base name. The token must be in THAT call's own result after (b)'s stripping. "After the
-      resume" is the run itself (the events file is the resumed session's); "after the compaction" is every turn after
-      the LAST turn row of kind "compact" (no such row: every turn). Any such turn counts, not only the control's own;
+      in the tool RESULT. The channel is named by its STORAGE. engram = a call to one of the pinned ENGRAM read tools (the
+      tool name is exactly mcp__plugin_engram_engram__engram_{query,inspect,get_subgraph,list,list_focused,query_pattern,
+      surface}: the server prefix is pinned, a different mcp server never counts); folder = ANY call whose TARGET is inside
+      the student's memory folder (the directory of the control's folder_file; realpath compare): a Read/NotebookRead
+      file_path, a Grep/Glob path (or an absolute Glob pattern), a Bash command with an absolute path word that resolves
+      inside it (a grep, cat, ls or stat of it). Bound: a relative path in a Bash command cannot be resolved (no cwd), so
+      it is not seen; a `Read` of a file with a folder_file's base name counts wherever it sits (kept from bfab5a3);
+      Write/Edit and MCP tools have no read target. The token must be in THAT call's own result after (b)'s stripping.
+      "After the resume" is the run itself (the events file is the resumed session's); "after the compaction" is every
+      turn after the LAST turn row of kind "compact" (no such row: every turn). Any such turn counts, not only the
+      control's own;
   (b) a token present only in the student's own query or prompt text never counts. Before the token is searched for in a
       tool result, every string value of that call's own input is removed from the result (each JSON string leaf of the
       tool_use input, plus the leaves of any string that is itself JSON, e.g. `payload_json`, decoded; matched
@@ -32,12 +37,26 @@ The rule (design owner's ruling, 2026-11-18). An engram/folder fact PASSES iff
       token). Bound: a stored value that happens to equal (or contain, as a whole leaf) the student's query string, or a
       one-character leaf, is removed too: a false negative toward FAIL, the safe direction;
   (c) no read through the OTHER channel returned it in that session (all turns, before or after the compaction): for an
-      engram control a `Read` of the folder file returning the token, for a folder control an ENGRAM read returning it
-      (both after stripping). Tool calls of other kinds (Bash grep or cat, Grep, ToolSearch, writes) neither pass nor fail
-      a control under (a)/(c); they are listed;
-  (d) the evidence file or the run directory ('named' = its full path or its base name appearing in a call's input, any
-      tool) opened BEFORE the first read that satisfies (a) FAILs, in stream order across the whole session (the
-      satisfying call itself naming it counts as before: the conservative side); opened AFTER it is only noted.
+      engram control a folder-channel read (as in (a)) returning the token, for a folder control an ENGRAM read returning
+      it (both after stripping). Calls of other kinds (ToolSearch, other MCP tools, writes) neither pass nor fail a
+      control under (a)/(c); they are listed. Exception (c'): the returned item is one the student itself wrote in the
+      session AFTER the first intended read that returned the token. Before an other-channel result is searched, every
+      string the student wrote into that channel after that read, and before that result, is stripped from it: for the
+      ENGRAM channel the JSON string leaves of the input of every ENGRAM call that is not a read (the pinned server);
+      for the folder channel the `content` / `new_string` (also MultiEdit `edits`) of a Write/Edit whose file_path is
+      inside the memory folder. Same mechanics as (b), with two bounds: only the written strings that CARRY the token
+      are stripped (whole, and line by line, since a file read comes back numbered), so a short write cannot over-strip
+      toward PASS; and a stored text the channel transformed (so it no longer matches the written string) is not
+      stripped, a false negative toward FAIL. Writes BEFORE the first intended read are never stripped, an other-channel
+      return before it is never excused, and a pre-existing item holding the token still FAILs. When the exception is
+      what prevented a FAIL, a `note:` names the write (tool, turn, the ENGRAM node id from its result if one is there,
+      or the file path). A write through Bash (`echo > file`) is not recognized as a write;
+  (d) the evidence file or the run directory opened BEFORE the first read that satisfies (a) FAILs, in stream order
+      across the whole session (the satisfying call itself naming it counts as before: the conservative side); opened
+      AFTER it is only noted. (d') An OPENING is a FILE-CAPABLE call (Read, Bash, Grep, Glob, NotebookRead, LS; never an
+      MCP tool, never ToolSearch) that EITHER names the evidence file or the run directory ('named' = its full path or its
+      base name appearing in the call's input) OR returns the token (after (b)'s stripping) while its target is NOT inside
+      the memory folder (a path outside both channels). A path in an MCP tool's arguments or results is a mention.
 none: FAIL if the answer contains the engram or folder token, else REVIEW (a human judges abstention).
 Alignment: row k of turns.jsonl must pair with the k-th `result` event on BOTH its `session_id` (the row's, which
 feed4.py logs from the stream's system event, against the result event's own session_id; a row that carries one while
@@ -45,7 +64,8 @@ its result event carries none cannot be paired and FAILs) AND its `result` text 
 turn's last assistant text, which is what feed4.py logs then); a mismatch on either FAILs the whole check. Bound:
 two turns of the SAME session with IDENTICAL result text can still swap undetected (neither field tells them apart);
 the check also relies on the stream order, since turn index k is the only other key.
-Per control it prints `C: PASS|FAIL [channel] reason`, the control turn's tool calls, `first intended read: <tool> <input>`,
+Per control it prints `C: PASS|FAIL [channel] reason`, the control turn's tool calls, `first intended read: <tool> <input>
+(turn, event: the 1-based position of its tool_use in events.jsonl)`,
 and `answer (reported, decides nothing): <first 300 chars>`. Exit 0 if nothing FAILs, else 1. A match is a
 case-insensitive substring.
 usage: control-source-check.py --events E --turns T --controls C
@@ -85,13 +105,13 @@ def segment(events):
     """Split the events into turns: each turn ends with its `result` event. Returns [(calls, answer, session_id of the result event)]; each call is
     {name, input, result}. A trailing run of events with no result event is returned as an unfinished extra turn."""
     turns, calls, by_id, last_text = [], [], {}, ""
-    for ev in events:
+    for n, ev in enumerate(events):
         t = ev.get("type")
         content = (ev.get("message") or {}).get("content") if isinstance(ev.get("message"), dict) else None
         if t == "assistant" and isinstance(content, list):
             for c in content:
                 if isinstance(c, dict) and c.get("type") == "tool_use":
-                    call = {"name": c.get("name", ""), "input": c.get("input"), "result": ""}
+                    call = {"name": c.get("name", ""), "input": c.get("input"), "result": "", "ev": n}
                     by_id[c.get("id")] = call; calls.append(call)
                 elif isinstance(c, dict) and c.get("type") == "text":
                     last_text = c.get("text", "")
@@ -133,14 +153,11 @@ def string_leaves(x, out):
             string_leaves(v, out)
 
 
-def stripped_result(call):
-    """The call's tool_result text with the call's own input echoed out (rule (b)): each string leaf of the input, raw and
-    in its JSON-escaped spelling, longest first, case-insensitively, replaced by a NUL."""
-    text = call["result"] or ""
-    leaves = []
-    string_leaves(call["input"], leaves)
+def strip_strings(text, strings):
+    """Remove every string in `strings` from `text`: raw and in its JSON-escaped spelling, longest first, case-insensitively,
+    each replaced by a NUL (so neighbours never splice into a token)."""
     forms = set()
-    for v in leaves:
+    for v in strings:
         if v:
             forms.add(v)
             forms.add(json.dumps(v)[1:-1])
@@ -150,18 +167,109 @@ def stripped_result(call):
     return text
 
 
-def is_folder_read(call, folder_files):
-    """True if this call is a `Read` of a folder file (realpath equality or base name). Only `Read` is the folder channel."""
-    if call["name"] != "Read":
-        return False
+def stripped_result(call, extra=()):
+    """The call's tool_result text with the call's own input echoed out (rule (b)): each string leaf of the input. `extra`
+    adds strings the student wrote elsewhere (rule (c'))."""
+    leaves = []
+    string_leaves(call["input"], leaves)
+    return strip_strings(call["result"] or "", leaves + list(extra))
+
+
+# ---- the folder channel is named by STORAGE (rule (a)): any call whose target is inside the memory folder
+FILE_CAPABLE = frozenset({"Read", "Bash", "Grep", "Glob", "NotebookRead", "LS"})  # (d'): calls that can return file content
+FOLDER_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
+BASH_ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`;|&<>()=:,]*")   # an absolute path word of a shell command
+
+
+def folder_dirs(folder_files):
+    return [os.path.realpath(os.path.dirname(p)) for p in folder_files]
+
+
+def inside(path, dirs):
+    rp = os.path.realpath(path)
+    return any(rp == d or rp.startswith(d + os.sep) for d in dirs)
+
+
+def folder_target(call, folder_files):
+    """True if the call's TARGET is inside the memory folder (the directory of a control's folder_file; realpath compare):
+    Read/NotebookRead file_path; Grep/Glob path (a Glob pattern that is itself absolute too); a Bash command with an
+    absolute path word that resolves inside it. A `Read` of a file whose base name is a folder_file's counts as well (the
+    bfab5a3 matching). Write/Edit and MCP tools have no read target."""
     inp = call["input"] if isinstance(call["input"], dict) else {}
-    got = inp.get("file_path") or inp.get("path") or ""
-    return any(got and (os.path.realpath(got) == os.path.realpath(p) or os.path.basename(got) == os.path.basename(p))
-               for p in folder_files)
+    dirs = folder_dirs(folder_files)
+    n = call["name"]
+    if n in ("Read", "NotebookRead"):
+        got = inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or ""
+        return bool(got) and (inside(got, dirs) or (n == "Read" and any(os.path.basename(got) == os.path.basename(p)
+                                                                         for p in folder_files)))
+    if n in ("Grep", "Glob"):
+        cands = [inp.get("path")] + ([inp.get("pattern")] if n == "Glob" and str(inp.get("pattern", "")).startswith("/") else [])
+        return any(isinstance(c, str) and c and inside(c, dirs) for c in cands)
+    if n == "Bash":
+        cmd = inp.get("command")
+        return isinstance(cmd, str) and any(inside(m, dirs) for m in BASH_ABS_PATH.findall(cmd))
+    return False
 
 
 def intended(ch, call, folder_files):
-    return bool(ENGRAM_READ.match(call["name"])) if ch == "engram" else is_folder_read(call, folder_files)
+    return bool(ENGRAM_READ.match(call["name"])) if ch == "engram" else folder_target(call, folder_files)
+
+
+def other_channel(ch, call, folder_files):
+    return folder_target(call, folder_files) if ch == "engram" else bool(ENGRAM_READ.match(call["name"]))
+
+
+# ---- (c') what the student itself wrote into the OTHER channel
+NODE_ID = re.compile(r"\b[a-z]{2}_\d{3,}\b")
+
+
+def own_write_strings(ch, call, folder_files):
+    """The strings the student wrote INTO the other channel through this call, or None if the call is not such a write.
+    Other = folder (engram control): `content` / `new_string` of a Write/Edit/MultiEdit whose file_path is inside the memory
+    folder. Other = ENGRAM (folder control): the JSON string leaves of the input of an ENGRAM call that is not a read."""
+    if ch == "engram":
+        inp = call["input"] if isinstance(call["input"], dict) else {}
+        fp = inp.get("file_path")
+        if call["name"] not in FOLDER_WRITE_TOOLS or not isinstance(fp, str) or not inside(fp, folder_dirs(folder_files)):
+            return None
+        out = [inp.get("content"), inp.get("new_string")] + [e.get("new_string") for e in inp.get("edits") or [] if isinstance(e, dict)]
+        return [x for x in out if isinstance(x, str)]
+    if not ENGRAM_ANY.match(call["name"]) or ENGRAM_READ.match(call["name"]):
+        return None
+    out = []
+    string_leaves(call["input"], out)
+    return out
+
+
+def token_carriers(strings, tok):
+    """Only the written strings that carry the token (whole, and each of their lines: a file read comes back numbered line by
+    line) are stripped: a string without the token cannot be what carried it, and stripping a short one would over-strip
+    toward PASS."""
+    out = []
+    for x in strings:
+        if has(x, tok):
+            out.append(x)
+            out.extend(ln.strip() for ln in x.splitlines() if has(ln, tok))
+    return out
+
+
+def describe_write(ch, c, ti):
+    if ch == "engram":
+        return f"{c['name']} {c['input'].get('file_path')} (turn {ti + 1})"
+    m = NODE_ID.search(c["result"] or "")
+    return f"{c['name']} (turn {ti + 1}" + (f", node {m.group(0)})" if m else ")")
+
+
+def opening(c, tok, folder_files, opener_paths):
+    """(d'): 'named' if a FILE-CAPABLE call targets the evidence file / run directory (full path or base name), 'outside' if
+    one returns the token from a path outside both channels; None otherwise (an MCP tool or ToolSearch only mentions)."""
+    if c["name"] not in FILE_CAPABLE:
+        return None
+    if any(names_file(c, p) for p in opener_paths):
+        return "named"
+    if not folder_target(c, folder_files) and has(stripped_result(c), tok):
+        return "outside"
+    return None
 
 
 def judge(ctl, answer, flat, last_compact, folder_files, opener_paths, all_tokens):
@@ -183,21 +291,44 @@ def judge(ctl, answer, flat, last_compact, folder_files, opener_paths, all_token
             why.append("no ENGRAM read tool call occurred in a turn after the compaction" if not in_scope else
                        "no ENGRAM read tool call's own result contained the token (the student's own query echo stripped)")
         else:
-            why.append("the folder file was not read (no Read of it in a turn after the compaction)" if not in_scope else
-                       "no Read of the folder file returned the token (the student's own input echo stripped)")
-    if ch == "engram":  # (c)
-        if [c for _, c in flat if is_folder_read(c, folder_files) and has(stripped_result(c), tok)]:
-            why.append("a Read of the folder file returned the token in this session (the other channel)")
-    elif [c for _, c in flat if ENGRAM_READ.match(c["name"]) and has(stripped_result(c), tok)]:
-        why.append("an ENGRAM read returned the token in this session (the other channel)")
-    opens = [i for i, (_, c) in enumerate(flat) if any(names_file(c, p) for p in opener_paths)]  # (d)
-    if opens and first_i is not None:
-        ti, c = flat[opens[0]]
-        if opens[0] <= first_i:
-            why.append(f"the evidence file or the run directory was opened before the first intended read (turn {ti + 1}, {c['name']})")
+            why.append("the folder file was not read (no call into the memory folder in a turn after the compaction)" if not in_scope else
+                       "the folder file was not read through a call whose result held the token (the student's own input echo stripped)")
+    # (c) and its exception (c'): writes the student made into the other channel AFTER its first intended read are stripped
+    # from the other-channel results that come after them; anything else the other channel returned fails the fact
+    writes = []
+    if first_i is not None:
+        for i, (ti, c) in enumerate(flat):
+            ss = own_write_strings(ch, c, folder_files) if i > first_i else None
+            car = token_carriers(ss, tok) if ss else []
+            if car:
+                writes.append((i, ti, c, car))
+    returned, excused = False, []
+    for j, (_, c) in enumerate(flat):
+        if not other_channel(ch, c, folder_files) or not has(stripped_result(c), tok):
+            continue
+        prior = [w for w in writes if w[0] < j]
+        if prior and not has(stripped_result(c, [x for w in prior for x in w[3]]), tok):
+            excused.extend(w for w in prior if w not in excused and
+                           strip_strings(stripped_result(c), w[3]) != stripped_result(c))
         else:
-            notes.append(f"the evidence file or the run directory was opened after the first intended read "
-                         f"(turn {ti + 1}, {c['name']}): does not void the pass")
+            returned = True
+    if returned:
+        why.append("a call into the memory folder (Read, Grep, Glob or a shell command) returned the token in this session (the other channel)"
+                   if ch == "engram" else "an ENGRAM read returned the token in this session (the other channel)")
+    if excused and not returned:
+        notes.append("(c') the other channel returned the token only inside text the student itself wrote there after its first "
+                     "intended read, so it does not count against the fact; the write(s): "
+                     + "; ".join(describe_write(ch, w[2], w[1]) for w in excused))
+    opens = [(i, k) for i, (_, c) in enumerate(flat) for k in [opening(c, tok, folder_files, opener_paths)] if k]  # (d')
+    if opens and first_i is not None:
+        i, kind = opens[0]
+        ti, c = flat[i]
+        what = ("the evidence file or the run directory was opened" if kind == "named" else
+                "a file-capable call returned the token from a path outside both channels")
+        if i <= first_i:
+            why.append(f"{what} before the first intended read (turn {ti + 1}, {c['name']})")
+        else:
+            notes.append(f"{what} after the first intended read (turn {ti + 1}, {c['name']}): does not void the pass")
     return ("FAIL" if why else "PASS"), why, notes, (flat[first_i] if first_i is not None else None)
 
 
@@ -263,7 +394,7 @@ def main():
         if c["channel"] == "none":
             print(f"  ANSWER FOR HUMAN JUDGMENT: {answer!r}")
         else:
-            print("  first intended read: " + (f"{first[1]['name']} {json.dumps(first[1]['input'])[:160]} (turn {first[0] + 1})"
+            print("  first intended read: " + (f"{first[1]['name']} {json.dumps(first[1]['input'])[:160]} (turn {first[0] + 1}, event {first[1]['ev'] + 1})"
                                               if first else "none"))
             print("  answer (reported, decides nothing): " + answer[:300].replace("\n", " "))
             for n in notes:
@@ -272,9 +403,11 @@ def main():
             bad.append(c["id"])
     others = [(ti, c) for ti, c in flat if not ENGRAM_ANY.match(c["name"]) and c["name"] != "Read"]
     if others:
-        print("other-kind tool calls in the session (neither pass nor fail a control under (a)/(c)):")
+        print("other-kind tool calls in the session (listed for the human; one marked [folder channel] targets the memory "
+              "folder and is a folder read, the rest neither pass nor fail a control):")
         for ti, c in others[:40]:
-            print(f"  turn {ti + 1}: {c['name']} {json.dumps(c['input'])[:100]}")
+            mark = " [folder channel]" if folder_target(c, folder_files) else ""
+            print(f"  turn {ti + 1}: {c['name']}{mark} {json.dumps(c['input'])[:100]}")
         if len(others) > 40:
             print(f"  ... and {len(others) - 40} more")
     print("RESULT: " + ("no control failed (a human still judges the 'none' answer)" if not bad else f"FAIL {bad}"))

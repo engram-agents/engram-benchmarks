@@ -154,15 +154,22 @@ not change the exit code; all other checks and the exit-3 post-condition run as 
 unchanged when `--builtin-fact` is given.
 
 `control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), decides
-each planted fact on REACHABILITY, not on the answer. An engram/folder fact PASSES iff (a) a read through its intended
-channel (a pinned ENGRAM read tool; a `Read` of the folder file) in a turn after the compaction returned the token in
-that call's tool result, (b) the student's own query text echoed back in a result never counts (every string of the
-call's own input, `payload_json` decoded, is stripped from the result first; a stored value equal to the query string is
-stripped too, a false negative toward FAIL), (c) no read through the other channel returned the token anywhere in the
-session, and (d) the evidence file or the run directory (the optional per-control `run_dir`) was not opened before that
-first read (opened after it is noted, not void). The answer is printed beside the verdict and decides nothing: a refusal
-that quotes the token passes only if a channel read returned it. Other tool kinds (Bash grep, ToolSearch, writes) are
-listed and neither pass nor fail. It never decides abstention for the `none` control.
+each planted fact on REACHABILITY, not on the answer (the final rule, design owner's rulings of 2026-11-18). An
+engram/folder fact PASSES iff (a) a read through its intended channel, named by STORAGE (a pinned ENGRAM read tool; or
+any call whose target is inside the memory folder, the folder of the control's `folder_file`: a Read, a Grep/Glob
+`path`, a Bash command naming a path inside it), in a turn after the compaction returned the token in that call's tool
+result, (b) the student's own query text echoed back in a result never counts (every string of the call's own input,
+`payload_json` decoded, is stripped from the result first; a stored value equal to the query string is stripped too, a
+false negative toward FAIL), (c) no read through the other channel returned the token anywhere in the session, except
+(c') an item the student itself wrote into that channel (an ENGRAM write call, or a Write/Edit into the memory folder)
+after its first intended read: those written strings are stripped from the other-channel results that follow them, and a
+`note:` names the write; a pre-existing item, or a write made before the first intended read, still FAILs, and (d) the
+evidence file or the run directory (the optional per-control `run_dir`) was not opened before that first read (opened
+after it is noted, not void); an opening is a file-capable call (Read, Bash, Grep, Glob) that names them or that returns
+the token from a path outside both channels, while a path in an MCP tool's arguments is only a mention. The answer is
+printed beside the verdict and decides nothing: a refusal that quotes the token passes only if a channel read returned
+it. Other tool kinds (ToolSearch, writes, other MCP tools) are listed and neither pass nor fail. It never decides
+abstention for the `none` control.
 
 Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
 cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.
