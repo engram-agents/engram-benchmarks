@@ -17,7 +17,7 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 ## 2. Hypotheses (stated before any scored run)
 
 - H1 (primary): arm 2's OFFICIAL overall score on the scored conversations of the 100K split is higher
-  than arm 1's.
+  than arm 1's (scored by the published judge of section 10).
 - H0: no difference, or arm 1 higher. A null or a loss is a publishable result.
 - Arm 3 is reported descriptively; no hypothesis is stated for it.
 
@@ -170,12 +170,16 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
-- Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper and its released code
+- Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper (published at ICLR 2026,
+  per the paper's own header) and its released code
   clearly contradict each other (the paper states something at a location we can cite, and the code does
   otherwise), this study follows the paper. Where the paper is silent or ambiguous, or two places in the paper
   disagree, the released code stands, and a case of the last kind is listed as unresolved. Every application of
   this rule is listed here with its paper location and its code location, and is declared before the first
   scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet).
+  Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
+  judge's score as a number (at b2da22e every `int()` conversion of the earlier code, upstream issue 8, became
+  `float()`), so the paper and the current code agree.
 - Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol,
   the paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H),
   whose inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the
@@ -187,13 +191,15 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   are one text. (How many differences one counts depends on the diff unit, so no count is given; the comparison
   is repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored under the
   benchmark's published judge protocol.
-- Why not the released code: no judge call in the released evaluation code fills the question in. At
+- Why not the released code: no judge call in the released evaluation code (the ten `evaluate_*` functions in
+  `src/evaluation/compute_metrics.py`, which format `unified_llm_judge_base_prompt` from `src/prompts.py`) fills
+  the question in. At
   3e12035 the template asks for it, so the judge saw the literal string `<question>`; at
   b2da22eac88bb0874c64665f13457eb99835774a (the current main) the question line is removed, while the
   instruction to score 0.0 when the response does not address the question remains (reported upstream as
-  issue 15). The paper gives no reason for a judge without the question; that nuggets are "atomic,
-  self-contained" is the only passage that could bear on it, and its own Listing 20 shows the question to the
-  judge.
+  issue 15). The paper gives no reason for a judge without the question. The one passage that could bear on it
+  (nuggets are "atomic, self-contained") describes how rubric items are written, not what the judge is shown, so
+  it is not a second place in the paper that disagrees with Listing 20, which shows the question to the judge.
 - Not known: which code produced the paper's results table. "Official" here does not mean that our scores
   reproduce the paper's numbers.
 - Known-answer check (the project lead's test), committed and run before any scored item is judged: a small
@@ -230,8 +236,8 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 11. Primary analysis
 
-- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL. The OFFICIAL score is the
-  central result (Lei, 2026-11-17).
+- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the published judge of
+  section 10. The OFFICIAL score is the central result (Lei, 2026-11-17).
 - Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
   in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
   details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
