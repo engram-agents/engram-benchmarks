@@ -117,8 +117,9 @@ sys.exit(int(os.environ.get("STUB_RC", "0")))
 
 STUB_PLANT = r'''
 import json, os, sys
+# orig_argv[0] = the interpreter path the launcher passed; sys.executable is the child's own resolution (differs through symlinks)
 with open(os.environ["STUB_PLANT_LOG"], "w") as f:
-    f.write(json.dumps({"argv": sys.argv[1:], "exe": sys.executable, "prot": os.environ.get("P1_PROTECTED")}))
+    f.write(json.dumps({"argv": sys.argv[1:], "exe": getattr(sys, "orig_argv", [sys.executable])[0], "prot": os.environ.get("P1_PROTECTED")}))
 sys.exit(int(os.environ.get("STUB_PLANT_RC", "0")))
 '''
 
