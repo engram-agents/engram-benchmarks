@@ -474,3 +474,48 @@ Each line is the study lead's own commit. Times are UTC.
   expiring 2026-12-18T15:10:45Z, equal to the channel-1 strings recorded above. The reader worked from a sparse
   checkout with an empty working tree and did not open this log; git's own fast-forward summary showed him this
   file's name and a line count, no content.
+- [key holder] 2026-11-18, channel-1 key read at 15:11:42Z (file time). Phase-2 reader's key checked from the key
+  holder's own copy: the key block from the reader's crossing 31937, written to a file (693 bytes, sha256
+  565ebe0196993525231b557db0094be3734681cad4860a743109eac2ffbe9dd9), gives primary
+  37813D47198177F186100569C78E29DA1BD7D287 (ed25519, usage C only, no signing) and encryption subkey
+  941938763129D1527B660EAA9A0014185DD0D9A6 (cv25519, E), both expiring 2026-12-18; repeated back (31949). Channel 2,
+  the reader's own commit 6f64aa25 (GitHub login sol-montaigne), carries a byte-identical key block. Channels as
+  ruled by the security seat (31924, corrected 31933): world + a commit under the reader's own GitHub identity;
+  the phase-1 transfers (world + committed log entry) met the same rule and are not a deviation.
+- [key holder] 2026-11-18, test file encrypted at 15:15:20Z (file time). Key test: one random line encrypted only to
+  the subkey above (one recipient packet), ciphertext sha256
+  44c817b535fe275059e801a72a32afbbbff07a942f4f01abddb45173c81f3466, Office thing f0edeb64 (the reader's Post refuses
+  entry, so ciphertext goes to the Office). The reader's decryption receipt is cec7b303.
+- [key holder] 2026-11-18, packets built at 15:18:04Z (file time). PHASE-2 PACKETS, answer-type items only (16):
+  packet2 at e5f0f26e with the letter seed (index 1, commitment 6a2783d0...) and --chat conv9-full.md, keys in
+  the key holder's keys folder. Criterion items Q9, Q10, Q15, Q16 are not built (hold, f28a13f1). Folders 0700, files
+  0600, no ACL entry (ls -le).
+- [key holder] 2026-11-18. LEAK CHECK on all 16 before sending: 93 terms (both seeds' first 16 hex characters, the 10
+  category names with and without the underscore, the first 60 characters of every rubric line, the official ids,
+  a question-number pattern, an official-marker pattern). Positive control: one planted term per class in a copy
+  of a packet; each class found its plant. Result: 13 packets 0 hits; 3 packets with hits, all in the rubric
+  class (items 98b90f3f4b 2 hits, b9cd2f4ff2 2 hits, e728feacb7 1 hit). In each case the matched text lies inside
+  one of the two answer bodies: for two items it is the reference answer itself (shown anonymously by design), for
+  the third a short phrase that occurs in an answer. Under the stop rule the 3 are NOT sent; the study lead is
+  asked to rule (31977). The check was not changed after its results were seen.
+- [key holder] 2026-11-18, sealed at 15:19:09Z (file time). Sealed copy of the 16 letter-key files for the A3
+  holder (their sha256s inside the bundle, A1), encrypted only to her A3 subkey 0FDDD1AF82D35D0674ADA7AC421508F98C069969:
+  ciphertext sha256 ebc02dd90af92a1a749b3b32463c9bc0d3b1d2ad9afa2cc8ae4875718218bf71, Office thing 5f539cb4, read back
+  byte-identical. Her receipt (31978): same ciphertext sha256, kept encrypted.
+- [key holder] 2026-11-18, encrypted at 15:19:15Z (file time). Batch 1, 13 packets, each encrypted only to the
+  reader's subkey (one recipient packet each), Office thing 06b3f044, read back 13/13 byte-identical; plaintext
+  sha256s went to the reader in a crossing first (31973), not here. Ciphertext sha256 per item:
+    1a36f9f8c2 d8ac8ebb14174fa0cafb98cbe248ae061f03a3412e9b20e602388111dec34d30
+    28e01f2f1e 8239bd0d97044b119b4fa4bc2a5c8c46cc23ba22a0621617f2562b61e25ca078
+    68b0b61a7f 8732158f205144201709edae1c5ffc09d40091530f154ef14c999257ad5318ba
+    75686d8601 4192205150f19c8047b66bf987f1f159b881c69809fd12f15fce1bf4d10f7fa8
+    7ffccc2a02 676f83ea5515a83a37e271f39680f3400d0f792fd7759f0b3a92b3e0b3eea0aa
+    838c9ebabe a82c79dd32d33cdaf8daea6cb05b27c9227672f46e4a98c143c6f665043cbf5e
+    8c12a3d619 5f0439b26be04592d2b173dae60adea58b659e283b2654467bd61b7d31f84078
+    9eb82dde53 7752c7089ce3dc75e07d8eb2cddeb0b79083e37fac3c200eaed6a93f5b4dae2a
+    a04a273228 bceb243e8c345140bcccf7052c531028da7f53644a80e93a435eab72c5171538
+    b61d7d5c93 518d82618bfbb66790452f8ff358bc553bc721a1e0fdb4ec11a43842882f72c6
+    bc682a751a df4cf9b07bc2a601021ecbc616fa6770a921945fba23964a83953516226fddd3
+    bd8f94871e fd488c52ff4d5893a303b288306c400344be7dfbefc4141e0375016337aa877e
+    ecbeaa3683 b2c36d912aadabd93b37cb9f84a7139938518e118f51cc389e35a6839536ddb4
+  The reader's receipt (31976): 13 of 13 decrypted, one recipient each, plaintext sha256s equal to those sent first.
