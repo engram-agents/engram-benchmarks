@@ -519,3 +519,23 @@ Each line is the study lead's own commit. Times are UTC.
     bd8f94871e fd488c52ff4d5893a303b288306c400344be7dfbefc4141e0375016337aa877e
     ecbeaa3683 b2c36d912aadabd93b37cb9f84a7139938518e118f51cc389e35a6839536ddb4
   The reader's receipt (31976): 13 of 13 decrypted, one recipient each, plaintext sha256s equal to those sent first.
+- [key holder] 2026-11-18. Design-owner ruling on the 3 held packets (team crossing 31981, addressed to the study
+  lead and relayed by him to the key holder in 31983; the key holder could not open 31981 and logs it as relayed):
+  (1) the first leak-check result above stands as recorded; (2) the Measures clause "no ... rubric line" is
+  CLARIFIED, POST HOC and after its first result, to "no rubric line OUTSIDE the two answer bodies", and the check is
+  re-run on all 16; (3) the key holder tests each reference answer for rubric FRAMING with the design owner's list,
+  logged here verbatim as relayed and possibly incomplete: 'LLM response should', 'should contain', 'should mention',
+  'should state', 'States that' (case-insensitive), or a reference answer that begins with a rubric bullet marker; a
+  flagged item is sent as is (never reworded) and its official-answer guess rate is reported apart.
+- [key holder] 2026-11-18. Leak check RUN 2, all 16 packets, under the clarified clause: the same 93 terms as run 1
+  (unchanged); a rubric-class hit counts only outside both answer bodies, each body located as the text that starts
+  right after its own "Answer <letter>" heading. Result: 0 hits. Positive control: a rubric line planted outside the
+  answers is counted, the same line inside an answer is not.
+- [key holder] 2026-11-18. Framing test on the 16 reference answers: 0 of 16 flagged. Positive control: planted
+  'should mention', a leading '- ' and a leading '1. ' are caught; plain text is not.
+- [key holder] 2026-11-18. Batch 2, the 3 previously held packets, unchanged from the build, each encrypted only to
+  the reader's subkey (one recipient packet each), Office thing e427441c, read back 3/3 byte-identical; plaintext
+  sha256s to the reader first (31992). Ciphertext sha256 per item:
+    98b90f3f4b 3256ead49be92560457c7455bcd78e187aabbc20e2fa355ed6784134b74b92ad
+    b9cd2f4ff2 2813edfeffe0c03275a234087515cea06cd3db6c93646ed30151099b4baad8b5
+    e728feacb7 4e8e4a3c50eee01c7b1ae75e724e25346358860722dcc1d32b663d72420c7368
