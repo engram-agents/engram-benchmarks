@@ -1446,6 +1446,60 @@ biases nothing. Therefore:
 3. The per-category wrapper fix is designed after P1 answering, for the Q16 re-ask and the scored study, and gets its own
    pre-log entry.
 
+## P1 answering speed pilot, k = 3 against k = 1: pre-log (logged 2026-11-18, after the freeze, before any answer exists)
+
+**Parent state.** The key-fact freeze, commit 2c5d903ae4ee78c103bbc12bbd835db54db34fea, confirmed by the design owner
+from his own fresh clone (Office crossing 31785). This entry is committed after it; no P1 answer exists at this commit.
+
+**What it is.** The P1 answering test of section (c) above, run as the day's speed pilot on the design owner's ruling
+(Office crossing 31769): a tuning-side pilot, not a scored run. It answers the **K = 3** end state (setup 7b73fe7b) and
+the **k = 1** end state (setup d18b5d26). The K = 5 end state (setup 8262a444) is not answered in this pilot.
+
+**Pinned harness.** PR 8's head, commit `b057eb04de96e5414bcab0930daba65f82467984` (branch study/p1-answering-harness,
+approved by two reviewers; its merge still waits the project lead's OK). Every harness tool runs from a checkout of that
+commit, and each session log prints the checkout's commit id first. The launcher that resumes a session on a disposable
+copy of an end state is published with its sha256, as its own setup component, before the first control session.
+
+**Question set.** The frozen list: 75 counting questions (F32 excluded) and 9 abstention items, 84 items, in one JSON
+question file (`{"id", "question"}`), whose sha256 is posted before the first real answering call. ONE order, drawn once
+with seed `20261118` (Python `random.Random(20261118).shuffle` on the 84 ids sorted by id), used for both end states;
+the order and the file hash are committed before the first real answering call.
+
+**Before any real answering, in this order, each output committed:**
+1. All three preserved end states (K = 3, K = 5, k = 1) hashed: the store content hash over every non-virtual table and
+   the auto-memory files. The same hashes are taken again after the last session and printed beside these.
+2. Control session 1, the two-channel control, on a disposable copy of the K = 3 end state: one fact only in the
+   built-in folder, one only in ENGRAM, one planted nowhere (invented tokens), asked after the resume and the
+   compaction. A planted fact passes only with its SOURCE shown (`control-source-check.py`: the answering turn read the
+   intended channel, not the other channel's copy or the evidence file); the nowhere fact passes on an abstention,
+   judged by the study lead and reported verbatim.
+3. Control session 2, the ENGRAM half only (ENGRAM fact and nowhere fact, no folder plant), on a disposable copy of the
+   k = 1 end state, because k = 1 made no write to the built-in folder and the K = 3 run did.
+4. `answer-delivery-check.py` on every session, controls and real ones; a real session that fails it is not graded.
+
+**The rule.** Unchanged from the entry above and its 2026-11-16 correction, at the frozen count: the exchange is the
+unit (38 exchanges hold a counting question), cluster bootstrap 1,000 resamples at the 4th and 96th percentiles;
+ACCEPTED / WORSE / INCONCLUSIVE; margin -10 points; last-position guard at -20 points on 26 questions in 14 exchanges at
+k = 3; validity floor 50 percent at k = 1; a missing answer counts as incorrect; the with-and-without F37 and F48 line
+as the sensitivity read. Grading by the published judge (the question shown) as primary and the released judge as the
+sensitivity column, blind to k, per the ruling in PR 9.
+
+**The note floor, reported, not deciding.** Per the entry "Speed pilot P1 decided by what the student can answer"
+(2026-11-16), P1 is decided by answers, not by an ENGRAM note count; K = 3's "not kept under the rule as logged"
+(2.31 notes per exchange against the 2.39 floor) is printed beside the verdict and decides nothing.
+
+**Reported beside the verdict.** Section (f)'s per-fact channel table for each end state, and the sentence that k = 1
+made no write to the built-in folder while K = 3 did, so the end states differ in the channels in use, not only in k. A
+k = 3 that matches k = 1 mainly on folder-only facts is reported as that. Speed: K = 3 86.5 s and k = 1 259.4 s per
+exchange as measured; a kept k = 3 is recommended only if ACCEPTED and the speed bar (at least 25 percent faster) holds.
+
+**Stop rules.** Nothing in this pilot names ENGRAM to the student. Conversation 9 stays out of the scored set. The GPU
+is used in the daytime; one heavy job at a time on the host. No preserved end state is opened except by copying it.
+
+**Bounds.** One run per k; run-to-run variation is not separated from k; INCONCLUSIVE is not evidence of a loss; the
+controls show both channels are reachable after the resume and the compaction, not that the student uses them equally
+on real questions.
+
 ## Running now
 
 - The k = 1 re-run (setup `d18b5d26…`) ended 2026-11-17T00:13:30Z (exit 0); its end state is preserved and becomes the
@@ -1460,7 +1514,10 @@ biases nothing. Therefore:
   questions in 6 exchanges at k = 5. The 9 abstention items are asked and reported apart. **One known nit, kept
   as is under the freeze fallback (Office crossing 31177):** A05 asks "Which city" but its gold says "no
   information about which Canadian city", a qualifier the question does not name; A05 is an abstention item,
-  outside the 75, so it moves no counting score.
+  outside the 75, so it moves no counting score. The design owner confirmed the freeze from his own fresh clone
+  (Office crossing 31785).
+- The k = 3 against k = 1 answering pilot is pre-logged above; next is the session launcher, then the hashes and the two
+  control sessions, before any real answering call.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
