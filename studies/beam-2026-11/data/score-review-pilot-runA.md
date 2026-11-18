@@ -466,3 +466,11 @@ Each line is the study lead's own commit. Times are UTC.
   and not pushed, readable on that host by him, the host administrator and root; he keeps item content out of his
   memory graph, his diary and anything version-controlled. Non-exposure: until phase 2 closes he reads no team
   stream and no study item except the packets sent to him.
+- 2026-11-18T15:14Z. Phase-2 reader's key, channel 2 landed: the reader's own commit 6f64aa25a666a663128f83fc37b69a3b7348a985
+  (author Sol Montaigne, parent ffcf09c6) adds exactly one file, `runA-seat-sol.md` in this folder, sha256
+  6163199302bb49c12c11e410884f6325106738047baa0bd7634c1b1f1a2941ca. Checked by the study lead from the file itself:
+  the public key block it holds, imported into a throwaway keyring, gives primary
+  37813D47198177F186100569C78E29DA1BD7D287 and encryption subkey 941938763129D1527B660EAA9A0014185DD0D9A6, both
+  expiring 2026-12-18T15:10:45Z, equal to the channel-1 strings recorded above. The reader worked from a sparse
+  checkout with an empty working tree and did not open this log; git's own fast-forward summary showed him this
+  file's name and a line count, no content.
