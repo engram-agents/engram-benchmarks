@@ -227,6 +227,15 @@ minute count and guess goes into this log as plain lines without quotes.
 - The four criterion items carry only the agent's answer (single-arm), so phase 2 sees no A/B comparison for
   them, and the log says so per item.
 
+- Added 2026-11-18, found by the study lead while answering the project lead's question about Q15, after phase 2 had
+  started: run A's 'official grades' in this pilot (the grades input to import-turns) are NOT a judge's output. They
+  are the study lead's own hand grades of run A under the official rubric, made knowing the question: the input
+  equals, item by item, the hand labels stored with the study lead's judge-pilot runs on 20 of 20 questions, and
+  equals that judge's scores (a no-question judge) on 10 of 20. So the 'official grade level' that every phase
+  compares against was set by the same seat that writes phase 1. The tuning log gives run A's hand grade (72.8
+  percent), but this log did not say that it is also the grades input here. How the design treats this is the design
+  owner's call.
+
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
 - Principles v0.1: main at e4867ed996ebccf4ced74d52e293f765e1f39b40 (pull request 5's merge).
