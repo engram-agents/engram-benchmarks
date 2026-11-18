@@ -180,17 +180,17 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
   judge's score as a number (at b2da22e every `int()` conversion of the earlier code, upstream issue 8, became
   `float()`), so the paper and the current code agree.
-- Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol,
-  the paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H),
-  whose inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the
-  question. The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
+- Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol, the
+  paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H), whose
+  inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the question.
+  The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
   3e12035532eb85768f1a7cd779832b650c4b2ef9 (template sha256
   d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869), with `<question>` filled by the item's
-  question. Compared with Listing 20 word by word after normalising whitespace, every difference between the
-  two is typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none is in wording: they
-  are one text. (How many differences one counts depends on the diff unit, so no count is given; the comparison
-  is repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored under the
-  benchmark's published judge protocol.
+  question. Compared with Listing 20 word by word after normalising whitespace, every difference between the two
+  is typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none is in wording: they are
+  one text. (How many differences one counts depends on the diff unit, so no count is given; the comparison is
+  repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored
+  under the benchmark's published judge protocol.
 - Why not the released code: no judge call in the released evaluation code (the ten `evaluate_*` functions in
   `src/evaluation/compute_metrics.py`, which format `unified_llm_judge_base_prompt` from `src/prompts.py`) fills
   the question in. At
@@ -224,10 +224,10 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   never folded into OFFICIAL or ADJUSTED or used to test H1. Issue 15's own
   figures (on one run of one system, supplying the question changed the verdict on 160 of 1,051 rubric items)
   are that reporter's measurement, cited as theirs and not as ours.
-- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
-  answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any
-  finding goes upstream it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported
-  there is credited to its reporter, with the issue number, in the study's per-item change log (the one
+- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold answer is
+  "confirmed wrong" only after a first-hand check against the conversation text. Before any finding goes upstream
+  it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported there
+  is credited to its reporter, with the issue number, in the study's per-item change log (the one
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
   rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
   whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
