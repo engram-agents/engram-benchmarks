@@ -174,7 +174,8 @@ Two judges, named by the one thing that differs between them (the project lead's
   printed in the benchmark's paper (Listing 20). It is this study's judge for both the OFFICIAL and the ADJUSTED
   score.
 - **No-question judge**: the judge is shown only the rubric item and the response, never the question. This is what
-  the benchmark's released evaluation code does. In this study it appears only as a sensitivity column.
+  the benchmark's released evaluation code does. In this study it is run only in the known-answer
+  check, never on scored benchmark items.
 
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
@@ -215,34 +216,32 @@ Two judges, named by the one thing that differs between them (the project lead's
   project lead's ruling of 2026-11-18). The known-answer check below does not reopen that choice.
 - Known-answer check (the project lead's test), committed and run before any scored item is judged. Its PURPOSE, in
   the project lead's framing: a rough bound on how far the no-question judge, which the released code uses, may have
-  moved the scores that others report after running the released code. It is not a correction of anyone's score: a
-  judge flaw does not make the answers that judge rejected correct, so a proper score for such a system needs a
-  rerun under the question-seeing judge. The check is a small set of responses whose verdicts are fixed in advance,
-  judged with and without the question by the study's own judge (same model, settings and parsing). Part A:
-  constructed responses that satisfy a rubric item's words without addressing the question, whose right verdict (0.0
-  under the responsiveness rule) is fixed by construction. Part B: run A items whose verdicts the three-reader score
-  review has settled; these are the team's own verdicts, not independent ones, and are labelled so. Expected
-  direction, written now: showing the question changes verdicts mainly on off-topic and abstention responses and
-  little on on-topic ones; a large shift on on-topic responses would itself be a finding, and is reported. The
-  check's own pre-log fixes the set sizes and the decision rule before the first call. The question-seeing judge
-  counts as CLEARLY BETTER only if it matches the fixed verdicts on more Part A items and on no fewer Part B items.
-  Every other outcome (a tie on Part A, fewer Part A matches, or fewer Part B matches) counts as NOT CLEARLY BETTER;
-  a tie is a legitimate result of the check, not a failed check. A REVERSAL (the question-seeing judge matching
-  fewer fixed verdicts than the no-question judge, on Part A or on Part B) is stated in the report's summary, beside
-  the primary result, not only in the check's own log; its cause is then investigated (a rubric item that misleads
-  the judge, or our own fixed verdicts or key points being wrong), obvious errors are fixed, and the question-seeing
-  judge stays primary. Any change to the check's fixed verdicts made after its result is seen is logged as post hoc,
-  with the first result kept and reported beside the corrected one (the design owner's requirement). The outcome
-  decides only how far the no-question judge runs, which is how the check measures the bound above: if clearly
-  better, the no-question judge runs as a sensitivity column on a stated population; if not clearly better, it runs
-  in full, on every item of both columns, so OFFICIAL and ADJUSTED are each reported under both judges (the project
-  lead's four scores).
-- In every outcome, H1 and the primary analysis (section 11) are tested on the scores of the question-seeing judge;
-  "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The no-question judge (the b2da22e template)
-  is always the sensitivity column: its population is stated before it runs (the full set when the check is not
-  clearly better), its scores are reported beside the primary ones, and they are never folded into OFFICIAL or
-  ADJUSTED or used to test H1. Issue 15's own figures (on one run of one system, supplying the question changed the
-  verdict on 160 of 1,051 rubric items) are that reporter's measurement, cited as theirs and not as ours.
+  moved the scores that others report after running the released code. Its limit, plainly: the bound comes from the
+  check's small set alone, so it is an indication, not a measurement over benchmark items. The other source beside
+  it is the upstream tracker's own figure (issue 15: on one run of one system, supplying the question changed the
+  verdict on 160 of 1,051 rubric items), which is that reporter's measurement, cited as theirs and not as ours. The
+  check is not a correction of anyone's score: a judge flaw does not make the answers that judge rejected correct,
+  so a proper score for such a system needs a rerun under the question-seeing judge. The check is a small set of
+  responses whose verdicts are fixed in advance, judged with and without the question by the study's own judge (same
+  model, settings and parsing). Part A: constructed responses that satisfy a rubric item's words without addressing
+  the question, whose right verdict (0.0 under the responsiveness rule) is fixed by construction. Part B: run A
+  items whose verdicts the three-reader score review has settled; these are the team's own verdicts, not independent
+  ones, and are labelled so. Expected direction, written now: showing the question changes verdicts mainly on
+  off-topic and abstention responses and little on on-topic ones; a large shift on on-topic responses would itself
+  be a finding, and is reported. The check's own pre-log fixes the set sizes and the decision rule before the first
+  call. The question-seeing judge counts as CLEARLY BETTER only if it matches the fixed verdicts on more Part A
+  items and on no fewer Part B items. Every other outcome (a tie on Part A, fewer Part A matches, or fewer Part B
+  matches) counts as NOT CLEARLY BETTER; a tie is a legitimate result of the check, not a failed check.
+- Outcomes of the check. CLEARLY BETTER is the expected result and is reported. NOT CLEARLY BETTER, or a REVERSAL
+  (the question-seeing judge matching fewer fixed verdicts than the no-question judge, on Part A or on Part B), is
+  stated in the report's summary, beside the primary result, not only in the check's own log; its cause is then
+  investigated (a rubric item that misleads the judge, or our own fixed verdicts or key points being wrong), and
+  obvious errors are fixed. Any change to the check's fixed verdicts made after its result is seen is logged as post
+  hoc, with the first result kept and reported beside the corrected one (the design owner's requirement).
+- In every outcome, scored benchmark runs are judged by the question-seeing judge only (the project lead's ruling of
+  2026-11-18: the no-question numbers are not worth their cost). H1 and the primary analysis (section 11) are tested
+  on its scores, and "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The no-question judge (the
+  b2da22e template) is run only inside the known-answer check, never on a scored benchmark item.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold answer is
   "confirmed wrong" only after a first-hand check against the conversation text. Before any finding goes upstream
   it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported there
