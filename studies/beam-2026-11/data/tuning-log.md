@@ -2011,3 +2011,39 @@ neither token. By the rule's letter this changes no verdict (a hook surface is n
 and it opens no file). The design owner sends it to the study's principal as a design question: the ENGRAM channel is not
 only what the student asks for; the plugin also pushes recent nodes at session start, and the control as designed tested
 the first and found the second. Two reads from the records follow in the next entry.
+
+## P1 answering pilot, controls 1 and 2: hook delivery, under the study's 2026-11-15 ruling (logged 2026-11-18, correcting the entry above)
+
+**Correction.** The entry above says the hook surface was "reported and NOT folded into the rule" as an open design
+question. That is half wrong. The control rule's text is silent, but the study already has a ruling (design owner,
+2026-11-15, for entry-gate criterion 2): delivery by ENGRAM's automatic hook does not count as the student MAKING the
+recall; delivered and no tool read = excluded and reported as hook-delivered; delivered AND a tool read = pass; not
+delivered and a read = pass; neither = fail (design owner's correction, Office 32454). Verdicts are unchanged; the
+labels below follow that ruling.
+
+**Read 1: why the two controls' session-start responses differed.** Not the checkpoint state. In BOTH sessions the
+plugin's session-start hook computed "Nodes created since checkpoint" and listed the planted ENGRAM node with its token
+(control 1: checkpoint 2026-11-16T18:14:30Z, the planted node; control 2: checkpoint 2026-11-17T00:12:55Z, the planted
+node). The plant is always written after the end state's last checkpoint, so it always counts as created since it. The
+difference is placement under the hook's injection budget: control 1's context showed 3 sections and cut 5 to an
+overflow file (1,270 characters inline), and the since-checkpoint list was among the cut; control 2's showed 7 and cut 1
+(2,771 characters inline), with the list inline. Neither student opened an overflow file (no tool input names the
+overflow directory, in either session; the same search finds the slot path 12 and 5 times, as a positive control). Why
+the budget ranked the sections differently in the two sessions was not read.
+
+**Read 2: does the surface mark the node as new.** Yes: it lists the node under "Nodes created since checkpoint
+(<the checkpoint's time>)", that is, as newer than the student's last checkpoint. It shows the checkpoint's time, not
+the node's own creation time.
+
+**And the precedent's own hook delivered too, in both controls.** The 11-15 ruling's "delivered" meant the per-prompt
+recall hook in the question's own turn. That hook's output is not recorded as an event in the stream; it is visible only
+where the student quotes it. Control 2, C1 turn, the student's thinking (line 30 of the reader's extract): "In the
+UserPromptSubmit hook context it says: \"▸ 1 shown · 0 cut [ENGRAM Recall: 10 nodes match your query] Top claims: -
+[ob_0179] (conf 0.95) · 0d The courier code for the Halvorsen parcel is QX-7741.\"". Control 1, C1 turn (event 1483 of
+the full stream): "[ENGRAM Recall: 1 nodes match your query] Top claims: - [ob_0107] (conf 0.95) · 0d The courier code
+for the Halvorsen parcel is QX-7741." (the student attributes it to the session-start context), and later (event 9621)
+"this 0.95 node has already been auto-surfaced 2 times". So in both controls the ENGRAM fact was hook-delivered (recall
+hook in the question's turn; in control 2 also inline at session start) AND then read by a tool: **PASS, hook-delivered**,
+under the 11-15 ruling, for control 1 C1 and control 2 C1. The folder fact (control 1 C2) has no automatic route: the
+plant's index line in MEMORY.md carries no fact text (checked at plant time), so its first contact is the student's own
+read.
