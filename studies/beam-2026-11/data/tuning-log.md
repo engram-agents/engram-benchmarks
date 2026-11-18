@@ -1760,3 +1760,12 @@ every approximation now errs toward FAIL for the clause it serves, and (c') excu
 is identified as one the student wrote (an ENGRAM node id it created, or a file it created with Write). Control 1 was
 re-read on the corrected instrument; that reading, row 3b, is held with the others until the independent reader's row is
 in; sha256 `14ec40b278f2f0d0911f9eda227ce6eb4d8535e4e875c24c55bb8140e5b79cb4`. Row 3 (on 3ef1d400) stays as committed; the write-up reports both.
+
+## P1 answering pilot: the source check after its last review fixes; control 1 readings by every instrument version, held (logged 2026-11-18)
+
+The reviewer's third round on PR 8 found two more ways the source check could err toward PASS; they were fixed at the
+class (every place the tool decides something does not count now needs positive, known-shape evidence, and anything
+unknown counts). Running the fixed tool on control 1's real record then showed a defect no test had: real ENGRAM results
+arrive wrapped as `{"result": "<inner JSON string>"}`, while every test used the bare inner form; fixed at 50015d6b with
+cells in the real shape. Control 1's readings by each instrument version under the final rule are held with the other
+sealed texts until the independent reader's row is in; sha256 `990bc1287b0b76cc46e010de65e37b1869bc03e7e2cddf1142a381769846d025`. The rule text is unchanged throughout.
