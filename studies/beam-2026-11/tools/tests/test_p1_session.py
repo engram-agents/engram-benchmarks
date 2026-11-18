@@ -775,3 +775,53 @@ def test_a_re_raised_system_exit_prints_the_code_the_process_exits_with(w):
     r = w.run(P1_TEST_RAISE="SystemExit")
     last = [l for l in r.stdout.splitlines() if l.startswith("exit ")][-1]
     assert last == f"exit {r.returncode}", (last, r.returncode)
+
+
+# ------------------------------------------------------------------ round 5: any relative link that climbs above the root
+def test_refuses_the_reviewers_relative_link_to_a_sibling_protected_home(w):
+    """E/lnk -> ../q, slot a sibling, q protected: in the copy it would resolve beside the slot."""
+    q = make_home(w.root / "q")
+    os.symlink("../q", os.path.join(w.pres, "lnk"))
+    refusal(w, P1_PROTECTED=f"{w.pres}:{w.pres2}:{q}", expect="symlink")
+
+
+def test_refuses_a_relative_link_that_climbs_even_to_an_unrelated_outside_path(w):
+    """Step 1 cannot judge where it lands once copied (it resolves relative to the slot's location)."""
+    (w.root / "unrelated-outside").mkdir()
+    os.symlink("../../unrelated-outside", os.path.join(w.pres, "work", "lnk"))
+    refusal(w, expect="climb")
+
+
+def test_a_relative_link_to_an_absolute_link_outside_that_does_not_climb_is_allowed(w):
+    """The real homes' venvs: python -> python3 (relative, does not climb) where python3 -> an interpreter (absolute)."""
+    b = os.path.join(w.pres, ".engram", "venv", "bin")
+    os.symlink("python", os.path.join(b, "python3.12"))  # relative; the link it names is the absolute one to the interpreter
+    r = w.run()
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert os.readlink(str(w.slot / ".engram" / "venv" / "bin" / "python3.12")) == "python"
+
+
+# ------------------------------------------------------------------ round 5: BEAM_RUNS_DIR is judged like the slot
+def test_refuses_a_runs_dir_that_is_a_protected_home(w):
+    refusal(w, BEAM_RUNS_DIR=str(w.pres), expect="BEAM_RUNS_DIR")
+
+
+def test_refuses_a_runs_dir_that_is_a_symlink_to_a_protected_home(w):
+    link = w.root / "runs-link"; link.symlink_to(w.pres)
+    refusal(w, BEAM_RUNS_DIR=str(link), expect="BEAM_RUNS_DIR")
+
+
+def test_refuses_a_runs_dir_inside_a_protected_home(w):
+    refusal(w, BEAM_RUNS_DIR=os.path.join(w.pres, "work", "runs"), expect="BEAM_RUNS_DIR")
+
+
+def test_refuses_a_runs_dir_that_contains_a_protected_home(w):
+    refusal(w, BEAM_RUNS_DIR=str(w.root), expect="BEAM_RUNS_DIR")
+
+
+def test_refuses_a_runs_dir_inside_the_slot(w):
+    refusal(w, BEAM_RUNS_DIR=str(w.slot / "runs"), expect="BEAM_RUNS_DIR")
+
+
+def test_refuses_a_runs_dir_equal_to_the_slot(w):
+    refusal(w, BEAM_RUNS_DIR=str(w.slot), expect="BEAM_RUNS_DIR")

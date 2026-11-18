@@ -17,8 +17,11 @@ usage: p1-session.py --end-state PATH --session ID --label NAME --question-file 
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
 
 Steps (every refusal in step 1 happens before anything is touched: no process killed, no copy, no directory made):
- 1 refusals, exit 2: a test-only hook variable set without P1_TEST_HOOKS=1; a symlink in the end state resolving to, inside or above a protected path (a relative link that
-   stays inside the end state is fine; the count of links pointing outside it is printed); an env var missing; label outside [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
+ 1 refusals, exit 2: a test-only hook variable set without P1_TEST_HOOKS=1; a relative symlink in the end state that
+   climbs above its root; a symlink in the end state resolving to, inside or above a protected path (a relative link
+   that stays inside the end state is fine; the count of links pointing outside it is printed); BEAM_RUNS_DIR equal
+   to, inside or containing a protected path, or equal to or inside the slot; an env var missing; a label outside
+   [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
    --end-state (by realpath) not one of P1_PROTECTED; the slot equal to, inside or containing a protected path; the run
    directory exists; the end state lacks .engram/knowledge.db or .claude/; the question file or components file
    missing or malformed; a partial plant set (any plant flag without all of --plant-builtin, --plant-engram,
@@ -213,14 +216,17 @@ def load_questions(path):
 
 
 def check_end_state_links(end, prot):
-    """Walk the end state without following links. A symlink whose realpath is equal to, inside, or containing a
-    protected path is refused: cp -a keeps the link text, so the student could write through it into a preserved home.
-    The rule is judged from the COPY's side: after cp -a to the slot, does this link resolve inside the slot? One
-    exception is allowed, a RELATIVE link whose path, taken from the link's own directory, never climbs above the end
-    state's root (a venv's lib64 -> lib) and whose realpath is inside the end state. A relative link that leaves the
-    end state at any point is refused when it lands in a protected relation, even if it re-enters by the end state's
-    own directory name (E/a/x -> ../../E/real: in a copy beside E it resolves to the ORIGINAL E/real); an ABSOLUTE link
-    back into the end state is refused for the same reason. Returns the count of symlinks that point outside the end state (informational: plugin venvs link to system
+    """Walk the end state without following links. The rule is judged from the COPY's side: after cp -a, where does
+    each link resolve, relative to the slot?
+      - a RELATIVE link whose path, taken from the link's own directory, climbs above the end state's root (the
+        normalized path is '..' or starts with '../') is refused whatever it points at: in the copy it resolves
+        relative to the slot's location, which step 1 cannot judge from the original (E/a/x -> ../../E/real would land
+        on the ORIGINAL E/real from a slot beside E);
+      - any other relative link whose realpath is inside the end state is allowed (a venv's lib64 -> lib);
+      - every other link (absolute, or a relative one that is not inside the end state) is refused if its realpath is
+        equal to, inside, or containing a protected path, because cp -a keeps the link text and the student could
+        write through it into a preserved home. An absolute link back into the end state is refused for that reason.
+    Returns the count of symlinks that point outside the end state (informational: plugin venvs link to system
     interpreters)."""
     outside = 0
     for dp, dns, fns in os.walk(end, followlinks=False):
@@ -235,8 +241,12 @@ def check_end_state_links(end, prot):
             text = os.readlink(full)
             if not os.path.isabs(text):
                 from_root = os.path.normpath(os.path.join(os.path.relpath(dp, end), text))
-                if in_end and from_root != ".." and not from_root.startswith(".." + os.sep):
-                    continue  # never leaves the end state's root, so in the copy it stays inside the slot
+                if from_root == ".." or from_root.startswith(".." + os.sep):
+                    raise Refusal(f"the end state holds a relative symlink ({os.path.relpath(full, end)} -> {text}) "
+                                  "that climbs above the end state's root; in the copy it would resolve relative to "
+                                  "the slot's location, which cannot be judged here")
+                if in_end:
+                    continue  # stays inside the end state, so in the copy it stays inside the slot
             for p in prot:
                 if under(target, p) or under(p, target):
                     raise Refusal(f"the end state holds a symlink ({os.path.relpath(full, end)}) that resolves to "
@@ -271,6 +281,12 @@ def step1(a):
     for p in prot:
         if under(slot_real, p) or under(p, slot_real):
             raise Refusal(f"the slot {slot} is equal to, inside, or contains the protected path {p}")
+    runs_real = os.path.realpath(env["BEAM_RUNS_DIR"])
+    for p in prot:
+        if under(runs_real, p) or under(p, runs_real):
+            raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to, inside, or containing the protected path {p}")
+    if under(runs_real, slot_real):
+        raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to or inside the slot {slot}")
     rundir = os.path.join(env["BEAM_RUNS_DIR"], f"p1-{a.label}")
     if os.path.lexists(rundir):
         raise Refusal(f"the run directory {rundir} exists (run directories are never reused)")
