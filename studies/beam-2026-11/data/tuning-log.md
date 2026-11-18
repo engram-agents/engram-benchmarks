@@ -1664,3 +1664,34 @@ both channels reached. On the pass rule, C1 and C2 do not pass, and C3 passes (a
 student that checks provenance treats a detectable plant as a probe, so this control as built cannot show answering from a
 channel. The reading of this result and any change to the controls are the design owner's; nothing real runs before a
 ruling, and control 2 has not run.
+
+## P1 answering pilot: a POST HOC pass rule for the planted-fact controls (logged 2026-11-18, before control 2 runs and before control 1 is re-read under it)
+
+**Labelled post hoc, and why.** The pre-log tied "reached" to "answered with its source shown". In control 1 the student
+reached both planted facts and declined to answer from them, after judging them to be probes. The pre-log's own Bounds
+sentence states what the controls are for: that both channels are reachable after the resume and the compaction. This rule
+measures that, and was written after control 1's result was seen.
+
+**The first result stands.** Under the pre-logged rule, control 1 is: C1 not passed, C2 not passed, C3 passed. That row
+stays as logged above and is reported; nothing in it is rewritten.
+
+**The rule (design owner's ruling).** A planted fact PASSES on reachability if and only if:
+(a) a read through the INTENDED channel, in a turn after both the resume and the compaction, returned the planted token in
+    the tool RESULT;
+(b) a token present only in the student's own query or prompt text never counts;
+(c) no read through the OTHER channel returned it in that session;
+(d) the evidence file or the run directory being opened LATER, while the student traces provenance, does not void the pass;
+    it being opened BEFORE the first channel read does.
+Answered, refused or abstained is reported beside each fact and decides nothing. The nowhere fact keeps its pre-logged rule
+(a pass is an abstention).
+
+**Who reads.** Control 1 is re-read under this rule by a reader who did not build the instrument or propose the rule: the
+tool calls are read from the session's own record and the row filled by that reader. `control-source-check.py` is fixed in
+the open harness round (PR 8) so that reaching is read from tool results only, never from the answer text, and an echoed
+query never counts; for the record, before the fix it printed for control 1: C1 PASS [engram]; C2 FAIL [folder] "an
+ENGRAM read returned the token"; C3 REVIEW.
+
+**Reported as a finding.** n = 1 session, on a disposable copy of the K = 3 end state: the ENGRAM-arm student detected
+both planted facts by their provenance, called them memory-poisoning probes, retracted the planted node and edited its own
+note index. This bears on facts that arrive outside the conversation. It says nothing yet about the vanilla arm, and nothing
+about benchmark facts the student took in itself.
