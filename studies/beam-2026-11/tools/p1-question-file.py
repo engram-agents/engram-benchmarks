@@ -8,7 +8,7 @@ never the gold. Items are all rows minus --exclude, in this order: ids sorted le
 `random.Random(SEED).shuffle(ids)`. The same inputs give byte-identical JSON.
 
 Refuses (exit 2, nothing written) if sha256(list) is not --expect-sha256, if an id repeats, if an --exclude id is not in
-the list, if a row cannot be parsed, if the list has no rows, or if --out already exists (a frozen file is never
+the list, if a row cannot be parsed, if the list has no rows, if a row has more than one ' || ' (an ambiguous split), or if --out already exists (a frozen file is never
 overwritten). Prints the item count, the order (one id per line) and the sha256 of the written JSON.
 
 usage: p1-question-file.py --list F --expect-sha256 H [--exclude ID[,ID...]] --seed N --out JSON
@@ -30,6 +30,8 @@ def parse_rows(text):
     for n, line in enumerate(text.splitlines(), 1):
         if not ROW_START.match(line):
             continue
+        if line.count(" || ") > 1:
+            refuse(f"line {n} has more than one ' || ' separator, so the question/gold split is ambiguous: {line[:80]!r}")
         m = ROW.fullmatch(line.rstrip())
         if not m:
             refuse(f"line {n} looks like an item row but cannot be parsed: {line[:80]!r}")

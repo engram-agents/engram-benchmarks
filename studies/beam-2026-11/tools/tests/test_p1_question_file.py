@@ -77,6 +77,17 @@ def test_unparsable_row_refuses(tmp_path, bad):
     assert r.returncode == 2 and not out.exists()
 
 
+@pytest.mark.parametrize("bad", [
+    "F40 | ex9 | information_extraction | Is it A || or B? || the gold\n",   # two separators: the split is ambiguous
+    "F41 | ex9 | information_extraction | A question || a gold || with a second one\n",
+])
+def test_a_row_with_more_than_one_separator_is_refused_not_truncated(tmp_path, bad):
+    lp, sha = write_list(tmp_path, list_text(extra=bad))
+    out = tmp_path / "q.json"
+    r = run(lp, sha, out)
+    assert r.returncode == 2 and not out.exists() and "||" in (r.stderr + r.stdout)
+
+
 def test_out_already_exists_refuses_and_keeps_it(tmp_path):
     lp, sha = write_list(tmp_path)
     out = tmp_path / "q.json"

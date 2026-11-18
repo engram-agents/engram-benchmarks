@@ -17,7 +17,8 @@ usage: p1-session.py --end-state PATH --session ID --label NAME --question-file 
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
 
 Steps (every refusal in step 1 happens before anything is touched: no process killed, no copy, no directory made):
- 1 refusals, exit 2: an env var missing; label outside [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
+ 1 refusals, exit 2: a symlink in the end state resolving to, inside or above a protected path (a relative link that
+   stays inside the end state is fine; the count of links pointing outside it is printed); an env var missing; label outside [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
    --end-state (by realpath) not one of P1_PROTECTED; the slot equal to, inside or containing a protected path; the run
    directory exists; the end state lacks .engram/knowledge.db or .claude/; the question file or components file
    missing or malformed; a partial plant set (any plant flag without all of --plant-builtin, --plant-engram,
@@ -52,6 +53,7 @@ TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_se
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
+  P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
 """
 import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 
@@ -208,6 +210,32 @@ def load_questions(path):
     return ids
 
 
+def check_end_state_links(end, prot):
+    """Walk the end state without following links. A symlink whose realpath is equal to, inside, or containing a
+    protected path is refused: cp -a keeps the link, so the student could write through it into a preserved home. One
+    exception: a RELATIVE link that resolves inside the end state itself stays inside the copy (a venv's lib64 -> lib),
+    so it is allowed; an ABSOLUTE link back into the end state would still point at the original and is refused.
+    Returns the count of symlinks that point outside the end state (informational: plugin venvs link to system
+    interpreters)."""
+    outside = 0
+    for dp, dns, fns in os.walk(end, followlinks=False):
+        for n in dns + fns:
+            full = os.path.join(dp, n)
+            if not os.path.islink(full):
+                continue
+            target = os.path.realpath(full)
+            in_end = under(target, end)
+            if not in_end:
+                outside += 1
+            if in_end and not os.path.isabs(os.readlink(full)):
+                continue
+            for p in prot:
+                if under(target, p) or under(p, target):
+                    raise Refusal(f"the end state holds a symlink ({os.path.relpath(full, end)}) that resolves to "
+                                  f"{target}, which is equal to, inside, or containing the protected path {p}")
+    return outside
+
+
 def step1(a):
     env = os.environ
     for v in REQUIRED_ENV:
@@ -238,6 +266,7 @@ def step1(a):
         raise Refusal("the end state has no .engram/knowledge.db")
     if not os.path.isdir(os.path.join(end, ".claude")):
         raise Refusal("the end state has no .claude/ folder")
+    outside = check_end_state_links(end, prot)
     if not os.path.isfile(a.question_file):
         raise Refusal(f"the question file {a.question_file} is missing")
     qids = load_questions(a.question_file)
@@ -260,7 +289,7 @@ def step1(a):
     aside = f"{slot}.aside-{a.label}-{stamp}"
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
-    return {"protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant,
+    return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant,
             "aside": aside, "py": env["BEAM_PY"]}
 
 
@@ -302,6 +331,9 @@ def work(a, c, steps):
         steps.append(("5 copy and fidelity check", 3)); return 3
     print(f"copy verified: tables={got[1]} rows={got[2]} sha256={got[0]}")
     steps.append(("5 copy and fidelity check", 0))
+    raised = os.environ.get("P1_TEST_RAISE")
+    if raised:
+        raise {"KeyboardInterrupt": KeyboardInterrupt, "SystemExit": SystemExit}.get(raised, RuntimeError)("injected")
     if c["plant"]:
         cmd = [os.path.join(slot, ".engram", "venv", "bin", "python"), plant_tool, "--home", slot,
                "--builtin-fact", a.plant_builtin, "--engram-fact", a.plant_engram, "--absent-fact", a.plant_absent,
@@ -387,29 +419,45 @@ def main(argv=None):
         print(f"REFUSE: {e}", file=sys.stderr)
         return 2
     steps.append(("1 refusals", 0))
+    print(f"symlinks pointing outside the end state: {c['outside_links']}")
     os.makedirs(c["rundir"])
-    with open(os.path.join(c["rundir"], "before-hashes.txt"), "w") as f:
-        f.write("".join(before[h] for h in c["protected"]))
-    print("".join(before[h] for h in c["protected"]), end="")
-    steps.append(("2 before-hashes", 0))
+    pending = None
     try:
+        with open(os.path.join(c["rundir"], "before-hashes.txt"), "w") as f:
+            f.write("".join(before[h] for h in c["protected"]))
+        print("".join(before[h] for h in c["protected"]), end="")
+        steps.append(("2 before-hashes", 0))
         rc = work(a, c, steps)
-    except Exception:  # noqa: BLE001
+    except BaseException as e:  # noqa: BLE001  KeyboardInterrupt and SystemExit too: steps 10 and 11 still run
+        pending = e
         traceback.print_exc()
-        steps.append(("unexpected error", 3))
+        steps.append((f"unexpected {type(e).__name__}", 3))
         rc = 3
-    after = records(c["protected"], tolerant=True)
-    with open(os.path.join(c["rundir"], "after-hashes.txt"), "w") as f:
-        f.write("".join(after[h] for h in c["protected"]))
-    changed = changed_homes(before, after)
-    steps.append(("10 after-hashes", 5 if changed else 0))
+    # Steps 10 and 11 on EVERY exit path after the run directory exists. Each guards its own failure so that a failure
+    # in one never skips the other and never replaces exit 5.
+    changed = []
+    try:
+        after = records(c["protected"], tolerant=True)
+        with open(os.path.join(c["rundir"], "after-hashes.txt"), "w") as f:
+            f.write("".join(after[h] for h in c["protected"]))
+        changed = changed_homes(before, after)
+        steps.append(("10 after-hashes", 5 if changed else 0))
+    except BaseException as e:  # noqa: BLE001
+        print(f"ERROR: the after-hash step failed ({type(e).__name__}: {e}); treating the protected homes as changed",
+              file=sys.stderr)
+        changed = list(before); steps.append(("10 after-hashes", "failed"))
     if changed:
         for h in changed:
             print(f"changed home: {h}")
         print(f"PROTECTED CHANGED: {len(changed)} home(s)")
         rc = 5
-    write_setup(a, c, steps, start, rc)
+    try:
+        write_setup(a, c, steps, start, rc)
+    except BaseException as e:  # noqa: BLE001
+        print(f"ERROR: setup.txt could not be written ({type(e).__name__}: {e})", file=sys.stderr)
     print(f"exit {rc}")
+    if pending is not None and rc != 5 and not isinstance(pending, Exception):
+        raise pending  # an interruption with nothing protected changed keeps its own exit behaviour
     return rc
 
 

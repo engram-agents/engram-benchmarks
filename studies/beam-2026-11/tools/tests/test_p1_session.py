@@ -5,7 +5,8 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
   P1_FEED4            a stub script run in place of feed4.py (the run and the --dump-plan call)
   P1_PLANT_CONTROL    a stub script run in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
-  P1_AFTER_COPY_HOOK  a script run (BEAM_PY script SLOT) between the copy and the copy-fidelity check"""
+  P1_AFTER_COPY_HOOK  a script run (BEAM_PY script SLOT) between the copy and the copy-fidelity check
+  P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified"""
 import hashlib, importlib.util, json, os, shutil, sqlite3, subprocess, sys
 import pytest
 from conftest import TOOLS
@@ -623,3 +624,85 @@ def test_the_launcher_leaves_a_wal_mode_protected_home_untouched_bytes_and_mtime
         assert bytes_and_mtimes(w.pres) == before
     finally:
         keeper.close()
+
+
+# ------------------------------------------------------------------ round 3: steps 10 and 11 run on EVERY exit path
+def tamper_hook(w, extra=""):
+    """A P1_AFTER_COPY_HOOK that writes into a protected home's memory file (so a protected change is on record)."""
+    victim = os.path.join(w.pres, ".claude", "projects", "-p", "memory", "a.md")
+    hook = w.root / "tamper-hook2.py"
+    hook.write_text(f"open({victim!r}, 'a').write('tampered')\n" + extra)
+    return str(hook)
+
+
+@pytest.mark.parametrize("raised", ["KeyboardInterrupt", "SystemExit", "Exception"])
+def test_an_interruption_or_error_mid_run_with_a_protected_change_is_still_exit_5(w, raised):
+    r = w.run(P1_AFTER_COPY_HOOK=tamper_hook(w), P1_TEST_RAISE=raised)
+    assert r.returncode == 5, (raised, r.returncode, r.stdout, r.stderr)
+    assert "PROTECTED CHANGED" in r.stdout and changed_homes_printed(r.stdout) == [os.path.realpath(w.pres)]
+    run = w.runs / "p1-t1"
+    assert (run / "after-hashes.txt").exists() and (run / "setup.txt").exists()
+    assert (run / "before-hashes.txt").read_text() != (run / "after-hashes.txt").read_text()
+    assert not w.mark.exists()  # the interruption came before the student run
+
+
+def test_an_unexpected_exception_alone_is_exit_3_with_the_after_artifacts(w):
+    r = w.run(P1_TEST_RAISE="Exception")
+    assert r.returncode == 3 and "PROTECTED CHANGED" not in r.stdout
+    assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
+
+
+@pytest.mark.parametrize("raised", ["KeyboardInterrupt", "SystemExit"])
+def test_an_interruption_alone_still_writes_the_after_artifacts_and_does_not_exit_0(w, raised):
+    r = w.run(P1_TEST_RAISE=raised)
+    assert r.returncode not in (0, 5), (raised, r.returncode)
+    assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
+
+
+def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
+    """setup.txt is made a directory by the hook, so writing it raises; the protected change still decides the code."""
+    blocker = w.runs / "p1-t1" / "setup.txt"
+    hook = tamper_hook(w, extra=f"import os\nos.makedirs({str(blocker)!r})\n")
+    r = w.run(P1_AFTER_COPY_HOOK=hook)
+    assert r.returncode == 5, (r.returncode, r.stdout, r.stderr)
+    assert "PROTECTED CHANGED" in r.stdout and "setup.txt" in r.stderr
+
+
+def test_a_setup_txt_write_failure_alone_is_reported_on_stderr(w):
+    blocker = w.runs / "p1-t1" / "setup.txt"
+    hook = w.root / "block-setup.py"; hook.write_text(f"import os\nos.makedirs({str(blocker)!r})\n")
+    r = w.run(P1_AFTER_COPY_HOOK=str(hook))
+    assert "setup.txt" in r.stderr and r.returncode != 5
+
+
+# ------------------------------------------------------------------ round 3: symlinks inside the end state
+def test_refuses_an_end_state_with_a_symlink_into_another_protected_home(w):
+    os.symlink(os.path.join(w.pres2, "work"), os.path.join(w.pres, "work", "link-to-b"))
+    refusal(w, expect="symlink")
+
+
+def test_refuses_an_end_state_with_a_symlink_to_a_path_that_contains_a_protected_home(w):
+    os.symlink(str(w.root), os.path.join(w.pres, "work", "link-up"))
+    refusal(w, expect="symlink")
+
+
+def test_refuses_an_absolute_symlink_back_into_the_end_state_itself(w):
+    """After cp -a the copy would still point at the preserved original, so the student could write to it."""
+    os.symlink(os.path.join(w.pres, ".claude"), os.path.join(w.pres, "work", "link-to-self"))
+    refusal(w, expect="symlink")
+
+
+def test_a_relative_symlink_that_stays_inside_the_end_state_is_fine(w):
+    os.symlink("projects", os.path.join(w.pres, ".claude", "rel-link"))  # like a venv's lib64 -> lib
+    r = w.run()
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert os.readlink(str(w.slot / ".claude" / "rel-link")) == "projects"
+
+
+def test_a_symlink_to_an_unrelated_outside_path_proceeds_and_the_count_is_printed(w):
+    outside = w.root / "unrelated-outside"; outside.mkdir()
+    os.symlink(str(outside), os.path.join(w.pres, "work", "link-out"))
+    r = w.run()
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    # the venv's python link (to the interpreter) and this one point outside the end state
+    assert "symlinks pointing outside the end state: 2" in r.stdout
