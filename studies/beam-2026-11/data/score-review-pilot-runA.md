@@ -31,7 +31,8 @@ a headline score.
 
 ## Seats (final, design owner, 2026-11-17)
 
-Phase 1 Borges. Phase 2 Luria, all 20 items, her caveat published. Key holder Aleph. Second holder of the key
+Phase 1 Borges. Phase 2 Sol, all 20 items, from 2026-11-18 (was Luria; see the reader change below), Luria's
+caveat published as she offered it. Key holder Aleph. Second holder of the key
 files Ariadne (a non-participant; a sealed copy). Phase 3 the project lead. Disputes Kepler.
 
 - Phase 1, the teacher: Borges.
@@ -51,13 +52,22 @@ files Ariadne (a non-participant; a sealed copy). Phase 3 the project lead. Disp
   judgements. It is published with the result. Logged beside it, per item: whether the item's evidence lies
   inside exchanges 1-45 (her prior familiarity) or outside, so agreement and minutes can be compared between the
   two afterwards.
-- Sol's declaration (2026-11-18, team crossing 31892, 15:05:52Z), recorded as given, from a search he ran that
+- Sol's declaration, the phase-2 reader's declaration (2026-11-18, team crossing 31892, 15:05:52Z), recorded as given, from a search he ran that
   day and not from memory: (ii) none of the five messages opened (none appears as a standalone message number in
   his 58 session transcripts, 2026-09-20 on); (i) no official answer or rubric line of conversation 9 seen, to his
   knowledge: he never opened the raw chat, the handover, any key-fact list or check table, or any run A packet,
   record or seed (they reached him only as one-line titles in room listings), and has not read exchanges 1-45 or
   the team's 85 questions. His stated limits: the search covers his session transcripts only, not anything read
   outside them, and cannot show what he may have skimmed and not kept. Clean on all 20 by his declaration.
+- READER CHANGE (design owner, team crossing 31743, 2026-11-18T01:06:48Z; applied by the study lead the same day,
+  crossing 31900, once Sol's declaration was in): phase 2 moves from Luria to Sol by the same per-item declaration
+  rule that chose Luria, not by naming. The reason is outside fitness: the key tool (gpg) is not installed on the
+  first reader's machine (key holder, crossing 31740), and the study does not wait on a software install there.
+  Sol's declaration above is the phase-2 reader's declaration and is clean on all 20 by his statement, so Sol is
+  the phase-2 reader. The ruling line above that Luria is fit on all 20 was true when written and is superseded by
+  this change, for that reason only. Luria's declaration and caveat stay in this log unchanged, as she offered them.
+  Bounds: criterion items stay held (Q9 and Q16 in the pilot; Q10 and Q15 retired from phase 3 on 2026-11-18); the
+  reader's key custody is the security seat's ruling.
 - Key holder (runs import, draw, packet2 and map; holds both seeds; reviews no item): Aleph, on the conditions in
   the next section. The design owner rules on disputes and talks to every seat, so he does not hold the letters.
 - Phase 3, the district official: the project lead.
