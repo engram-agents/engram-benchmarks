@@ -1450,8 +1450,17 @@ biases nothing. Therefore:
 
 - The k = 1 re-run (setup `d18b5d26…`) ended 2026-11-17T00:13:30Z (exit 0); its end state is preserved and becomes the
   k = 1 reference for the answering rule above.
-- The key-fact list is final (writer and checker done); the freeze commit (75 questions + 9 abstention items, F32
-  excluded) is next, before any answer.
+- **P1 key-fact list FROZEN, 2026-11-18T13:17Z, by this commit, before any P1 answer exists.** The file is
+  `data/p1-keyfacts-final.md`, the writer's final list committed byte for byte unchanged, sha256
+  `1895b15195591116e58faf2e987712d07a2fd5548f25c79c8d2a027ab6f969ad`. It holds 76 facts and 9 abstention items
+  (85 rows). **F32 is excluded** by the design owner's ruling of 2026-11-17 (Office crossing 31179: ex14 gives a
+  second defensible answer, and ex15 sits at the last position at k = 3 and k = 5); its row stays in the file and
+  is not asked or scored. So the counting set is **75 questions in 38 exchanges** (1 exchange with 4, 11 with 3,
+  12 with 2, 14 with 1), and the last-position guard rests on 26 questions in 14 exchanges at k = 3 and 12
+  questions in 6 exchanges at k = 5. The 9 abstention items are asked and reported apart. **One known nit, kept
+  as is under the freeze fallback (Office crossing 31177):** A05 asks "Which city" but its gold says "no
+  information about which Canadian city", a qualifier the question does not name; A05 is an abstention item,
+  outside the 75, so it moves no counting score.
 
 Earlier fact bearing on the talk probe's question: in every practice sandbox the student wrote its own ENGRAM
 nodes during the first session (2 person nodes and 2 to 5 observations), and none during any exam reading
