@@ -11,8 +11,9 @@ missing one):
   BEAM_PY         python for feed4.py and the checks
   BEAM_ARM_HOME   the SLOT: the arm-home path the run used; an existing one is moved aside, never deleted
   BEAM_RUNS_DIR   where run directories are created (<BEAM_RUNS_DIR>/p1-<label>, never reused)
-  BEAM_PARQUET    the BEAM dataset file feed4.py reads from the environment; it must name an existing FILE. The launcher
-                  does not hash it (feed4.py and the setup id own the dataset identity)
+  BEAM_PARQUET    the BEAM dataset file feed4.py reads from the environment; it must name an existing FILE whose sha256 starts
+                  with the registered prefix (PROVENANCE.md registers the dataset; the reading runs' own script,
+                  tools/pilot-run.sh, refused the same way). The launcher streams the file through sha256 in step 1
   P1_PROTECTED    colon-separated preserved-home paths; every entry must exist; --end-state must be one of them
 
 usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F
@@ -25,7 +26,7 @@ called without --builtin-fact and without --question, and writes nothing under a
 combination is refused in step 1, and --plant-question is refused without --plant-builtin.
 
 Steps (every refusal in step 1 happens before anything is touched: no process killed, no copy, no directory made):
- 1 refusals, exit 2: BEAM_PARQUET unset or not an existing file; a test-only hook variable set without P1_TEST_HOOKS=1; a relative symlink in the end state that
+ 1 refusals, exit 2: BEAM_PARQUET unset, not an existing file, or not hashing to the registered prefix; a test-only hook variable set without P1_TEST_HOOKS=1; a relative symlink in the end state that
    climbs above its root; a symlink in the end state resolving to, inside or above a protected path (a relative link
    that stays inside the end state is fine; the count of links pointing outside it is printed); BEAM_RUNS_DIR equal
    to, inside or containing a protected path, or equal to or inside the slot; an env var missing; a label outside
@@ -53,7 +54,8 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
    `PROTECTED CHANGED: n home(s)` and is exit 5. Steps 10 and 11 run on every exit path after the run directory exists.
 11 setup.txt: first line the benchmarks commit id, then the sha256 of this script, feed4.py, feed.py, the question file,
    the components file, answer-delivery-check.py and plant-control.py, the plant mode on its own line (`plant mode: none`,
-   `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), start/end UTC, and each step's exit code.
+   `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), the FULL sha256 of BEAM_PARQUET (`<sha256>  BEAM_PARQUET`), which dataset check ran (`dataset check: registered
+   prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), start/end UTC, and each step's exit code.
 Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
 5 a protected home changed (overrides every other code).
 
@@ -67,13 +69,18 @@ P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never sil
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
+  P1_EXPECTED_PARQUET_PREFIX  the sha256 prefix BEAM_PARQUET must have, in place of the registered one (setup.txt says so)
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
 """
 import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
-TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE")
+TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE",
+              "P1_EXPECTED_PARQUET_PREFIX")
+# The registered dataset's sha256 prefix: studies/beam-2026-11/PROVENANCE.md ("parquet sha256 prefix") and the reading
+# runs' own check in tools/pilot-run.sh. A test reads PROVENANCE.md and requires this constant to equal it.
+REGISTERED_PARQUET_PREFIX = "c0519be25907"
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
 PLANT_SETS = ("the valid plant sets are --plant-builtin --plant-engram --plant-absent (both channels), or exactly "
@@ -124,6 +131,17 @@ def file_sha256(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def expected_parquet_prefix(env):
+    """The registered prefix, or the gated test-only override (step 1 has already refused the override without the gate)."""
+    return env.get("P1_EXPECTED_PARQUET_PREFIX") or REGISTERED_PARQUET_PREFIX
+
+
+def dataset_check_line(env):
+    if env.get("P1_EXPECTED_PARQUET_PREFIX"):
+        return "dataset check: test-only override (P1_TEST_HOOKS)"
+    return f"dataset check: registered prefix {REGISTERED_PARQUET_PREFIX}"
 
 
 def memory_files(home):
@@ -277,6 +295,11 @@ def step1(a):
         if env.get(hook) and env.get("P1_TEST_HOOKS") != "1":
             raise Refusal(f"{hook} is a test-only hook and is refused unless P1_TEST_HOOKS=1 is also set "
                           "(a stray variable must never change a real run)")
+    parquet_sha = file_sha256(env["BEAM_PARQUET"])
+    want = expected_parquet_prefix(env)
+    if not parquet_sha.startswith(want):
+        raise Refusal(f"BEAM_PARQUET {env['BEAM_PARQUET']} has sha256 {parquet_sha}, which does not start with the "
+                      f"expected dataset prefix {want} (PROVENANCE.md registers the dataset)")
     if not LABEL.fullmatch(a.label):
         raise Refusal(f"the label {a.label!r} is outside the charset [A-Za-z0-9._-] (one or more characters)")
     protected = [p for p in env["P1_PROTECTED"].split(":") if p]
@@ -341,7 +364,7 @@ def step1(a):
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
     return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
-            "aside": aside, "py": env["BEAM_PY"]}
+            "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
 
 
 # ----------------------------------------------------------------------------------------------------------- the run
@@ -446,6 +469,8 @@ def write_setup(a, c, steps, start, rc):
         if os.environ.get(hook):
             lines.append(f"{file_sha256(os.environ[hook])}  {label} ({hook}): {os.path.basename(os.environ[hook])}")
     lines.append(f"plant mode: {c['plant_mode']}")
+    lines.append(f"{c['parquet_sha256']}  BEAM_PARQUET")
+    lines.append(dataset_check_line(os.environ))
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]

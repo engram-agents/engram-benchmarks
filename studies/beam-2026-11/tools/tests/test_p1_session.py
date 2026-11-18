@@ -8,7 +8,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
   P1_AFTER_COPY_HOOK  a script run (BEAM_PY script SLOT) between the copy and the copy-fidelity check
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
-import hashlib, importlib.util, json, os, shutil, sqlite3, subprocess, sys
+import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
 from conftest import TOOLS
 
@@ -143,7 +143,9 @@ class World:
         self.qfile.write_text(json.dumps([{"id": "F02", "question": "Q two?"}, {"id": "A01", "question": "Q a1?"},
                                           {"id": "F01", "question": "Q one?"}]))
         self.comps = root / "components.txt"; self.comps.write_text("SETUP ID test\n")
-        self.parquet = root / "syn.parquet"; self.parquet.write_bytes(b"PAR1 stand-in: the launcher never opens it")
+        self.parquet = root / "syn.parquet"; self.parquet.write_bytes(b"PAR1 stand-in: not the registered dataset")
+        # the stand-in's own prefix, injected through the test-only hook (the real constant accepts only the registered one)
+        self.parquet_prefix = P1S.file_sha256(self.parquet)[:12]
         self.stub = root / "stub-feed4.py"; self.stub.write_text(STUB_FEED4)
         self.plant = root / "stub-plant.py"; self.plant.write_text(STUB_PLANT)
         self.hook = root / "corrupt-hook.py"; self.hook.write_text(CORRUPT_HOOK)
@@ -156,6 +158,7 @@ class World:
         e = {"PATH": os.environ["PATH"], "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
              "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
+             "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
         e.update({k: v for k, v in over.items() if v is not None})
         for k, v in over.items():
@@ -752,7 +755,7 @@ def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w)
 
 # ------------------------------------------------------------------ round 4: test-only hooks are gated behind P1_TEST_HOOKS=1
 HOOK_VALUES = {"P1_TEST_RAISE": "Exception", "P1_FEED4": "stub", "P1_PLANT_CONTROL": "plant", "P1_AFTER_COPY_HOOK": "hook",
-               "P1_UTC_STAMP": "20261118T000000Z"}
+               "P1_UTC_STAMP": "20261118T000000Z", "P1_EXPECTED_PARQUET_PREFIX": "000000000000"}
 
 
 @pytest.mark.parametrize("var", sorted(HOOK_VALUES))
@@ -761,15 +764,16 @@ def test_a_test_only_hook_without_p1_test_hooks_is_refused_naming_the_variable(w
     kw["P1_TEST_HOOKS"] = None
     path = {"P1_FEED4": w.stub, "P1_PLANT_CONTROL": w.plant, "P1_AFTER_COPY_HOOK": w.hook}.get(var)
     kw[var] = str(path) if path else HOOK_VALUES[var]
+    if var == "P1_EXPECTED_PARQUET_PREFIX":
+        kw[var] = w.parquet_prefix  # the value that WOULD pass the check if the hook were honoured
     refusal(w, expect=var, **kw)
 
 
 def test_no_hook_variable_and_no_gate_is_an_ordinary_run_that_uses_the_real_tools(w):
-    """Without any hook the launcher runs the real feed4.py; with no parquet it fails there, not in step 1."""
+    """Without any hook the launcher uses the real constant: the stand-in parquet is refused for its hash, not for the gate."""
     kw = {k: None for k in HOOK_VALUES}; kw["P1_TEST_HOOKS"] = None
-    r = w.run("--dry-run", **kw)
+    r = refusal(w, "--dry-run", expect=P1S.REGISTERED_PARQUET_PREFIX, **kw)
     assert "P1_TEST_HOOKS" not in r.stderr  # it was not refused for lack of the gate
-    assert (w.runs / "p1-t1").exists()
 
 
 # ------------------------------------------------------------------ round 4: the printed status is the real status
@@ -962,7 +966,7 @@ def test_setup_txt_records_the_plant_mode_on_its_own_line(w, plant, mode):
 
 
 # BEAM_PARQUET: feed4 needs it in the environment, so the launcher requires it in step 1 (and, as it does for every
-# other environment variable, names it). It must name an existing FILE. The launcher does not hash it.
+# other environment variable, names it). It must name an existing FILE. The launcher hashes it in step 1 against the registered prefix (PROVENANCE.md).
 def test_beam_parquet_is_a_required_environment_variable():
     assert "BEAM_PARQUET" in P1S.REQUIRED_ENV
 
@@ -975,11 +979,42 @@ def test_refuses_a_beam_parquet_that_is_a_directory(w):
     refusal(w, BEAM_PARQUET=str(w.root), expect="BEAM_PARQUET")
 
 
-def test_beam_parquet_is_not_hashed_or_opened_by_the_launcher(w):
-    """Any bytes do: the launcher only checks that a file is there (feed4 and the setup id own the dataset identity)."""
-    w.parquet.write_text("not a parquet file")
+def test_the_registered_prefix_is_the_one_stated_in_provenance_md():
+    """Read at test time from the document the constant cites, so the constant cannot drift from it."""
+    text = open(os.path.join(TOOLS, "..", "PROVENANCE.md")).read()
+    stated = re.findall(r"parquet sha256 prefix `([0-9a-f]{12})`", text)
+    assert stated == [P1S.REGISTERED_PARQUET_PREFIX], stated
+
+
+def test_setup_txt_says_which_dataset_check_ran_the_override(w):
     assert w.run().returncode == 0
-    assert "syn.parquet" not in (w.runs / "p1-t1" / "setup.txt").read_text()
+    lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
+    assert "dataset check: test-only override (P1_TEST_HOOKS)" in lines, lines
+
+
+def test_setup_txt_says_which_dataset_check_ran_the_registered_prefix(w):
+    """Without the hook the real check applies; a stand-in cannot pass it, so call the recorder directly."""
+    assert P1S.dataset_check_line({}) == f"dataset check: registered prefix {P1S.REGISTERED_PARQUET_PREFIX}"
+    assert P1S.dataset_check_line({"P1_EXPECTED_PARQUET_PREFIX": "x", "P1_TEST_HOOKS": "1"}) \
+        == "dataset check: test-only override (P1_TEST_HOOKS)"
+
+
+def test_refuses_a_beam_parquet_whose_bytes_do_not_hash_to_the_expected_prefix(w):
+    """Step 1, nothing touched: the launcher verifies the dataset like the reading runs did (pilot-run.sh)."""
+    w.parquet.write_bytes(b"some other dataset")
+    refusal(w, expect=w.parquet_prefix)
+
+
+def test_the_real_constant_is_the_only_prefix_accepted_without_the_hook(w):
+    kw = {"P1_EXPECTED_PARQUET_PREFIX": None}
+    refusal(w, expect=P1S.REGISTERED_PARQUET_PREFIX, **kw)
+
+
+def test_a_parquet_matching_the_expected_prefix_runs_and_setup_txt_records_its_full_sha256(w):
+    assert w.run().returncode == 0
+    full = P1S.file_sha256(w.parquet)  # the launcher's own function
+    lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
+    assert [l for l in lines if full in l and "BEAM_PARQUET" in l], lines
 
 
 def test_the_docstring_names_both_plant_sets_and_beam_parquet():

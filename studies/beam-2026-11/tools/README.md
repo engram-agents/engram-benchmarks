@@ -207,7 +207,7 @@ row, or an existing `--out`.
 --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]`: answers the question file on a disposable copy of
 a preserved end-state home, placed at the arm-home slot path so the run's session resumes. Environment (all required, no
 host path in the file): `BEAM_PY`, `BEAM_ARM_HOME` (the slot), `BEAM_RUNS_DIR`, `BEAM_PARQUET` (the dataset file feed4.py
-reads; it must be an existing file, and the launcher does not hash it), `P1_PROTECTED` (the preserved homes, one of
+reads; it must be an existing file whose sha256 starts with the prefix `studies/beam-2026-11/PROVENANCE.md` registers, which the launcher checks in step 1 by streaming the file, as the reading runs' `pilot-run.sh` did; `setup.txt` records the full sha256), `P1_PROTECTED` (the preserved homes, one of
 which is `--end-state`). A plant set is either all three of `--plant-builtin --plant-engram --plant-absent` (optionally
 `--plant-question`) or exactly `--plant-engram --plant-absent` (engram-only, for control 2: plant-control.py runs without
 `--builtin-fact` and writes nothing under any built-in memory folder); any other combination, and `--plant-question`
@@ -220,4 +220,4 @@ KeyboardInterrupt, SystemExit and other exceptions); a SIGKILL, power loss or ma
 final check leaves no exit code at all. Outputs under `BEAM_RUNS_DIR/p1-LABEL`: `before-hashes.txt`, `after-hashes.txt`,
 `plan.json`, `run/`, `transcripts/`, `delivery.txt`, `setup.txt`. Exit codes: 0 good, 1 delivery check failed, 2 refused,
 3 copy, plan check or feed4 failed, 4 plant failed, 5 a protected home changed. The step list, the store-hash method and the
-test-only hooks (`P1_FEED4`, `P1_PLANT_CONTROL`, `P1_UTC_STAMP`, `P1_AFTER_COPY_HOOK`, `P1_TEST_RAISE`) are in its docstring.
+test-only hooks (`P1_FEED4`, `P1_PLANT_CONTROL`, `P1_UTC_STAMP`, `P1_AFTER_COPY_HOOK`, `P1_TEST_RAISE`, `P1_EXPECTED_PARQUET_PREFIX`; the last replaces the registered dataset prefix and `setup.txt` says so on its `dataset check:` line) are in its docstring.
