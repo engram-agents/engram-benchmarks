@@ -1534,3 +1534,180 @@ def test_s8_a_read_of_a_file_outside_the_folder_is_its_own_path_of_origin(tmp_pa
     r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
     assert verdicts(r.stdout)["c-folder"] == "FAIL" and "outside" in r.stdout.lower(), r.stdout
     assert "no path of origin printed" not in r.stdout
+
+
+# ---- the two-control session (design owner's ruling, narrow form): control 2 plants the ENGRAM fact and the nowhere fact only.
+# ACCEPTED sets, exactly two: {engram, folder, none} one each (unchanged), and {engram, none} one each where the engram control
+# carries `memory_dir`, an absolute path holding a `/.claude/` segment. Every other set is refused with exit 1, naming the set.
+def set2_controls(**over):
+    eng = {"id": "c-engram", "token": T_ENGRAM, "channel": "engram", "evidence_file": EVID_FILE, "memory_dir": MEM}
+    eng.update(over)
+    return [eng, {"id": "c-none", "token": T_ABSENT, "channel": "none"}]
+
+
+def set2_run(eng=None, none_answer="I have no record of that.", none_calls=None):
+    r = Run().turn("compact", None, "compacted")
+    r.turn("question", "c-engram", f"The code is {T_ENGRAM}.", eng if eng is not None else eng_default())
+    r.turn("question", "c-none", none_answer,
+           none_calls if none_calls is not None else [call(ENG_Q, {"query": "tide"}, '{"results":[]}')])
+    return r
+
+
+def _eng_ctl():
+    return {"id": "c-engram", "token": T_ENGRAM, "channel": "engram"}
+
+
+def _fol_ctl():
+    return {"id": "c-folder", "token": T_FOLDER, "channel": "folder", "folder_file": FOLDER_FILE}
+
+
+def _none_ctl():
+    return {"id": "c-none", "token": T_ABSENT, "channel": "none"}
+
+
+REFUSED_SETS = {
+    "engram only": [_eng_ctl()],
+    "folder only": [_fol_ctl()],
+    "none only": [_none_ctl()],
+    "folder and none": [_fol_ctl(), _none_ctl()],
+    "engram and folder": [_eng_ctl(), _fol_ctl()],
+    "empty list": [],
+    "duplicated engram": [_eng_ctl(), {**_eng_ctl(), "id": "c-engram2"}, _none_ctl()],
+    "duplicated none": [{**_eng_ctl(), "memory_dir": MEM}, _none_ctl(), {**_none_ctl(), "id": "c-none2"}],
+    "four controls": [_eng_ctl(), _fol_ctl(), {**_fol_ctl(), "id": "c-folder2"}, _none_ctl()],
+    "engram and none without memory_dir": [_eng_ctl(), _none_ctl()],
+    "relative memory_dir": [{**_eng_ctl(), "memory_dir": "arm/.claude/projects/-w/memory"}, _none_ctl()],
+    "memory_dir without /.claude/": [{**_eng_ctl(), "memory_dir": "/arm/projects/-w/memory"}, _none_ctl()],
+    "memory_dir that begins with /.claude/ (no home)": [{**_eng_ctl(), "memory_dir": "/.claude/memory"}, _none_ctl()],
+    "memory_dir not a string": [{**_eng_ctl(), "memory_dir": 7}, _none_ctl()],
+    "memory_dir on a three-channel set (engram control)": [{**_eng_ctl(), "memory_dir": MEM}, _fol_ctl(), _none_ctl()],
+    "memory_dir on a three-channel set (folder control)": [_eng_ctl(), {**_fol_ctl(), "memory_dir": MEM}, _none_ctl()],
+    "memory_dir on the none control of a two-control set": [{**_eng_ctl(), "memory_dir": MEM}, {**_none_ctl(), "memory_dir": MEM}],
+}
+
+
+@pytest.mark.parametrize("name", sorted(REFUSED_SETS))
+def test_two_control_set_every_other_set_is_refused_with_exit_1_naming_the_set_received(tmp_path, name):
+    ctls = REFUSED_SETS[name]
+    r = run_check(tmp_path, good_run(), controls=ctls)
+    assert r.returncode == 1 and r.stdout.startswith("FAIL:"), r.stdout + r.stderr
+    assert "one of two sets" in r.stdout, r.stdout                          # the refusal states what is accepted
+    assert f"got {[c['channel'] for c in ctls]}" in r.stdout, r.stdout     # and names the set it received
+    assert "RESULT" not in r.stdout                                         # no verdict was produced
+
+
+def test_two_control_set_the_docstring_states_both_accepted_sets():
+    doc = load_tool().__doc__
+    assert "{engram, folder, none}" in doc and "{engram, none}" in doc and "memory_dir" in doc
+
+
+def test_two_control_set_a_well_formed_two_control_file_is_accepted(tmp_path):
+    r = run_check(tmp_path, set2_run(), controls=set2_controls())
+    assert r.returncode == 0 and "one of two sets" not in r.stdout, r.stdout
+    assert verdicts(r.stdout) == {"c-engram": "PASS", "c-none": "REVIEW"}, r.stdout
+
+
+def test_two_control_set_memory_dir_need_not_exist_on_disk_and_a_trailing_slash_is_the_same_folder(tmp_path):
+    assert not os.path.exists(MEM)
+    cat = call("Bash", {"command": f"cat {MEM}/other.md"}, f"x {T_ENGRAM}")
+    r = run_check(tmp_path, set2_run(eng=eng_default() + [cat]), controls=set2_controls(memory_dir=MEM + "/"))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+# ---- set (ii) behaviour (5a-5d)
+def test_two_control_5a_the_engram_fact_passes_on_reachability_with_an_engram_read_alone(tmp_path):
+    r = run_check(tmp_path, set2_run(), controls=set2_controls())
+    assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS" and "reachable" in r.stdout, r.stdout
+    r = run_check(tmp_path, set2_run(eng=[]), controls=set2_controls())      # and with no engram read it fails
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+def test_two_control_5b_a_bash_cat_of_a_file_in_memory_dir_returning_the_token_after_the_first_read_fails_c(tmp_path):
+    cat = call("Bash", {"command": f"cat {MEM}/not_made_by_the_student.md"}, f"the vault code {T_ENGRAM}\n")
+    r = run_check(tmp_path, set2_run(eng=eng_default() + [cat]), controls=set2_controls())
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
+    home = call("Bash", {"command": 'cat "$HOME"/.claude/projects/-w/memory/not_made.md'}, f"the vault code {T_ENGRAM}\n")
+    r = run_check(tmp_path, set2_run(eng=eng_default() + [home]), controls=set2_controls())   # the home comes from memory_dir
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+    out = call("Bash", {"command": "cat /scratch/n.md"}, f"x {T_ENGRAM}")    # a target outside memory_dir is not a folder read
+    r = run_check(tmp_path, set2_run(eng=eng_default() + [out]), controls=set2_controls())
+    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+
+
+def test_two_control_5c_a_parent_grep_printing_the_in_folder_path_is_the_s8_note_not_a_fail(tmp_path):
+    g = parent_grep(f"{IN_PATH}:2:vault code {T_ENGRAM}")
+    for eng in ([g] + eng_default(), eng_default() + [g]):
+        r = run_check(tmp_path, set2_run(eng=eng), controls=set2_controls())
+        assert r.returncode == 0 and verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+        assert NOTE_TEXT in r.stdout, r.stdout
+
+
+def test_two_control_5d_the_none_control_fails_on_the_engram_token_and_is_review_otherwise(tmp_path):
+    r = run_check(tmp_path, set2_run(none_answer=f"I think it is {T_ENGRAM}."), controls=set2_controls())
+    assert r.returncode == 1 and verdicts(r.stdout)["c-none"] == "FAIL", r.stdout
+    assert f"engram token {T_ENGRAM!r}" in r.stdout, r.stdout
+    r = run_check(tmp_path, set2_run(none_answer="No record."), controls=set2_controls())
+    assert r.returncode == 0 and verdicts(r.stdout)["c-none"] == "REVIEW", r.stdout
+    r = run_check(tmp_path, set2_run(none_answer=f"unrelated {T_FOLDER}"), controls=set2_controls())   # no folder fact is planted
+    assert verdicts(r.stdout)["c-none"] == "REVIEW", r.stdout
+
+
+# ---- 4. the S8 guard: the token only inside the printed PATH (a colon after it), not in the text after the colon
+def test_s8_guard_a_parent_grep_line_with_the_token_only_in_the_printed_path_is_an_opening(tmp_path):
+    g = parent_grep(f"{MEM}/{T_FOLDER}.md:1:unrelated text")
+    r = run_check(tmp_path, reach_run(fol=[g] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "before" in r.stdout.lower(), r.stdout
+    assert NOTE_TEXT not in r.stdout
+
+
+# ---- 3. EQUIVALENCE: the three-channel path reads the same as at e95a7217 (byte-equal stdout, equal exit code)
+BASELINE = "e95a7217308ac58010b998335fcec461df9cee0b"
+
+
+def _baseline_script(tmp_path):
+    p = subprocess.run(["git", "-C", TOOLS, "show", f"{BASELINE}:studies/beam-2026-11/tools/control-source-check.py"],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip(f"baseline {BASELINE[:8]} not in this clone (it is an unpushed commit): {p.stderr.strip()[:120]}")
+    f = tmp_path / "baseline-control-source-check.py"
+    f.write_text(p.stdout)
+    return str(f)
+
+
+def _equivalence_fixtures():
+    quote = f"The folder note says the lantern code is {T_FOLDER}."
+    grep = call("Bash", {"command": f"grep -rn lantern {MEM}"}, f"{MEM}/note.md:2: the lantern code {T_FOLDER}")
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File created successfully")
+    with_run_dir = [{**c, "run_dir": "/ev/run-7"} if c["channel"] == "engram" else c for c in CONTROLS]
+    none_fails = (Run().turn("compact", None, "c").turn("question", "c-engram", "a", eng_default())
+                  .turn("question", "c-folder", "b", fol_default()).turn("question", "c-none", f"it is {T_FOLDER}", []))
+    return {
+        "good run": (good_run(), CONTROLS),
+        "control-1 shape": (reach_run(fol=[grep, own_obs(quote, node="ob_0109"),
+                                           list_items(("ob_0003", "an unrelated node"), ("ob_0109", quote))]), CONTROLS),
+        "s8 note folder": (reach_run(fol=[parent_grep(f"{IN_PATH}:4:the lantern code {T_FOLDER}")] + fol_default()), CONTROLS),
+        "s8 note engram": (reach_run(eng=[parent_grep(f"{IN_PATH}:2:vault code {T_ENGRAM}")] + eng_default()), CONTROLS),
+        "s8 outside opening": (reach_run(fol=[parent_grep(f"/scratch/other/n.txt:1:{T_FOLDER}")] + fol_default()), CONTROLS),
+        "c-prime file note": (reach_run(eng=eng_default() + [w, call("Read", {"file_path": NOTE_FILE}, NOTE_CATN)]), CONTROLS),
+        "folder read returned engram token": (reach_run(eng=eng_default() + [call("Read", {"file_path": OLD_FILE}, f"x {T_ENGRAM}")]), CONTROLS),
+        "no engram read": (reach_run(eng=[]), CONTROLS),
+        "none control fails": (none_fails, CONTROLS),
+        "run_dir on a control": (good_run(), with_run_dir),
+        "evidence opened early": (reach_run(mid=[call("Bash", {"command": f"cat {EVID_FILE}"}, "z")]), CONTROLS),
+    }
+
+
+def test_equivalence_the_three_channel_path_is_byte_equal_to_the_e95a7217_version(tmp_path):
+    old = _baseline_script(tmp_path)
+    codes = set()
+    for name, (run, ctls) in _equivalence_fixtures().items():
+        d = tmp_path / name.replace(" ", "_")
+        d.mkdir()
+        e, t = run.write(d)
+        c = d / "controls.json"; c.write_text(json.dumps(ctls))
+        argv = ["--events", e, "--turns", t, "--controls", str(c)]
+        a = subprocess.run([sys.executable, old] + argv, capture_output=True, text=True)
+        b = subprocess.run([sys.executable, TOOL] + argv, capture_output=True, text=True)
+        assert (b.stdout, b.returncode) == (a.stdout, a.returncode), name
+        codes.add(a.returncode)
+    assert codes == {0, 1}   # both a clean read and a FAIL are compared: the comparison is not of two empty outputs

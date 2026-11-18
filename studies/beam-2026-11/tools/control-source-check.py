@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Control source check (BEAM P1 answering). This file is the study's harness, not shipped product code.
 
-For each of the three planted-fact control questions, decides whether the planted fact was REACHABLE through its intended
+For each of the planted-fact control questions (three, or two in the two-control session below), decides whether the planted fact was REACHABLE through its intended
 channel, read off the tool calls of the whole answering session. The answer text is never used to pass or fail an
 engram/folder control: it is printed beside the verdict for a human (answered / refused / abstained decides nothing; this
 tool never classifies a refusal). For the 'none' control it prints the answer for a human to judge, and fails only if the
@@ -12,10 +12,26 @@ Inputs (all written by feed4.py and the planting step):
               one `result` event per turn);
   --turns     turns.jsonl; row k is the k-th `result` event's turn, and a question row carries the item's "id" (a row of
               kind "compact" is the compaction turn);
-  --controls  JSON list of {id, token, channel: "engram"|"folder"|"none", folder_file?, evidence_file?, run_dir?}; exactly
-              one control of each channel. The 'none' control's token is the absent (planted nowhere) value. `run_dir` is
-              an optional per-control field (a control file without it is accepted unchanged); the run directories of all
-              controls are watched together, like the evidence files.
+  --controls  JSON list of {id, token, channel: "engram"|"folder"|"none", folder_file?, memory_dir?, evidence_file?, run_dir?}.
+              The 'none' control's token is the absent (planted nowhere) value. `run_dir` is an optional per-control field
+              (a control file without it is accepted unchanged); the run directories of all controls are watched together,
+              like the evidence files.
+
+ACCEPTED CONTROL SETS (exactly two; the design owner's ruling on control 2, narrow form: "engram + absent only, every other
+subset still refused"):
+  (i)  {engram, folder, none}, one control of each channel: read exactly as before, and `memory_dir` is not allowed in it.
+  (ii) {engram, none}, one each, where the engram control carries `memory_dir`: the ABSOLUTE path of the student's built-in
+       memory folder, with a `/.claude/` segment (the student's home is the part before it, as for a folder_file). It need
+       not exist on disk (compared by realpath of the string, as every path here). There is no folder control and no folder
+       token: the folder channel is then the directory `memory_dir`, and wherever the folder is derived (the folder
+       directories, the home for S7's `~` / `$HOME`, S8's in-folder test) it comes from `memory_dir` instead of the
+       directory of a folder_file; the absent folder token is handled explicitly (the none control's token check runs over
+       the tokens that exist, the engram token only), and an absent folder token never makes anything PASS that would
+       otherwise fail.
+Every other set is REFUSED, exit 1, with a message naming the set received: {engram}, {folder}, {none}, {folder, none},
+{engram, folder}, an empty list, a duplicated channel, (ii) without `memory_dir` or with a relative one, one with no
+`/.claude/` segment (or none after a home: `/.claude/...`) or one that is not a string, and `memory_dir` given on a
+three-channel set or on any control but the engram one (two sources for the folder: refuse rather than choose).
 
 Design principle (PR 8 reviewer rounds 2 and 3). Every approximation this instrument makes errs toward FAIL for the clause
 it serves: where it cannot tell, a fact fails rather than passes.
@@ -210,8 +226,13 @@ def segment(events):
     return turns
 
 
+class MemoryDir(str):
+    """An entry of `folder_files` that is already the memory DIRECTORY (set (ii)'s `memory_dir`), not a file inside it. Every
+    other entry is a folder_file, whose directory is the folder. home_of (the `/.claude/` split) reads both alike."""
+
+
 def home_of(folder_files):
-    """The student's home: the part of a folder_file's path before "/.claude/" (None if no folder_file has one)."""
+    """The student's home: the part of a folder_file's (or the memory_dir's) path before "/.claude/" (None if none has one)."""
     for p in folder_files:
         i = p.find("/.claude/")
         if i > 0:
@@ -361,7 +382,7 @@ def file_capable(name):
 
 
 def folder_dirs(folder_files):
-    return [os.path.realpath(os.path.dirname(p)) for p in folder_files]
+    return [os.path.realpath(p if isinstance(p, MemoryDir) else os.path.dirname(p)) for p in folder_files]
 
 
 def inside(path, dirs):
@@ -382,7 +403,7 @@ def folder_target_paths(call, folder_files):
     if n in ("Read", "NotebookRead"):
         got = inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or ""
         ok = bool(got) and (inside(got, dirs) or (n == "Read" and any(os.path.basename(got) == os.path.basename(p)
-                                                                       for p in folder_files)))
+                                                                       for p in folder_files if not isinstance(p, MemoryDir))))
         return [got] if ok else []
     if n in ("Grep", "Glob"):
         cands = [inp.get("path")] + ([inp.get("pattern")] if n == "Glob" and str(inp.get("pattern", "")).startswith("/") else [])
@@ -667,6 +688,22 @@ def describe(calls):
     return "\n".join(lines)
 
 
+def check_control_set(ctls):
+    """None if `ctls` is one of the two accepted sets (see the module docstring), else the reason it is refused."""
+    chs = sorted(c["channel"] for c in ctls)
+    if chs == sorted(CHANNELS):
+        return ("`memory_dir` is not allowed on a three-channel set (two sources for the folder)"
+                if any("memory_dir" in c for c in ctls) else None)
+    if chs != ["engram", "none"]:
+        return "not an accepted set of channels"
+    if any("memory_dir" in c for c in ctls if c["channel"] != "engram"):
+        return "`memory_dir` belongs on the engram control only"
+    md = next(c for c in ctls if c["channel"] == "engram").get("memory_dir")
+    if not isinstance(md, str) or not os.path.isabs(md) or md.find("/.claude/") <= 0:
+        return "the engram control needs `memory_dir`: an absolute path with a /.claude/ segment after a home"
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--events", required=True); ap.add_argument("--turns", required=True)
@@ -683,8 +720,10 @@ def main():
         print(f"FAIL: cannot read inputs: {type(e).__name__}: {e}")
         return 1
     bad = []
-    if sorted(c["channel"] for c in ctls) != sorted(CHANNELS):
-        print(f"FAIL: the controls must be exactly one of each channel {list(CHANNELS)}, got {[c['channel'] for c in ctls]}")
+    refusal = check_control_set(ctls)
+    if refusal:
+        print(f"FAIL: the controls must be one of two sets, {{engram, folder, none}} one each, or {{engram, none}} one each with "
+              f"an absolute `memory_dir` (a /.claude/ path) on the engram control; {refusal}; got {[c['channel'] for c in ctls]}")
         return 1
     segs = segment(events)
     if len(segs) != len(rows) or any(s[1] is None for s in segs):
@@ -700,7 +739,9 @@ def main():
                   f"{str(row.get('result'))[:80]!r}, the {k + 1}-th result event {seg[1][:80]!r}")
             return 1
     tokens = {c["channel"]: c["token"] for c in ctls}
-    folder_files = [c["folder_file"] for c in ctls if c.get("folder_file")]
+    # set (i): the folder is the directory of the folder control's folder_file; set (ii): the engram control's memory_dir
+    folder_files = ([c["folder_file"] for c in ctls if c.get("folder_file")] if "folder" in tokens else
+                    [MemoryDir(c["memory_dir"]) for c in ctls if c["channel"] == "engram"])
     opener_paths = [c[k] for c in ctls for k in ("evidence_file", "run_dir") if c.get(k)]
     flat = [(ti, call) for ti, seg in enumerate(segs) for call in seg[0]]
     last_compact = max((k for k, r in enumerate(rows) if r.get("kind") == "compact"), default=-1)

@@ -198,5 +198,17 @@ relative path, a glob, a variable other than HOME, a subshell path, a Grep with 
 `Agent` subagent that reads the memory folder returns the token with no folder target in this stream, so for the engram
 control it is a note at most. It never decides abstention for the `none` control.
 
+Two control sets are accepted, exactly (design owner's ruling on control 2, narrow form). (i) `{engram, folder, none}`, one
+each, read as above (`memory_dir` is refused there). (ii) `{engram, none}`, one each, where the engram control carries
+`memory_dir`: the absolute path of the student's built-in memory folder, with a `/.claude/` segment (the home is the part
+before it); it need not exist on disk. The folder channel is then that directory: the folder directories, the home for
+`~` / `$HOME` and S8's in-folder test all come from `memory_dir` instead of a `folder_file`, and there is no folder token
+(the none control's token check runs over the engram token only). Every other set is refused, exit 1, with a message naming
+the set received: a single control, `{folder, none}`, `{engram, folder}`, an empty list, a duplicated channel, (ii) without
+`memory_dir` or with a relative one, one with no `/.claude/` segment or not a string, and `memory_dir` on a three-channel
+set or on any control but the engram one. Cells: `test_two_control_*`, `test_s8_guard_*`, and
+`test_equivalence_*`, which runs the e95a7217 version of the script and the new one on synthetic three-channel runs and
+asserts byte-equal stdout and equal exit codes (it skips where that unpushed commit is absent from the clone).
+
 Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
 cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.
