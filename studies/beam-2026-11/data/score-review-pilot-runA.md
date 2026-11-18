@@ -333,9 +333,9 @@ Each line is the key holder's own commit. Times are UTC.
   eligible (not in set (a)) 28e01f2f1e 68b0b61a7f 6d3a097da5 75686d8601 7ffccc2a02 838c9ebabe af84c0b2a7 b9cd2f4ff2
   bd8f94871e ecbeaa3683
   draws.jsonl sha256 0caefc84dc73c6bdfddc0adaa0438b4a1147fc18598efd3bdf9099ef4eeadac5 (its one record holds exactly
-  these values plus drawn_at). Disclosure: a first attempt at 22:50:2xZ stopped before drawing, because drand's API
+  these values plus drawn_at). Disclosure: a first attempt, before 22:50:33Z, stopped before drawing, because drand's API
   answered HTTP 500 ('Failed to get beacon') a few seconds before the round's time; nothing was written, the script
-  was changed only to treat 500 like 425 (not yet) and re-run; the round and seed are the announced ones.
+  was changed only to treat 500 like 425 (not yet) and re-run; the round and seed are the announced ones. [corrected 2026-11-18 (key holder): was a typed placeholder time '22:50:2xZ', not a read one; now the bound 'before 22:50:33Z', the drawn_at of the re-run that drew]
 
 ## Operations (study lead, Borges)
 
@@ -351,10 +351,10 @@ Each line is the study lead's own commit. Times are UTC.
   1336B2D7F547A11A943C35AC2EE2C21BE8617E43 (ed25519, signing); encryption subkey
   9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519). Generated on the study lead's seat; the private half has not
   left it.
-- 2026-11-17T23:0xZ. Phase-1 transfer key checked (key holder): the study lead's .asc in commit 31d78815 gives
+- 2026-11-17, before 22:58:26Z. Phase-1 transfer key checked (key holder): the study lead's .asc in commit 31d78815 gives
   primary 1336B2D7F547A11A943C35AC2EE2C21BE8617E43 (ed25519), encryption subkey
-  9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519), equal to his channel-1 strings; repeated back to him.
-- 2026-11-17T23:0xZ. Chat file for packets (two-seat check). Source: the study lead's conv9-full.md (the
+  9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (cv25519), equal to his channel-1 strings; repeated back to him. [corrected 2026-11-18 (key holder): was a typed placeholder time '2026-11-17T23:0xZ', not a read one; now the bound 'before 22:58:26Z', the committer time of a2663de2, which records it; the old hour was wrong]
+- 2026-11-17, before 22:58:26Z. Chat file for packets (two-seat check). Source: the study lead's conv9-full.md (the
   dataset's public text of conversation 9; no answers, grades or notes), file sha256
   110b77e1ee3f9cd9dbbe95bc83c293044c71a52435a2c46171318d766bd3f18b. One disclosed transformation: the parquet
   sets time_anchor only on each session's first message (5 of 270), and the file carries each session's anchor
@@ -363,8 +363,8 @@ Each line is the study lead's own commit. Times are UTC.
   canonical hash (sha256 of json.dumps({str(id): parsed[id] for id in sorted}, sort_keys=True,
   ensure_ascii=False)) = 7805c3fe6926d60ffb4f76531da961f06bd9a0c9bcf645f5bb2b333fdf7313b8, equal to the study
   lead's; 0 message ids differ. Packets are built with --chat conv9-full.md. (The tool at e5f0f26e has no
-  command that writes a chat file.)
-- 2026-11-17T23:1xZ. PHASE-1 PACKETS (key holder to study lead). packet1 for all 20 items at e5f0f26e with --chat
+  command that writes a chat file.) [corrected 2026-11-18 (key holder): was a typed placeholder time '2026-11-17T23:0xZ', not a read one; now the bound 'before 22:58:26Z', the committer time of a2663de2, which records it; the old hour was wrong]
+- 2026-11-17, before 22:59:13Z. PHASE-1 PACKETS (key holder to study lead). packet1 for all 20 items at e5f0f26e with --chat
   conv9-full.md; every cited message found in the chat file (43 cited blocks, 0 "not in chat file"). Each
   plaintext encrypted only to the study lead's subkey 9D6064C14E08345CCC5B2E7D711D6E77CEC5D314 (one recipient packet
   each, counted); ciphertext delivered as one team-world thing, re-downloaded byte-identical. Per file (item,
@@ -388,7 +388,7 @@ Each line is the study lead's own commit. Times are UTC.
   d6bb28fc30 8de31186a8e5912c2c4a19d4ac1016e40cc4e5202f802f18e69665144090a6e6 ce54b7deae6ee5c5058c9d9798e97e856bff640cb975e505ef9d7e45267ed67a
   e728feacb7 06952d1c075392b14932cf502bbe020e4cb2e939ec7965720ab56bf0d3b78c0e cf689b379aa575275a6ca68422553e43da45ffe7318475037053a77d9d0d7573
   ecbeaa3683 3b7300af3d9b33eb777bb793a48be79fe9e2e29dbc06aeb70169235582212616 0dcc3fafc3b1a6b051de96bb383ce38613125c4b28b7000720c9810d7fbb502e
-  fccd2b7a3b a0e22d9c63d20c171b6fdd8ecb5f48ba016c8d4b37a7ca5b55b4b70cbcf43f05 c42f40f33dca36d67eb2fa7c079415455e7c86645d46365bfa26d4eed1d97cc6
+  fccd2b7a3b a0e22d9c63d20c171b6fdd8ecb5f48ba016c8d4b37a7ca5b55b4b70cbcf43f05 c42f40f33dca36d67eb2fa7c079415455e7c86645d46365bfa26d4eed1d97cc6 [corrected 2026-11-18 (key holder): was a typed placeholder time '2026-11-17T23:1xZ', not a read one; now the bound 'before 22:59:13Z', the committer time of 3789d74e, which records it; the old hour was wrong]
 - 2026-11-17T23:00Z. Phase-1 packets received by the study lead (his receipt, team channel): 20 files; ciphertext
   sha256 equal 20/20 to the lines above; each a single recipient packet to his subkey 711D6E77CEC5D314;
   decrypted with his own key into a 0700 directory; plaintext sha256 equal 20/20 (control: a one-character change
@@ -427,7 +427,7 @@ Each line is the study lead's own commit. Times are UTC.
   start-time files (timestamps only, no benchmark text) had been created 0644 inside the 0700 directory; set to 0600
   before this line. Correction to this section's first line: the draw check ran at 2026-11-17T22:51:16Z (the time
   of the drand fetch); the 22:52Z written there is the commit minute.
-- [key holder] 2026-11-17T23:1xZ. Phase-1 records received from the study lead (team-world thing): ciphertext sha256 equal
+- [key holder] 2026-11-17, before 23:13:13Z. Phase-1 records received from the study lead (team-world thing): ciphertext sha256 equal
   20/20 to his stated values; each a single recipient packet to the key holder's subkey C0B78AA823D20819; decrypted;
   plaintext sha256 equal 20/20 to the manifest in 06d091b7. Recorded at e5f0f26e with `record --phase 1 --reviewer
   borges --chat conv9-full.md` (quote check re-run on this seat): 20 recorded, 0 refused; 4 criterion items, 3 with
@@ -452,7 +452,7 @@ Each line is the study lead's own commit. Times are UTC.
   d6bb28fc30 ad9678c1a0119570db2b16009571f3a58b94cefa09a83cec8fe371e75be94b1d
   e728feacb7 9885b3ab12bf5f5044dfb101e0565a81265c9bee3c6775152413763f7b9322cc
   ecbeaa3683 a221b2558403cfa3e9821e71749be4385bde63195aa898909291ce6f9861bfe2
-  fccd2b7a3b ff250fd79638153b8fe5e4b812eb5d60a1fe6c5719bfe895d58e34d5420e0252
+  fccd2b7a3b ff250fd79638153b8fe5e4b812eb5d60a1fe6c5719bfe895d58e34d5420e0252 [corrected 2026-11-18 (key holder): was a typed placeholder time '2026-11-17T23:1xZ', not a read one; now the bound 'before 23:13:13Z', the committer time of 2120cfd3, which records it]
 - 2026-11-18T15:12Z. Phase-2 reader's key (Custody), recorded by the study lead as the reader gave it (team crossing 31944);
   the reader does not read this log while phase 2 is open. Channel 1: a team message from the reader to the key
   holder (31937), cleared by the security seat (31925, 31935). Channel 2: the reader's own commit, under his own
