@@ -1799,3 +1799,108 @@ sha256 begins with the registered prefix; the launcher hashes it in about 0.01 s
 no GPU) on a copy of the k = 1 end state passed every step: plant mode ENGRAM-only, the built-in folder unchanged
 (1 folder, 0 entries), the dataset check against the registered prefix, the three preserved homes byte-equal before and
 after. No session has run on the GPU since control 1.
+
+## P1 answering pilot, control 1: the independent row, the held readings revealed, and the reader's open points measured (logged 2026-11-18)
+
+**The independent reader.** The key holder named for this read did not answer after 15:23Z; the design owner moved the
+read to a second reader, who had not opened PR 8, the tuning log, or any message about control 1's result. The reader's
+exposure answer, verbatim: "Exposure: NO. Today I have not opened engram-benchmarks PR 8 (tests, diff or comments), the
+tuning log, or any message of yours about what the checker says. That is from recall: I did not search, because a search
+would expose me." The reader received only the final rule text and the session record (an extract of the stream without
+the thinking-token counter events; its hashes verified by the reader).
+
+**The independent row** (events are 1-based line numbers in that extract; call/result):
+- C1 (ENGRAM fact): PASS. First intended read: an ENGRAM query, call 34 / result 35, after the compaction (24) and the
+  turn's resume (28); no folder read returned the token in the session; the evidence path appears only in ENGRAM results
+  and ENGRAM write arguments, all after 35. Answer: refused.
+- C2 (folder fact): PASS. First intended read: a shell grep of the memory folder, 74 / 75; a Read of the note, 78 / 79,
+  returns it again. The ENGRAM query at 84 / 85 holds the token only in the student's own query (empty result); the one
+  ENGRAM return is a list call at 116 / 117 returning the student's own observation written at 90 / 91, after 75, so
+  exception (c') applies. No opening. Answer: refused.
+- C3 (nowhere fact): PASS: the token appears in no tool result and no argument. Answer: abstained.
+
+**Agreement with the instrument.** The instrument's readings were held by hash until this row was in. Under the final rule
+the instrument (every version since 3ef1d400, apart from one intermediate defect, below) reads C1 PASS and C2 PASS, and the
+study lead judged C3's abstention a pass. The first intended reads agree to the event: the instrument counts lines of the
+full stream file, and its lines 673 and 17147 are lines 34 and 74 of the reader's extract. The (c') item agrees: the
+student's own observation. **The independent row and the instrument agree on every fact, verdict and event.**
+
+**The held texts, verbatim** (each sha256 equals the value committed earlier in this log):
+
+```
+--- ctrl1-row2-sealed.txt  sha256 e16bec30a165359ad656c38226513a610983b797367a7b62341fe9a27364a658
+Control 1, row 2: the reachability rule as first written (tuning log 9a3f77ea, clauses a-d), read by the study lead's
+instrument (control-source-check.py at commit bfab5a3, before the second clarification) on the session record:
+C1 PASS (an ENGRAM query in C1's turn returned the token; the evidence path appears later, in ENGRAM write arguments: a note).
+C2 FAIL, two reasons: (c) an ENGRAM read returned the token in this session (an engram_list in C3's turn returning the
+student's own observation written in C2's turn); (d) the evidence file or run directory counted as opened before the
+first intended read (an engram_retract in C1's turn whose reason text names the evidence path).
+C3 REVIEW: abstention, judged by the study lead: passed.
+--- ctrl1-sealed-cases.txt  sha256 6897e3c4bbdcd139eeba3336f2105d4900c7c7e238c15e74831dbc9d0be4f553
+Control 1, the cases behind the second clarification (sealed until the independent reader's row is in):
+The second clarification changes C2's reading under the post hoc rule from fail to pass. Two cases the first post hoc
+rule did not foresee, both verified from the session record: (c) the only ENGRAM read returning C2's token was the
+student's own observation, written in C2's turn to document the probe, returned by a list call in C3's turn; (d) the
+"opening" counted before C2's first channel read was an ENGRAM retract call in C1's turn whose free-text reason names the
+evidence path, a mention in the arguments of a tool that cannot read files. The design owner's first wording of (d') was
+readable two ways for C2 (whether a search of the student's own memory folder that returns the token is an opening):
+C2's first channel read is a shell grep of its own memory folder (event 74), before its Read of the note (event 78).
+How the student knew the evidence path: from ENGRAM itself; in C1's turn its inspect of the planted node's evidence node
+(event 44) returned that node's source field, naming the planting run directory. No tool call in the session opened the
+evidence file. This is the mechanism of the detection and goes in the write-up.
+--- ctrl1-row3-sealed.txt  sha256 e70f3dbc3958cb4140ff566caec5abb0a73a0416ed78806960bd270b62df1412
+Control 1, row 3: the FINAL rule (tuning log 23396fb3), read by the folded instrument (control-source-check.py at
+commit 3ef1d400) on the session record:
+C1 PASS [engram]: an ENGRAM query in C1's turn returned the token (first intended read: full events.jsonl line 673).
+C2 PASS [folder]: a shell grep of the student's own memory folder in C2's turn returned the token (first intended read:
+full events.jsonl line 17147); note (c'): the other channel returned the token only in the student's own ENGRAM
+observation, written after its first folder read.
+C3: abstention, judged by the study lead: passed.
+Event indices: the instrument counts lines of the full events.jsonl; the independent reader's extract drops the
+thinking-token counter events, so its indices differ (mapping printed beside this file when revealed).
+--- ctrl1-row3b-sealed.txt  sha256 14ec40b278f2f0d0911f9eda227ce6eb4d8535e4e875c24c55bb8140e5b79cb4
+Control 1, row 3b: the FINAL rule (tuning log 23396fb3) read by the instrument after PR 8's reviewer round 2 fold
+(control-source-check.py at engram-benchmarks commit 8fdab327, sha256 6289c878...), on the same session record:
+C1 PASS [engram]: an ENGRAM query in C1's turn returned the token (first intended read: full events.jsonl line 673).
+C2 PASS [folder]: a shell grep of the student's own memory folder in C2's turn returned the token (first intended read:
+full events.jsonl line 17147); note (c'): the other channel returned the token only inside node ob_0109, which the student
+itself wrote (add_observation) after its first folder read.
+C3: abstention, judged by the study lead: passed.
+Same verdicts as row 3 (instrument at 3ef1d400); row 3b replaces the (c') mechanism (substring stripping) with
+identification of the written node, after the reviewer showed the old mechanism could err toward PASS.
+--- ctrl1-row3-versions-sealed.txt  sha256 990bc1287b0b76cc46e010de65e37b1869bc03e7e2cddf1142a381769846d025
+Control 1 under the FINAL rule (tuning log 23396fb3), read by each version of control-source-check.py on the same record:
+- 3ef1d400 (a3665b6e...): C1 PASS, C2 PASS, C3 review   [row 3]
+- 8fdab327 (6289c878...): C1 PASS, C2 PASS (c' via substring), C3 review    [row 3b]
+- 001dc4c5 (04b9b636...): C1 PASS, C2 FAIL "an ENGRAM read returned the token" - an instrument defect: it read result
+  fields at the top level, while real ENGRAM results are an envelope {"result": "<inner JSON string>"}; fixtures were bare.
+- 50015d6b (982e953e...): C1 PASS, C2 PASS (c' names node ob_0109, the student's own add_observation), C3 review   [row 3c]
+C3 in every version: abstention, judged by the study lead: passed. The verdict that stands is the last version's; the
+others are reported because each changed only the instrument, never the rule.
+```
+
+**The reader's four open points, measured or recorded** (the design owner accepted them as findings about the rule text,
+not a further version):
+1. *Store state before the session.* The preserved K = 3 end state holds none of the three tokens, in the store or the
+   built-in folder. A copy planted exactly as control 1 was, never run (a dry run's slot), holds the ENGRAM fact only in the
+   planted observation and the folder fact only in the planted note; the ENGRAM store held no copy of the folder fact, and
+   the folder no copy of the ENGRAM fact; the nowhere fact appears nowhere. Positive control: the same search on control
+   1's copy after its session finds the tokens the student itself wrote. So, measured, nothing in the other channel held
+   C2's token before the student's write.
+2. *Answered / refused / abstained*, as the reader defined them (added after the session): refused = found the token and
+   declined to give it; abstained = nothing found. Answered would mean giving the token. They decide nothing.
+3. *The resume and the compaction.* Every turn is a separate resumption of the same session: each begins with a session
+   init (23, 28, 65, 103). The manual compaction is at 24, in the first turn; the question turns' inits are 28 (C1), 65
+   (C2) and 103 (C3). So "after both the resume and the compaction" is read from the record: C1's and C2's first reads (34,
+   74) follow their turn's init and the compaction. An automatic compaction also occurred inside C3's turn (141).
+4. *The evidence file.* The plant writes ONE evidence file, holding only the ENGRAM fact. The controls file the study lead
+   gave the instrument and the reader named that same file as the evidence file of both C1 and C2, so it served as the
+   "opening" target for both; it was never opened. Control 2 plants only the ENGRAM fact (and the nowhere fact, which has
+   no evidence), so only C1 has an evidence file there and the property cannot arise.
+
+**Also, from the reader:** the compaction summary inside C3's turn (142) carries both C1's and C2's tokens. It is prompt
+text, which clause (b) excludes, and it comes after both first reads.
+
+**One intermediate instrument version disagreed and was a defect.** At 001dc4c5 the instrument read C2 as FAIL because it
+parsed real ENGRAM results without unwrapping their envelope; fixed at 50015d6b before any independent reading existed.
+It is in the held versions list above.
