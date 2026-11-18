@@ -170,15 +170,41 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
-- Judge prompt: the upstream template as shipped at BEAM commit
-  b2da22eac88bb0874c64665f13457eb99835774a, which our judge ports. That template never shows the judge the
-  question (reported upstream as issue 15). The OFFICIAL and the ADJUSTED columns both use it.
-- A judge that is shown the question is a separate, third column ("question-aware judge"): all items, both
-  arms, the same judge with the question passed in, declared before it is run and reported whichever arm it
-  favours, beside the other two and never folded into ADJUSTED. It corrects a defect of the evaluator, which
-  touches every item in both arms, not the gold answer of one item. Issue 15's own figures (on one run of one
-  system, supplying the question changed the verdict on 160 of 1,051 rubric items) are that reporter's
-  measurement, cited as theirs and not as ours.
+- Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol,
+  the paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H),
+  whose inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the
+  question. The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
+  3e12035532eb85768f1a7cd779832b650c4b2ef9 (template sha256
+  d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869), with `<question>` filled by the item's
+  question. Compared with Listing 20 word by word after normalising whitespace, the two differ in 28 places,
+  every one typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none in wording: they
+  are one text. "Official" in this study therefore means the benchmark's gold answers scored under the
+  benchmark's published judge protocol.
+- Why not the released code: no judge call in the released evaluation code fills the question in. At
+  3e12035 the template asks for it, so the judge saw the literal string `<question>`; at
+  b2da22eac88bb0874c64665f13457eb99835774a (the current main) the question line is removed, while the
+  instruction to score 0.0 when the response does not address the question remains (reported upstream as
+  issue 15). The paper gives no reason for a judge without the question; that nuggets are "atomic,
+  self-contained" is the only candidate, and its own Listing 20 shows the question to the judge.
+- Not known: which code produced the paper's results table. "Official" here does not mean that our scores
+  reproduce the paper's numbers.
+- Known-answer check (the project lead's test), committed and run before any scored item is judged: a small
+  set of responses whose verdicts are fixed in advance, judged with and without the question by the study's
+  own judge (same model, settings and parsing). Part A: constructed responses that satisfy a rubric item's
+  words without addressing the question, whose right verdict (0.0 under the responsiveness rule) is fixed by
+  construction. Part B: run A items whose verdicts the three-reader score review has settled; these are the
+  team's own verdicts, not independent ones, and are labelled so. Expected direction, written now: showing the
+  question changes verdicts mainly on off-topic and abstention responses and little on on-topic ones; a large
+  shift on on-topic responses would itself be a finding, and is reported. The check's own pre-log fixes the set
+  sizes and the decision rule before the first call. The judge with the question counts as clearly better only
+  if it matches the fixed verdicts on more Part A items and on no fewer Part B items; then it alone scores both
+  columns and the released judge stays a sensitivity column. A tie on Part A, or fewer matches on Part B,
+  counts as not clearly better: both judges are then run in full for both columns and all four scores are
+  reported side by side, with the published judge still named first.
+- Sensitivity column: the released judge (the b2da22e template, no question), on a population stated before
+  it runs, reported beside the other columns and never folded into OFFICIAL or ADJUSTED. Issue 15's own
+  figures (on one run of one system, supplying the question changed the verdict on 160 of 1,051 rubric items)
+  are that reporter's measurement, cited as theirs and not as ours.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
   answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any
   finding goes upstream it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported
@@ -186,8 +212,8 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
   rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
   whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
-- Absolute scores are not comparable with the paper's table (different judge). The comparison is
-  between our arms.
+- Absolute scores are not comparable with the paper's table (a different judge model, and the code that
+  produced that table is not known). The comparison is between our arms.
 
 ## 11. Primary analysis
 

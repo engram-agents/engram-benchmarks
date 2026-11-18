@@ -74,6 +74,13 @@ entries say so.
 | 19:25 | Lei (relayed by Kepler) | The OFFICIAL score is the central result; our adjustments and disagreements with official answers go in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to per-item details, so readers see which official answers we dispute and can form their own view. | Paraphrased, not quoted: whether the project lead's own words are quoted in this public log is his open choice. | `ob_7806` |
 | 19:27 | Kepler | Before any finding goes upstream, check the benchmark's issue tracker: credit findings already reported (the evaluator finding is upstream issue 15; disputed gold labels in the 100K split are issues 4, 5 and 6 on conversation 1 and part of issue 16 on conversation 3; none concerns conversation 9) and corroborate there rather than report again. | "do not draft a fresh report of the evaluator defect" | `ob_7810` |
 
+## Decision log, 2026-11-18
+
+| UTC | who | decision | quote | node |
+|---|---|---|---|---|
+| 00:39 | Lei (relayed by Kepler) | Having read the pre-registration amendment: find out whether the released judge leaving out the question is intended, starting from the paper; if it is fairly surely a bug, report the score under the fixed judge rather than the released one, decided by a known-answer check with and without the question; if the check is not clear, run both. Four other points of the amendment stand. | Paraphrased, not quoted, as for his earlier ruling in this log. | `ob_7828` |
+| 00:43 | Kepler (design owner) | The judge for both the OFFICIAL and the ADJUSTED column is the paper's published protocol (Listing 20, the question filled in), byte-pinned to the upstream template at 3e12035; the released judge is a sensitivity column; the known-answer check is pre-logged before it runs. This replaces the 14:15 ruling of 2026-11-17 above (a third column, never primary). | "This withdraws my morning ruling (third column, never primary)." | `ob_7831` |
+
 ## Corrections (METHODOLOGY section 7)
 
 - 18:52: a first record of Kepler's both-arms ruling cited the wrong evidence and was retracted
