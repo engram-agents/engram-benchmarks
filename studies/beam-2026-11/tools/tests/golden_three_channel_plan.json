@@ -1,0 +1,70 @@
+[
+  {
+    "argv": [
+      "--home",
+      "<SLOT>",
+      "--builtin-fact",
+      "BuiltinFactAA",
+      "--engram-fact",
+      "EngramFactBB",
+      "--absent-fact",
+      "AbsentFactCC",
+      "--evidence-dir",
+      "<RUNDIR>/plant-evidence",
+      "--question",
+      "What is it?"
+    ],
+    "exe": "<SLOT>/.engram/venv/bin/python",
+    "prot": "<PROTECTED_A>:<PROTECTED_B>",
+    "tool": "plant-control"
+  },
+  {
+    "argv": [
+      "--arm-home",
+      "<SLOT>",
+      "--out",
+      "<RUNDIR>/plan-dump",
+      "--conv",
+      "9",
+      "--turns",
+      "0",
+      "--resume",
+      "11111111-2222-3333-4444-555555555555",
+      "--force-compact",
+      "--question-file",
+      "<QUESTION_FILE>",
+      "--env",
+      "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072",
+      "--expect-components",
+      "<COMPONENTS_FILE>",
+      "--dump-plan"
+    ],
+    "exe": "<BEAM_PY>",
+    "prot": "<PROTECTED_A>:<PROTECTED_B>",
+    "tool": "feed4"
+  },
+  {
+    "argv": [
+      "--arm-home",
+      "<SLOT>",
+      "--out",
+      "<RUNDIR>/run",
+      "--conv",
+      "9",
+      "--turns",
+      "0",
+      "--resume",
+      "11111111-2222-3333-4444-555555555555",
+      "--force-compact",
+      "--question-file",
+      "<QUESTION_FILE>",
+      "--env",
+      "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072",
+      "--expect-components",
+      "<COMPONENTS_FILE>"
+    ],
+    "exe": "<BEAM_PY>",
+    "prot": "<PROTECTED_A>:<PROTECTED_B>",
+    "tool": "feed4"
+  }
+]

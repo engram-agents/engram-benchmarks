@@ -825,3 +825,57 @@ def test_refuses_a_runs_dir_inside_the_slot(w):
 
 def test_refuses_a_runs_dir_equal_to_the_slot(w):
     refusal(w, BEAM_RUNS_DIR=str(w.slot), expect="BEAM_RUNS_DIR")
+
+
+# ------------------------------------------------------------------ the three-channel path: the planned actions, compared mechanically
+# EQUIVALENCE CELL (Kepler's condition on the channel-subset change). The launcher's plan for a three-channel plant
+# (--plant-builtin, --plant-engram, --plant-absent, --plant-question) is recorded by two recorder scripts standing in
+# for plant-control.py and feed4.py through the test hooks: each appends {tool, argv, exe, P1_PROTECTED} to ONE log
+# (exe = the interpreter path exactly as the launcher passed it, from sys.orig_argv), so
+# the ORDER of the three invocations is recorded too (plant-control, the feed4 plan dump, the feed4 run), then runs the
+# existing stub of that tool. The run-specific parts (temp root, slot, run dir, files) are replaced by stable
+# placeholders; the record is compared with a GOLDEN file captured from the launcher BEFORE the subset change
+# (tests/golden_three_channel_plan.json). A later change to the launcher must leave this cell green.
+GOLDEN_PLAN = os.path.join(TOOLS, "tests", "golden_three_channel_plan.json")
+
+RECORDER = r'''
+import json, os, runpy, sys
+label, stub = {LABEL!r}, {STUB!r}
+with open(os.environ["REC_LOG"], "a") as f:
+    f.write(json.dumps({{"tool": label, "argv": sys.argv[1:], "exe": getattr(sys, "orig_argv", [sys.executable])[0],
+                        "prot": os.environ.get("P1_PROTECTED")}}) + "\n")
+runpy.run_path(stub, run_name="__main__")
+'''
+
+
+def normalized_plan_record(w, log_path):
+    """The recorded invocations with every run-specific path replaced by a placeholder (longest path first)."""
+    subs = [(str(w.runs / "p1-t1"), "<RUNDIR>"), (str(w.slot), "<SLOT>"), (str(w.qfile), "<QUESTION_FILE>"),
+            (str(w.comps), "<COMPONENTS_FILE>"), (str(w.pres2), "<PROTECTED_B>"), (str(w.pres), "<PROTECTED_A>"),
+            (sys.executable, "<BEAM_PY>"), (str(w.root), "<ROOT>")]
+    subs.sort(key=lambda kv: -len(kv[0]))
+
+    def norm(x):
+        if isinstance(x, str):
+            for old, new in subs:
+                x = x.replace(old, new)
+        return x
+    return [{k: ([norm(e) for e in v] if isinstance(v, list) else norm(v)) for k, v in json.loads(line).items()}
+            for line in open(log_path).read().splitlines()]
+
+
+def record_three_channel_run(w):
+    log = w.root / "recorder-log.jsonl"
+    for name, label, stub in (("rec-plant.py", "plant-control", w.plant), ("rec-feed4.py", "feed4", w.stub)):
+        (w.root / name).write_text(RECORDER.format(LABEL=label, STUB=str(stub)))
+    r = w.run(*PLANT, "--plant-question", "What is it?", P1_PLANT_CONTROL=str(w.root / "rec-plant.py"),
+              P1_FEED4=str(w.root / "rec-feed4.py"), REC_LOG=str(log))
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    return normalized_plan_record(w, log)
+
+
+def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_subset_change(w):
+    got = record_three_channel_run(w)
+    assert [g["tool"] for g in got] == ["plant-control", "feed4", "feed4"]  # plant, plan dump, student run
+    assert os.path.isfile(GOLDEN_PLAN), "no golden yet; the record to capture is:\n" + json.dumps(got, indent=2, sort_keys=True)
+    assert got == json.load(open(GOLDEN_PLAN)), json.dumps(got, indent=2, sort_keys=True)
