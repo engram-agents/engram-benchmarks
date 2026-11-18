@@ -1904,3 +1904,16 @@ text, which clause (b) excludes, and it comes after both first reads.
 **One intermediate instrument version disagreed and was a defect.** At 001dc4c5 the instrument read C2 as FAIL because it
 parsed real ENGRAM results without unwrapping their envelope; fixed at 50015d6b before any independent reading existed.
 It is in the held versions list above.
+
+## P1 answering pilot: control 2, fixed before the session (logged 2026-11-18, before control 2 runs)
+
+Control 2 runs from the pinned launcher (e62f51ac; entry above) on a disposable copy of the k = 1 end state, planting the
+ENGRAM fact and the nowhere fact only (no built-in plant; the k = 1 run wrote nothing to the built-in folder). Questions:
+C1 (ENGRAM fact) and C3 (nowhere fact), file `data/p1-control-questions-k1.json`. Its record is read under the final
+control rule (entry above) by `control-source-check.py` at engram-benchmarks commit 50015d6b (sha256 982e953e...), and the
+nowhere fact's abstention is judged by the study lead. A conformance fix to the source check is pending (the colleague
+read of PR 8 found that a call whose target is outside the memory folder but whose result prints an in-folder path is
+classed by target rather than by the path of origin, as the rule's words require); **that fix concerns only a folder
+fact and cannot change a verdict on a session with no folder fact, which control 2 is.** After it lands, control 2's
+record is read again on the fixed instrument and the reading reported, unchanged or not. As for control 1, the session's
+facts are logged before any reading.
