@@ -178,8 +178,8 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   this rule is listed here with its paper location and its code location, and is declared before the first
   scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet).
   Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
-  judge's score as a number (at b2da22e every `int()` conversion of the earlier code, upstream issue 8, became
-  `float()`), so the paper and the current code agree.
+  judge's score as a number (at b2da22e every score conversion of the earlier code, `int()`, upstream issue 8,
+  became `float()`), so the paper and the current code agree.
 - Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol, the
   paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H), whose
   inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the question.
@@ -191,8 +191,9 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   one text. (How many differences one counts depends on the diff unit, so no count is given; the comparison is
   repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored
   under the benchmark's published judge protocol.
-- Why not the released code: no judge call in the released evaluation code (the ten `evaluate_*` functions in
-  `src/evaluation/compute_metrics.py`, which format `unified_llm_judge_base_prompt` from `src/prompts.py`) fills
+- Why not the released code: no judge call in the released evaluation code (the ten of the eleven `evaluate_*`
+  functions in `src/evaluation/compute_metrics.py` that format `unified_llm_judge_base_prompt` from
+  `src/prompts.py`) fills
   the question in. At
   3e12035 the template asks for it, so the judge saw the literal string `<question>`; at
   b2da22eac88bb0874c64665f13457eb99835774a (the current main) the question line is removed, while the
@@ -213,7 +214,9 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   sizes and the decision rule before the first call. The judge with the question counts as CLEARLY BETTER only
   if it matches the fixed verdicts on more Part A items and on no fewer Part B items. Every other outcome (a tie
   on Part A, fewer Part A matches, or fewer Part B matches) counts as NOT CLEARLY BETTER; a tie is a legitimate
-  result of the check, not a failed check. The outcome decides only how far the released judge runs: if clearly
+  result of the check, not a failed check. A REVERSAL (the judge with the question matching fewer fixed
+  verdicts than the judge without it, on Part A or on Part B) is stated in the report's summary, beside the
+  primary result, not only in the check's own log. The outcome decides only how far the released judge runs: if clearly
   better, the released judge runs as a sensitivity column on a stated population; if not clearly better, it runs
   in full, on every item of both columns, so OFFICIAL and ADJUSTED are each reported under both judges (the
   project lead's four scores).
