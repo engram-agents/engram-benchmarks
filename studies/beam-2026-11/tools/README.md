@@ -144,6 +144,15 @@ embedded by default through the copy's own embedder (`--no-embeddings` opts out;
 then checks read-back, that no fact is in any transcript, cross-absence between the two channels, that the absent fact
 is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv. Exit codes: 0 all checks pass, 1 a check failed, 2 refused, **3 a `P1_PROTECTED` entry changed during the run** (a snapshot of every protected entry is compared with a re-walk on every exit path after the pre-write scan; each changed path is printed, then `PROTECTED CHANGED: n path(s)`; this overrides 0, 1 and 2, and a clean run prints `protected unchanged: ...`). It reports a write, it cannot undo one.
 
+`plant-control.py` **ENGRAM-only mode** (P1 control 2 on an end state whose built-in folder is empty): `--builtin-fact` is
+optional. Without it the tool plants the ENGRAM fact only and prints `mode: engram-only (no built-in plant)` before any
+write (`mode: both channels` otherwise). It writes nothing under any built-in memory folder; a missing `MEMORY.md` or
+memory folder is not a refusal; `--question` is refused (exit 2, it only qualifies the index line). A new check,
+`memory folders unchanged`, proves every memory folder found has the same file list and the same sha256 per file after
+the write (FAIL exits 1). The checks that need the built-in fact print `SKIP (no built-in plant)`, never PASS, and do
+not change the exit code; all other checks and the exit-3 post-condition run as in the two-channel mode, which is
+unchanged when `--builtin-fact` is given.
+
 `control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), reports
 from the turn's own tool calls where the answer came from; it never decides abstention for the `none` control.
 
