@@ -142,6 +142,7 @@ class World:
         self.qfile.write_text(json.dumps([{"id": "F02", "question": "Q two?"}, {"id": "A01", "question": "Q a1?"},
                                           {"id": "F01", "question": "Q one?"}]))
         self.comps = root / "components.txt"; self.comps.write_text("SETUP ID test\n")
+        self.parquet = root / "syn.parquet"; self.parquet.write_bytes(b"PAR1 stand-in: the launcher never opens it")
         self.stub = root / "stub-feed4.py"; self.stub.write_text(STUB_FEED4)
         self.plant = root / "stub-plant.py"; self.plant.write_text(STUB_PLANT)
         self.hook = root / "corrupt-hook.py"; self.hook.write_text(CORRUPT_HOOK)
@@ -152,7 +153,7 @@ class World:
 
     def env(self, **over):
         e = {"PATH": os.environ["PATH"], "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
-             "BEAM_RUNS_DIR": str(self.runs), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
+             "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
         e.update({k: v for k, v in over.items() if v is not None})
@@ -217,7 +218,7 @@ def refusal(w, *extra, label="t1", expect=None, **kw):
 
 
 # ------------------------------------------------------------------ step 1: every refusal, with nothing touched
-@pytest.mark.parametrize("var", ["BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "P1_PROTECTED"])
+@pytest.mark.parametrize("var", ["BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED"])
 def test_refuses_a_missing_environment_variable_naming_it(w, var):
     refusal(w, expect=var, drop=(var,))
 
@@ -879,3 +880,108 @@ def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_s
     assert [g["tool"] for g in got] == ["plant-control", "feed4", "feed4"]  # plant, plan dump, student run
     assert os.path.isfile(GOLDEN_PLAN), "no golden yet; the record to capture is:\n" + json.dumps(got, indent=2, sort_keys=True)
     assert got == json.load(open(GOLDEN_PLAN)), json.dumps(got, indent=2, sort_keys=True)
+
+
+# ------------------------------------------------------------------ the channel subset (control 2) and BEAM_PARQUET (contract-first)
+# A plant set is valid as EITHER --plant-builtin + --plant-engram + --plant-absent (the three-channel plant, unchanged:
+# see the equivalence cell above) OR exactly --plant-engram + --plant-absent (ENGRAM only: plant-control is called
+# without --builtin-fact and without --question). Every other subset is refused in step 1, before anything is touched.
+ENGRAM_ONLY = ["--plant-engram", "EngramFactBB", "--plant-absent", "AbsentFactCC"]
+
+
+def test_engram_plus_absent_is_accepted_and_plant_control_is_called_without_builtin_fact_or_question(w):
+    r = w.run(*ENGRAM_ONLY)
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    log = json.loads(w.plant_log.read_text())
+    a = log["argv"]
+    assert "--builtin-fact" not in a and "--question" not in a
+    for flag, val in (("--home", str(w.slot)), ("--engram-fact", "EngramFactBB"), ("--absent-fact", "AbsentFactCC"),
+                      ("--evidence-dir", str(w.runs / "p1-t1" / "plant-evidence"))):
+        assert a[a.index(flag) + 1] == val, flag
+    assert len(a) == 8  # --home --engram-fact --absent-fact --evidence-dir, each with its value, and nothing else
+    assert log["prot"] == f"{w.pres}:{w.pres2}" and w.mark.exists()  # same environment, and the student run follows
+
+
+# ONE CELL PER REFUSED SUBSET (Kepler's condition): the seven subsets, each refused in step 1 with nothing touched.
+REFUSED_SUBSETS = {
+    "builtin+engram": ["--plant-builtin", "BuiltinFactAA", "--plant-engram", "EngramFactBB"],
+    "builtin+absent": ["--plant-builtin", "BuiltinFactAA", "--plant-absent", "AbsentFactCC"],
+    "engram-only": ["--plant-engram", "EngramFactBB"],
+    "absent-only": ["--plant-absent", "AbsentFactCC"],
+    "builtin-only": ["--plant-builtin", "BuiltinFactAA"],
+    "question-only": ["--plant-question", "What is it?"],
+    "question+engram+absent": [*ENGRAM_ONLY, "--plant-question", "What is it?"],
+}
+
+
+@pytest.mark.parametrize("name", list(REFUSED_SUBSETS))
+def test_every_other_plant_subset_is_refused_in_step_1_with_nothing_touched(w, name):
+    r = refusal(w, *REFUSED_SUBSETS[name], expect="plant")
+    assert "--plant-engram" in r.stderr and "--plant-absent" in r.stderr  # the message names the valid sets
+
+
+def test_a_question_without_a_builtin_plant_is_refused_by_name(w):
+    r = refusal(w, *ENGRAM_ONLY, "--plant-question", "What is it?", expect="--plant-question")
+    assert "--plant-builtin" in r.stderr
+
+
+@pytest.mark.parametrize("flag", ["--plant-engram", "--plant-absent"])
+def test_a_blank_fact_in_an_engram_only_plant_is_refused(w, flag):
+    flags = list(ENGRAM_ONLY)
+    flags[flags.index(flag) + 1] = "   "
+    refusal(w, *flags, expect="plant")
+
+
+def test_refuses_an_engram_only_plant_when_the_end_state_has_no_venv_python(w):
+    bad = make_home(w.root / "no-venv", venv=False)
+    refusal(w, *ENGRAM_ONLY, end=bad, P1_PROTECTED=f"{bad}:{w.pres2}", expect="venv")
+
+
+def test_an_engram_only_plant_failure_is_exit_4_and_exit_3_is_exit_5_with_no_student_run(w):
+    r = w.run(*ENGRAM_ONLY, STUB_PLANT_RC="1")
+    assert r.returncode == 4 and not w.mark.exists()
+    r2 = w.run(*ENGRAM_ONLY, STUB_PLANT_RC="3", label="t2")
+    assert r2.returncode == 5 and not w.mark.exists()
+
+
+def test_a_dry_run_still_plants_engram_only(w):
+    assert w.run(*ENGRAM_ONLY, "--dry-run").returncode == 0
+    assert w.plant_log.exists() and not w.mark.exists()
+
+
+@pytest.mark.parametrize("plant, mode", [
+    ([], "plant mode: none"),
+    (ENGRAM_ONLY, "plant mode: engram-only (no built-in plant)"),
+    (PLANT, "plant mode: both channels"),
+])
+def test_setup_txt_records_the_plant_mode_on_its_own_line(w, plant, mode):
+    assert w.run(*plant).returncode == 0
+    lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
+    assert lines.count(mode) == 1 and [l for l in lines if l.startswith("plant mode:")] == [mode]
+
+
+# BEAM_PARQUET: feed4 needs it in the environment, so the launcher requires it in step 1 (and, as it does for every
+# other environment variable, names it). It must name an existing FILE. The launcher does not hash it.
+def test_beam_parquet_is_a_required_environment_variable():
+    assert "BEAM_PARQUET" in P1S.REQUIRED_ENV
+
+
+def test_refuses_a_beam_parquet_that_names_a_missing_path(w):
+    refusal(w, BEAM_PARQUET=str(w.root / "no-such.parquet"), expect="BEAM_PARQUET")
+
+
+def test_refuses_a_beam_parquet_that_is_a_directory(w):
+    refusal(w, BEAM_PARQUET=str(w.root), expect="BEAM_PARQUET")
+
+
+def test_beam_parquet_is_not_hashed_or_opened_by_the_launcher(w):
+    """Any bytes do: the launcher only checks that a file is there (feed4 and the setup id own the dataset identity)."""
+    w.parquet.write_text("not a parquet file")
+    assert w.run().returncode == 0
+    assert "syn.parquet" not in (w.runs / "p1-t1" / "setup.txt").read_text()
+
+
+def test_the_docstring_names_both_plant_sets_and_beam_parquet():
+    doc = " ".join(open(TOOL, encoding="utf-8").read().split('"""')[1].split())
+    for phrase in ("BEAM_PARQUET", "--plant-engram --plant-absent", "engram-only"):
+        assert phrase in doc, phrase

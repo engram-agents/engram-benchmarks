@@ -11,21 +11,30 @@ missing one):
   BEAM_PY         python for feed4.py and the checks
   BEAM_ARM_HOME   the SLOT: the arm-home path the run used; an existing one is moved aside, never deleted
   BEAM_RUNS_DIR   where run directories are created (<BEAM_RUNS_DIR>/p1-<label>, never reused)
+  BEAM_PARQUET    the BEAM dataset file feed4.py reads from the environment; it must name an existing FILE. The launcher
+                  does not hash it (feed4.py and the setup id own the dataset identity)
   P1_PROTECTED    colon-separated preserved-home paths; every entry must exist; --end-state must be one of them
 
 usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
+       or, for an ENGRAM-only plant (control 2):  ... [--plant-engram T --plant-absent T] [--dry-run]
+
+A plant set is valid as EITHER all three of --plant-builtin --plant-engram --plant-absent (both channels; optionally
+--plant-question) OR exactly --plant-engram --plant-absent without --plant-builtin (engram-only: plant-control.py is
+called without --builtin-fact and without --question, and writes nothing under any built-in memory folder). Any other
+combination is refused in step 1, and --plant-question is refused without --plant-builtin.
 
 Steps (every refusal in step 1 happens before anything is touched: no process killed, no copy, no directory made):
- 1 refusals, exit 2: a test-only hook variable set without P1_TEST_HOOKS=1; a relative symlink in the end state that
+ 1 refusals, exit 2: BEAM_PARQUET unset or not an existing file; a test-only hook variable set without P1_TEST_HOOKS=1; a relative symlink in the end state that
    climbs above its root; a symlink in the end state resolving to, inside or above a protected path (a relative link
    that stays inside the end state is fine; the count of links pointing outside it is printed); BEAM_RUNS_DIR equal
    to, inside or containing a protected path, or equal to or inside the slot; an env var missing; a label outside
    [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
    --end-state (by realpath) not one of P1_PROTECTED; the slot equal to, inside or containing a protected path; the run
    directory exists; the end state lacks .engram/knowledge.db or .claude/; the question file or components file
-   missing or malformed; a partial plant set (any plant flag without all of --plant-builtin, --plant-engram,
-   --plant-absent); planting when the end state has no .engram/venv/bin/python; the aside path already exists.
+   missing or malformed; any plant flags that are neither all three of --plant-builtin --plant-engram --plant-absent
+   nor exactly --plant-engram --plant-absent (a partial plant set), or --plant-question without --plant-builtin;
+   planting when the end state has no .engram/venv/bin/python; the aside path already exists.
  2 before-hashes.txt: for EVERY protected home, the store content hash (store_content_hash below) and the sha256 of
    every file under its built-in memory folders (.claude/projects/*/memory/**).
  3 stop processes whose command line contains <slot>/.engram/ (SIGTERM; the processes of this launcher are exempt).
@@ -33,7 +42,7 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
  5 cp -a end state -> slot; create <slot>/.disposable-copy; the slot's store hash must equal the end state's (else exit 3,
    both printed).
  6 plant (only with plant flags): plant-control.py with the slot's own ENGRAM venv python, P1_PROTECTED exported, the
-   evidence dir <rundir>/plant-evidence (outside the student's home). Its exit 3 (a protected entry changed) is exit 5;
+   evidence dir <rundir>/plant-evidence (outside the student's home); in engram-only mode without --builtin-fact. Its exit 3 (a protected entry changed) is exit 5;
    any other nonzero is exit 4; either way no student run.
  7 feed4.py --dump-plan with the step-8 arguments -> plan.json; it must be exactly [compact, q1..qN] in file order.
  8 unless --dry-run: feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --turns 0 --resume ID --force-compact
@@ -43,7 +52,8 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
 10 after-hashes.txt, same method for every protected home; ANY difference prints `changed home: <path>` and
    `PROTECTED CHANGED: n home(s)` and is exit 5. Steps 10 and 11 run on every exit path after the run directory exists.
 11 setup.txt: first line the benchmarks commit id, then the sha256 of this script, feed4.py, feed.py, the question file,
-   the components file, answer-delivery-check.py and plant-control.py, start/end UTC, and each step's exit code.
+   the components file, answer-delivery-check.py and plant-control.py, the plant mode on its own line (`plant mode: none`,
+   `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), start/end UTC, and each step's exit code.
 Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
 5 a protected home changed (overrides every other code).
 
@@ -62,10 +72,12 @@ P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never sil
 import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "P1_PROTECTED")
+REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
 TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE")
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
+PLANT_SETS = ("the valid plant sets are --plant-builtin --plant-engram --plant-absent (both channels), or exactly "
+              "--plant-engram --plant-absent (engram-only)")
 
 
 class Refusal(Exception):
@@ -259,6 +271,8 @@ def step1(a):
     for v in REQUIRED_ENV:
         if not env.get(v):
             raise Refusal(f"{v} is not set")
+    if not os.path.isfile(env["BEAM_PARQUET"]):
+        raise Refusal(f"BEAM_PARQUET {env['BEAM_PARQUET']} is not an existing file (feed4.py reads the dataset from it)")
     for hook in TEST_HOOKS:
         if env.get(hook) and env.get("P1_TEST_HOOKS") != "1":
             raise Refusal(f"{hook} is a test-only hook and is refused unless P1_TEST_HOOKS=1 is also set "
@@ -302,8 +316,17 @@ def step1(a):
         raise Refusal(f"the components file {a.components} is missing")
     facts = (a.plant_builtin, a.plant_engram, a.plant_absent)
     plant = any(x is not None for x in facts + (a.plant_question,))
-    if plant and not all(x and x.strip() for x in facts):
-        raise Refusal("a plant needs all of --plant-builtin, --plant-engram and --plant-absent (a partial plant set)")
+    plant_mode = "none"
+    if plant:
+        given = [bool(x and x.strip()) for x in facts]
+        if a.plant_question is not None and a.plant_builtin is None:
+            raise Refusal(f"--plant-question needs --plant-builtin (it only qualifies the built-in plant); {PLANT_SETS}")
+        if all(given):
+            plant_mode = "both channels"
+        elif a.plant_builtin is None and given[1] and given[2]:
+            plant_mode = "engram-only (no built-in plant)"
+        else:
+            raise Refusal(f"the plant flags are a partial plant set; {PLANT_SETS}")
     venv_py = os.path.join(end, ".engram", "venv", "bin", "python")
     if plant and not os.path.exists(venv_py):
         raise Refusal("planting needs the end state's .engram/venv/bin/python, which is missing")
@@ -317,7 +340,7 @@ def step1(a):
     aside = f"{slot}.aside-{a.label}-{stamp}"
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
-    return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant,
+    return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
             "aside": aside, "py": env["BEAM_PY"]}
 
 
@@ -364,9 +387,10 @@ def work(a, c, steps):
         raise {"KeyboardInterrupt": KeyboardInterrupt, "SystemExit": SystemExit}.get(raised, RuntimeError)("injected")
     if c["plant"]:
         cmd = [os.path.join(slot, ".engram", "venv", "bin", "python"), plant_tool, "--home", slot,
-               "--builtin-fact", a.plant_builtin, "--engram-fact", a.plant_engram, "--absent-fact", a.plant_absent,
+               *(["--builtin-fact", a.plant_builtin] if a.plant_builtin is not None else []),
+               "--engram-fact", a.plant_engram, "--absent-fact", a.plant_absent,
                "--evidence-dir", os.path.join(rundir, "plant-evidence")]
-        if a.plant_question is not None:
+        if a.plant_question is not None:  # step 1 refused a question without --plant-builtin
             cmd += ["--question", a.plant_question]
         pr = subprocess.run(cmd, env=dict(os.environ, P1_PROTECTED=os.environ["P1_PROTECTED"])).returncode
         steps.append(("6 plant", pr))
@@ -421,6 +445,7 @@ def write_setup(a, c, steps, start, rc):
     for hook, label in (("P1_FEED4", "feed4 override"), ("P1_PLANT_CONTROL", "plant-control override")):
         if os.environ.get(hook):
             lines.append(f"{file_sha256(os.environ[hook])}  {label} ({hook}): {os.path.basename(os.environ[hook])}")
+    lines.append(f"plant mode: {c['plant_mode']}")
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]

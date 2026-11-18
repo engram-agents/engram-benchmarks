@@ -170,8 +170,12 @@ row, or an existing `--out`.
 `p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F [--plant-builtin T
 --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]`: answers the question file on a disposable copy of
 a preserved end-state home, placed at the arm-home slot path so the run's session resumes. Environment (all required, no
-host path in the file): `BEAM_PY`, `BEAM_ARM_HOME` (the slot), `BEAM_RUNS_DIR`, `P1_PROTECTED` (the preserved homes, one of
-which is `--end-state`). Every refusal (exit 2) in step 1 happens before anything is touched: no process killed, no copy,
+host path in the file): `BEAM_PY`, `BEAM_ARM_HOME` (the slot), `BEAM_RUNS_DIR`, `BEAM_PARQUET` (the dataset file feed4.py
+reads; it must be an existing file, and the launcher does not hash it), `P1_PROTECTED` (the preserved homes, one of
+which is `--end-state`). A plant set is either all three of `--plant-builtin --plant-engram --plant-absent` (optionally
+`--plant-question`) or exactly `--plant-engram --plant-absent` (engram-only, for control 2: plant-control.py runs without
+`--builtin-fact` and writes nothing under any built-in memory folder); any other combination, and `--plant-question`
+without `--plant-builtin`, is refused in step 1. `setup.txt` records the plant mode on its own line. Every refusal (exit 2) in step 1 happens before anything is touched: no process killed, no copy,
 no directory made. One refusal comes later: step 4 refuses if the aside path already exists, after the slot processes have
 been stopped; no protected path is touched either way. It never deletes (an existing slot is moved aside),
 hashes the store and the built-in memory files of every protected home before and after, and exits 5 with
