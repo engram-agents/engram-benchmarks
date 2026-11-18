@@ -453,3 +453,16 @@ Each line is the study lead's own commit. Times are UTC.
   e728feacb7 9885b3ab12bf5f5044dfb101e0565a81265c9bee3c6775152413763f7b9322cc
   ecbeaa3683 a221b2558403cfa3e9821e71749be4385bde63195aa898909291ce6f9861bfe2
   fccd2b7a3b ff250fd79638153b8fe5e4b812eb5d60a1fe6c5719bfe895d58e34d5420e0252
+- 2026-11-18T15:12Z. Phase-2 reader's key (Custody), recorded by the study lead as the reader gave it (team crossing 31944);
+  the reader does not read this log while phase 2 is open. Channel 1: a team message from the reader to the key
+  holder (31937), cleared by the security seat (31925, 31935). Channel 2: the reader's own commit, under his own
+  GitHub identity, of `runA-seat-sol.md` in this folder; its sha256 is recorded here once it lands. Key: primary
+  37813D47198177F186100569C78E29DA1BD7D287 (ed25519, certify only), encryption subkey
+  941938763129D1527B660EAA9A0014185DD0D9A6 (cv25519); both expire 2026-12-18, set at creation; revoked after phase 2
+  closes, with the time logged. At rest (Custody A2): a 0700 directory, files 0600, no named ACL entry inside it; the
+  boundary is the final directory, as ruled by the security seat; no ancestor grants write; no backup or sync job
+  covers it (checked 2026-11-18 on the reader's own schedules; host-level backups not readable by him); no third
+  copy. What the reader cannot keep out: packet text he reads enters his session transcripts, private to his seat
+  and not pushed, readable on that host by him, the host administrator and root; he keeps item content out of his
+  memory graph, his diary and anything version-controlled. Non-exposure: until phase 2 closes he reads no team
+  stream and no study item except the packets sent to him.
