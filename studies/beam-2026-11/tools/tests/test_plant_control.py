@@ -25,8 +25,8 @@ def run_tool(home, ev, *extra, protected=None, builtin=BUILTIN, engram=ENGRAM, a
     env = {"PATH": os.environ["PATH"]}
     if protected is not None:
         env["P1_PROTECTED"] = protected
-    cmd = [sys.executable, TOOL, "--home", str(home), "--builtin-fact", builtin, "--engram-fact", engram,
-           "--absent-fact", absent, "--evidence-dir", str(ev), *extra]
+    cmd = [sys.executable, TOOL, "--home", str(home), *(["--builtin-fact", builtin] if builtin is not None else []),
+           "--engram-fact", engram, "--absent-fact", absent, "--evidence-dir", str(ev), *extra]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
@@ -1279,3 +1279,144 @@ def test_the_docstring_states_the_exit_enumeration_and_the_kill_bound():
     doc = " ".join(open(TOOL, encoding="utf-8").read().split('"""')[1].lower().split())
     for phrase in ("every exit that runs code", "sigkill", "oom", "no report", "directory identity"):
         assert phrase in doc, phrase
+
+
+# ================================================================ CONTROL 2: the ENGRAM-only mode (contract-first)
+# --builtin-fact is optional. Without it nothing is written under any built-in memory folder, a missing MEMORY.md or
+# memory folder is not a refusal, a NEW check proves every memory folder is byte-identical after the write, the checks
+# that need the built-in fact print `SKIP (no built-in plant)`, and the tool says which mode ran before any write.
+SKIP = "SKIP (no built-in plant)"
+FOLDER_CHECK = "memory folders unchanged"
+
+
+def folder_state(arm_home):
+    """{relative path: sha256} of every file under every directory named 'memory' under .claude (not plugins/)."""
+    out = {}
+    for root, _, files in os.walk(arm_home / ".claude"):
+        if "plugins" in os.path.relpath(root, arm_home).split(os.sep):
+            continue
+        if os.path.basename(root) == "memory" or "memory" in os.path.relpath(root, arm_home).split(os.sep):
+            for f in files:
+                p = os.path.join(root, f)
+                out[os.path.relpath(p, arm_home)] = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    return out
+
+
+def engram_only(arm_home, tmp_path, *extra, **kw):
+    return go(arm_home, tmp_path, *extra, builtin=None, **kw)
+
+
+def test_engram_only_plants_into_an_empty_memory_folder_with_no_index(arm_home, tmp_path):
+    (memory_dir(arm_home) / "MEMORY.md").unlink()  # the k = 1 end state: the folder exists and is empty
+    assert folder_state(arm_home) == {}
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert folder_state(arm_home) == {} and list(memory_dir(arm_home).iterdir()) == []
+    assert ENGRAM in engram_search(arm_home, ENGRAM)
+    assert "mode: engram-only (no built-in plant)" in r.stdout
+    assert r.stdout.count(SKIP) == 3, r.stdout
+    assert f"PASS  {FOLDER_CHECK}" in r.stdout and "FAIL" not in r.stdout
+    assert "ALL CHECKS PASS" in r.stdout
+
+
+def test_engram_only_leaves_a_populated_memory_folder_byte_identical(arm_home, tmp_path):
+    (memory_dir(arm_home) / "feedback_old.md").write_text("---\nname: old\n---\nOld body.\n")
+    before = folder_state(arm_home)
+    assert len(before) == 2
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert folder_state(arm_home) == before
+
+
+def test_engram_only_does_not_need_a_memory_folder_at_all(arm_home, tmp_path):
+    shutil.rmtree(memory_dir(arm_home))
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not memory_dir(arm_home).exists()  # nothing was created either
+    assert ENGRAM in engram_search(arm_home, ENGRAM) and f"PASS  {FOLDER_CHECK}" in r.stdout
+
+
+def test_engram_only_prints_the_mode_before_any_write_and_both_channels_prints_its_own(arm_home, tmp_path):
+    r = engram_only(arm_home, tmp_path)
+    assert r.stdout.index("mode: engram-only (no built-in plant)") < r.stdout.index("ENGRAM write")
+    assert "mode: both channels" not in r.stdout  # (the both-channels run has its own cell below)
+
+
+def test_both_channels_prints_its_mode_line_and_no_skip_and_no_folder_check(arm_home, tmp_path):
+    r = go(arm_home, tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "mode: both channels" in r.stdout and r.stdout.index("mode: both channels") < r.stdout.index("ENGRAM write")
+    assert SKIP not in r.stdout and FOLDER_CHECK not in r.stdout and "mode: engram-only" not in r.stdout
+
+
+def test_engram_only_skipped_checks_are_never_printed_as_pass(arm_home, tmp_path):
+    r = engram_only(arm_home, tmp_path)
+    for name in ("built-in file read back", "cross-absence: built-in fact in the ENGRAM store",
+                 "index: no fact text in MEMORY.md"):
+        assert f"{SKIP}  {name}" in r.stdout, (name, r.stdout)
+        assert f"PASS  {name}" not in r.stdout and f"FAIL  {name}" not in r.stdout
+    for name in ("engram observation read back", "transcript leak (engram fact)", "transcript leak (absent fact)",
+                 "cross-absence: engram fact in the memory folder", "absent fact in neither channel",
+                 "row counts: only the observation write's tables changed"):
+        assert f"PASS  {name}" in r.stdout, (name, r.stdout)
+
+
+def test_engram_only_still_fails_the_engram_fact_cross_absence(arm_home, tmp_path):
+    (memory_dir(arm_home) / "stray.md").write_text(f"---\nname: s\n---\n{ENGRAM}\n")
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 1 and "FAIL  cross-absence: engram fact in the memory folder" in r.stdout
+
+
+def test_engram_only_still_fails_the_absent_fact_check(arm_home, tmp_path):
+    (memory_dir(arm_home) / "stray.md").write_text(f"---\nname: s\n---\n{ABSENT}\n")
+    r = engram_only(arm_home, tmp_path)
+    assert r.returncode == 1 and "FAIL  absent fact in neither channel" in r.stdout
+
+
+def test_a_question_without_a_builtin_fact_is_refused_and_nothing_is_written(arm_home, tmp_path):
+    r = engram_only(arm_home, tmp_path, "--question", "Where is the amber key kept?")
+    refusal = [ln for ln in r.stderr.splitlines() if ln.startswith("REFUSE:")]  # the tool's own refusal, not argparse's
+    assert r.returncode == 2 and len(refusal) == 1 and "--question" in refusal[0] and "--builtin-fact" in refusal[0], r.stderr
+    untouched(arm_home)
+    assert not os.listdir(tmp_path / "evidence")
+
+
+# The discriminating cells for the new check: a driver wraps ONE function of the tool (as the PR 8 fold's HOOK does)
+# so that the memory folder changes AFTER the ENGRAM write. Only the new check can see it: the cross-absence and the
+# absent-fact checks look for fact text, and the planted text is neutral.
+ONLY_HOOK = (
+    "import importlib.util, os, sys\n"
+    "tool, mode, target = sys.argv[1:4]\n"
+    "spec = importlib.util.spec_from_file_location('plant_control_hooked', tool)\n"
+    "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+    "orig = m.leak_hits\n"
+    "done = []\n"
+    "def wrapped(*a, **k):\n"
+    "    if done:\n"
+    "        return orig(*a, **k)\n"
+    "    done.append(1)\n"
+    "    if mode == 'newfile':\n"
+    "        open(os.path.join(target, 'neutral_note.md'), 'w').write('nothing of interest\\n')\n"
+    "    elif mode == 'append':\n"
+    "        open(target, 'a').write('- [x](x.md) \u2014 neutral\\n')\n"
+    "    elif mode == 'remove':\n"
+    "        os.remove(target)\n"
+    "    elif mode == 'same-size':\n"
+    "        d = open(target, 'rb').read(); open(target, 'wb').write(b'Z' * len(d))\n"
+    "    return orig(*a, **k)\n"
+    "m.leak_hits = wrapped\n"
+    "sys.argv = [tool] + sys.argv[4:]\n"
+    "sys.exit(m.main())\n")
+
+
+@pytest.mark.parametrize("mode", ["newfile", "append", "remove", "same-size"])
+def test_the_folder_unchanged_check_fails_when_a_memory_folder_changes_after_the_write(arm_home, tmp_path, mode):
+    target = memory_dir(arm_home) if mode == "newfile" else memory_dir(arm_home) / "MEMORY.md"
+    cmd = [sys.executable, "-c", ONLY_HOOK, TOOL, mode, str(target), "--home", str(arm_home),
+           "--engram-fact", ENGRAM, "--absent-fact", ABSENT, "--evidence-dir", str(tmp_path / "evidence"),
+           "--no-embeddings"]
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       env={"PATH": os.environ["PATH"], "P1_PROTECTED": dummy(tmp_path)})
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"FAIL  {FOLDER_CHECK}" in r.stdout
+    assert "FAIL  cross-absence" not in r.stdout and "FAIL  absent fact" not in r.stdout  # only the new check fired

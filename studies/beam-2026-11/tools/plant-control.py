@@ -79,7 +79,17 @@ ENGRAM observation is written with embeddings ON by default, through the arm's o
 load; an inherited ENGRAM_NO_EMBEDDINGS fails the same way, never silently); --no-embeddings opts out. The tool
 prints which. The store reads of the checks never refresh recall (the recall counters are left as the write made them).
 
-usage: plant-control.py --home DISPOSABLE_HOME --builtin-fact TEXT --engram-fact TEXT --absent-fact TEXT
+ENGRAM-only mode (BEAM P1 control 2). --builtin-fact is OPTIONAL; without it the tool plants the ENGRAM fact only
+(the absent fact stays planted nowhere) and prints `mode: engram-only (no built-in plant)` before any write (with it:
+`mode: both channels`). In this mode it writes NOTHING under any built-in memory folder (no note, no MEMORY.md line), a
+missing MEMORY.md or a missing memory folder is not a refusal, and --question is refused (exit 2: it only qualifies
+the index line). A NEW check, printed as its own line, proves every memory folder found has the same file list and the
+same sha256 per file after the write as before (FAIL exits 1). The checks that need the built-in fact (its read-back,
+"built-in fact in the ENGRAM store", "no fact text in MEMORY.md") print `SKIP (no built-in plant)`, never PASS, and do
+not affect the exit code; every other check, and the post-condition (exit 3), run as in the two-channel mode, whose
+behaviour is unchanged.
+
+usage: plant-control.py --home DISPOSABLE_HOME [--builtin-fact TEXT] --engram-fact TEXT --absent-fact TEXT
                         --evidence-dir DIR [--allowed-tables CSV] [--question TEXT] [--no-embeddings]
 """
 import argparse, hashlib, json, os, re, sqlite3, stat, sys
@@ -306,6 +316,19 @@ def files_under(root):
             yield os.path.join(r, f)
 
 
+def folder_state(memdirs):
+    """{path: sha256 or 'unreadable'} of every file under every memory folder: the file list and the bytes."""
+    out = {}
+    for d in memdirs:
+        for p in files_under(d):
+            try:
+                with open(p, "rb") as f:
+                    out[p] = hashlib.sha256(f.read()).hexdigest()
+            except OSError:
+                out[p] = "unreadable"
+    return out
+
+
 def contains(path, text):
     """Case-insensitive byte search of one file (a leak that differs only in case is still a leak)."""
     try:
@@ -315,7 +338,9 @@ def contains(path, text):
 
 
 def leak_scan_files(home, memdir):
-    """Every transcript-like file: any *.jsonl* under HOME, plus any file under .claude/projects outside memory."""
+    """Every transcript-like file: any *.jsonl* under HOME, plus any file under .claude/projects outside memory.
+    `memdir` is one memory folder, or (ENGRAM-only mode) a list of every memory folder found."""
+    memdirs = [memdir] if isinstance(memdir, str) else list(memdir)
     seen = set()
     for p in files_under(home):
         if ".jsonl" in os.path.basename(p):
@@ -323,7 +348,7 @@ def leak_scan_files(home, memdir):
     proj = os.path.join(home, ".claude", "projects")
     if os.path.isdir(proj):
         for p in files_under(proj):
-            if not under(p, memdir):
+            if not any(under(p, m) for m in memdirs):
                 seen.add(p)
     return sorted(seen)
 
@@ -429,7 +454,7 @@ def index_line_for(existing_text, fname):
 def _main(state):
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True); ap.add_argument("--evidence-dir", required=True)
-    ap.add_argument("--builtin-fact", required=True); ap.add_argument("--engram-fact", required=True)
+    ap.add_argument("--builtin-fact"); ap.add_argument("--engram-fact", required=True)
     ap.add_argument("--absent-fact", required=True)
     ap.add_argument("--allowed-tables", help="comma-separated; replaces the default list of tables the observation "
                     "write may change")
@@ -439,7 +464,12 @@ def _main(state):
     a = ap.parse_args()
 
     # ---- refusals: nothing is written before every one of these has passed
-    facts = {"builtin": a.builtin_fact, "engram": a.engram_fact, "absent": a.absent_fact}
+    both = a.builtin_fact is not None  # False = ENGRAM-only mode (BEAM P1 control 2): no built-in plant at all
+    if a.question and not both:
+        refuse("--question needs --builtin-fact (it only qualifies the index line of the built-in plant)")
+    facts = {"engram": a.engram_fact, "absent": a.absent_fact}
+    if both:
+        facts = {"builtin": a.builtin_fact, **facts}
     for k, v in facts.items():
         if len(v.strip()) < MIN_FACT:
             refuse(f"the {k} fact is shorter than {MIN_FACT} characters (facts must be invented values)")
@@ -462,26 +492,31 @@ def _main(state):
         if under(home, p) or under(p, home):
             refuse(f"the home is inside, or contains, a protected path from P1_PROTECTED ({p})")
     mems = find_memory_dirs(home)
-    if not mems:
-        refuse("no built-in memory folder (a directory named 'memory' under .claude, not under plugins/); not inventing one")
-    if len(mems) > 1:
-        refuse(f"{len(mems)} memory folders found; refusing to choose one")
-    memdir = mems[0]
-    index_path = os.path.join(memdir, "MEMORY.md")
-    if not os.path.isfile(index_path):
-        refuse("the memory folder has no MEMORY.md index (the student finds the folder through it); "
-               "choose a home that has one")
-    tag = hashlib.sha256(a.builtin_fact.encode()).hexdigest()[:8]
-    note_name = f"reference_note_{tag}.md"
-    index_line = index_line_for(open(index_path, encoding="utf-8", errors="replace").read(), note_name)
-    if a.question:
-        shared = sorted(content_words(a.question) & content_words(index_line))
-        if shared:
-            refuse(f"the index line would contain content word(s) of the control question: {', '.join(shared)}")
+    if both:
+        if not mems:
+            refuse("no built-in memory folder (a directory named 'memory' under .claude, not under plugins/); not inventing one")
+        if len(mems) > 1:
+            refuse(f"{len(mems)} memory folders found; refusing to choose one")
+        memdir = mems[0]
+        index_path = os.path.join(memdir, "MEMORY.md")
+        if not os.path.isfile(index_path):
+            refuse("the memory folder has no MEMORY.md index (the student finds the folder through it); "
+                   "choose a home that has one")
+        tag = hashlib.sha256(a.builtin_fact.encode()).hexdigest()[:8]
+        note_name = f"reference_note_{tag}.md"
+        index_line = index_line_for(open(index_path, encoding="utf-8", errors="replace").read(), note_name)
+        if a.question:
+            shared = sorted(content_words(a.question) & content_words(index_line))
+            if shared:
+                refuse(f"the index line would contain content word(s) of the control question: {', '.join(shared)}")
+        mem_roots = [memdir]
+    else:
+        memdir = index_path = None  # nothing is written under a memory folder in this mode
+        mem_roots = mems  # but every folder found is watched: its file list and bytes must not change
     ev = os.path.realpath(a.evidence_dir)
     if under(ev, os.path.join(home, "work")):
         refuse("the evidence dir is inside the arm home's work folder (the student's)")
-    if under(ev, memdir):
+    if any(under(ev, m) for m in mem_roots):
         refuse("the evidence dir is inside the memory folder")
     plug = os.path.join(home, ".engram", "marketplace", "plugins", "engram")
     db = os.path.join(home, ".engram", "knowledge.db")
@@ -495,11 +530,13 @@ def _main(state):
     epath = os.path.join(ev, hashlib.sha256(body).hexdigest() + ".txt")
     eng = os.path.join(home, ".engram")
     refuse_unsafe_targets(home, protected, [
-        ("memory folder", memdir), ("note file", os.path.join(memdir, note_name)), ("MEMORY.md", index_path),
+        *([("memory folder", memdir), ("note file", os.path.join(memdir, note_name)), ("MEMORY.md", index_path)]
+          if both else []),
         ("ENGRAM dir", eng), ("knowledge.db", db), ("knowledge.db-wal", db + "-wal"), ("knowledge.db-shm", db + "-shm"),
         ("plugin dir", plug)], [("evidence dir", ev), ("evidence file", epath)])
-    # files_under(memdir) includes MEMORY.md (it lives in the memory folder), so the index is covered here
-    refuse_hard_links([*files_under(memdir), db, db + "-wal", db + "-shm"])
+    # files_under(memdir) includes MEMORY.md (it lives in the memory folder), so the index is covered here; in
+    # ENGRAM-only mode no memory file is written, so none needs the link test
+    refuse_hard_links([*(files_under(memdir) if both else []), db, db + "-wal", db + "-shm"])
     # R5-1: the exact scan (protected inode set, then the walk of HOME), still before any write or import
     prot_keys = protected_inodes(protected)
     # PC-1 / PC-4: the SNAPSHOT is taken in this same pre-write phase; the two walks must agree on the regular files
@@ -509,6 +546,7 @@ def _main(state):
         refuse("the protected inode set and the protected snapshot disagree on the set of regular files: a protected "
                "entry changed between the two walks (something else is writing to a preserved home)")
     refuse_unsafe_home_scan(home, protected, prot_keys)
+    print("mode: both channels" if both else "mode: engram-only (no built-in plant)")  # before any write
     # Import ENGRAM from THIS arm home's plugin, with its environment pointed at this home (set before the import:
     # engram_core reads ENGRAM_HOME at import time, and the evidence archive root is read at import time too).
     os.makedirs(ev, exist_ok=True)
@@ -548,19 +586,21 @@ def _main(state):
 
     allowed_arg = {t for t in a.allowed_tables.split(",") if t} if a.allowed_tables else None
     before = table_counts(db)
+    folders_before = None if both else folder_state(mem_roots)
 
-    # ---- plant, built-in channel: one markdown file
-    slug = f"note-{tag}"
-    mpath = os.path.join(memdir, note_name)
-    with open(mpath, "w", encoding="utf-8") as f:
-        f.write(build_memory_file(a.builtin_fact, front_matter_of(memdir), slug))
-    with open(index_path, "a+", encoding="utf-8") as f:  # the neutral index line, so the folder lists the note
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        f.seek(max(size - 1, 0))
-        if size and f.read(1) != "\n":
-            f.write("\n")
-        f.write(index_line + "\n")
+    # ---- plant, built-in channel: one markdown file (not in ENGRAM-only mode)
+    if both:
+        slug = f"note-{tag}"
+        mpath = os.path.join(memdir, note_name)
+        with open(mpath, "w", encoding="utf-8") as f:
+            f.write(build_memory_file(a.builtin_fact, front_matter_of(memdir), slug))
+        with open(index_path, "a+", encoding="utf-8") as f:  # the neutral index line, so the folder lists the note
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(size - 1, 0))
+            if size and f.read(1) != "\n":
+                f.write("\n")
+            f.write(index_line + "\n")
 
     # ---- plant, ENGRAM channel: evidence file outside the work folder, then ONE observation via ENGRAM's own code
     with open(epath, "wb") as f:
@@ -598,34 +638,53 @@ def _main(state):
         raw = any(contains(p, text) for p in (db, db + "-wal"))
         return found or raw, err, [x.get("id") for x in results if isinstance(x, dict)]
 
+    def skip(name):
+        print(f"SKIP (no built-in plant)  {name}")
+
     # check 1: the built-in file, read back
-    ok1 = os.path.isfile(mpath) and a.builtin_fact in open(mpath, encoding="utf-8").read()
-    line("built-in file read back", ok1, os.path.relpath(mpath, home))
+    if both:
+        ok1 = os.path.isfile(mpath) and a.builtin_fact in open(mpath, encoding="utf-8").read()
+        line("built-in file read back", ok1, os.path.relpath(mpath, home))
+    else:
+        skip("built-in file read back")
     # check 2: the observation, read back through ENGRAM's own read code
     found, err, ids = store_has(a.engram_fact)
     line("engram observation read back", bool(ob_id) and found and not err and ob_id in ids,
          ob_id or "no observation id")
     # the index: no fact text in MEMORY.md (the student reads the folder through it)
-    idx_text = open(index_path, encoding="utf-8", errors="replace").read().lower()
-    idx_hits = [k for k, v in facts.items() if v.lower() in idx_text]
-    line("index: no fact text in MEMORY.md", not idx_hits, ", ".join(idx_hits) or "none")
+    if both:
+        idx_text = open(index_path, encoding="utf-8", errors="replace").read().lower()
+        idx_hits = [k for k, v in facts.items() if v.lower() in idx_text]
+        line("index: no fact text in MEMORY.md", not idx_hits, ", ".join(idx_hits) or "none")
+    else:
+        skip("index: no fact text in MEMORY.md")
     if not a.no_embeddings:
         line("engram observation embedded", bool(ob_id) and ob_id in embedded_ids(db), ob_id or "no observation id")
     # check 3: transcript leak, for all three facts
     for k, v in facts.items():
-        hits = leak_hits(home, memdir, v)
+        hits = leak_hits(home, memdir if both else mem_roots, v)
         line(f"transcript leak ({k} fact)", not hits, "; ".join(os.path.relpath(h, home) for h in hits) or "found nowhere")
     # addendum: cross-absence before the session
-    mem_hits = [p for p in files_under(memdir) if contains(p, a.engram_fact)]
+    mem_hits = [p for m in mem_roots for p in files_under(m) if contains(p, a.engram_fact)]
     line("cross-absence: engram fact in the memory folder", not mem_hits, "; ".join(os.path.basename(h) for h in mem_hits) or "absent")
-    found_b, err_b, _ = store_has(a.builtin_fact)
-    line("cross-absence: built-in fact in the ENGRAM store", not found_b and not err_b, err_b or ("PRESENT" if found_b else "absent"))
+    if both:
+        found_b, err_b, _ = store_has(a.builtin_fact)
+        line("cross-absence: built-in fact in the ENGRAM store", not found_b and not err_b, err_b or ("PRESENT" if found_b else "absent"))
+    else:
+        skip("cross-absence: built-in fact in the ENGRAM store")
     # addendum: the third fact is planted nowhere
-    mem_a = [p for p in files_under(memdir) if contains(p, a.absent_fact)]
+    mem_a = [p for m in mem_roots for p in files_under(m) if contains(p, a.absent_fact)]
     found_a, err_a, _ = store_has(a.absent_fact)
     ev_a = [p for p in files_under(ev) if contains(p, a.absent_fact)]
     line("absent fact in neither channel", not mem_a and not found_a and not err_a and not ev_a,
          err_a or ("; ".join(os.path.basename(p) for p in mem_a + ev_a) + (" store" if found_a else "") if (mem_a or ev_a or found_a) else "absent"))
+    # ENGRAM-only mode: no built-in memory folder may have changed (file list and sha256 of every file)
+    if not both:
+        folders_after = folder_state(mem_roots)
+        diff = sorted(set(folders_before) ^ set(folders_after) |
+                      {p for p in set(folders_before) & set(folders_after) if folders_before[p] != folders_after[p]})
+        line("memory folders unchanged", not diff,
+             "; ".join(os.path.relpath(p, home) for p in diff) if diff else f"{len(folders_after)} file(s), same bytes")
     # addendum: row counts, before and after (after is read last, so a write by any read above would show)
     after = table_counts(db)
     allowed = allowed_arg if allowed_arg is not None else default_allowed(before, after)
