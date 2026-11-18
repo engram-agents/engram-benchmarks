@@ -769,7 +769,7 @@ def test_a_test_only_hook_without_p1_test_hooks_is_refused_naming_the_variable(w
     refusal(w, expect=var, **kw)
 
 
-def test_no_hook_variable_and_no_gate_is_an_ordinary_run_that_uses_the_real_tools(w):
+def test_no_hook_variable_and_no_gate_is_refused_at_step_1_on_the_stand_in_parquet_not_for_the_missing_gate(w):
     """Without any hook the launcher uses the real constant: the stand-in parquet is refused for its hash, not for the gate."""
     kw = {k: None for k in HOOK_VALUES}; kw["P1_TEST_HOOKS"] = None
     r = refusal(w, "--dry-run", expect=P1S.REGISTERED_PARQUET_PREFIX, **kw)
@@ -997,6 +997,21 @@ def test_setup_txt_says_which_dataset_check_ran_the_registered_prefix(w):
     assert P1S.dataset_check_line({}) == f"dataset check: registered prefix {P1S.REGISTERED_PARQUET_PREFIX}"
     assert P1S.dataset_check_line({"P1_EXPECTED_PARQUET_PREFIX": "x", "P1_TEST_HOOKS": "1"}) \
         == "dataset check: test-only override (P1_TEST_HOOKS)"
+
+
+def test_write_setup_records_whatever_dataset_check_line_returns(tmp_path, monkeypatch):
+    """Binds the CALL: setup.txt must carry dataset_check_line's answer, not a line write_setup builds itself."""
+    from types import SimpleNamespace
+    q = tmp_path / "q.json"; q.write_text("{}")
+    comp = tmp_path / "components.json"; comp.write_text("{}")
+    rundir = tmp_path / "rundir"; rundir.mkdir()
+    sentinel = "dataset check: SENTINEL-7f3a91c2"
+    monkeypatch.setattr(P1S, "dataset_check_line", lambda env: sentinel)
+    a = SimpleNamespace(question_file=str(q), components=str(comp))
+    c = {"plant_mode": "none", "parquet_sha256": "0" * 64, "rundir": str(rundir)}
+    P1S.write_setup(a, c, [], "2026-11-18T00:00:00Z", 0)
+    lines = (rundir / "setup.txt").read_text().splitlines()
+    assert sentinel in lines, lines
 
 
 def test_refuses_a_beam_parquet_whose_bytes_do_not_hash_to_the_expected_prefix(w):
