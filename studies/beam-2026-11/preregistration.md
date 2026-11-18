@@ -295,6 +295,14 @@ first (OPEN); tool calls by kind (ENGRAM read, ENGRAM write, file read, file wri
 shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
 diff of both arms' first prompts, that switching it on changes nothing the student sees.
 
+Answer style, per answer, DESCRIPTIVE ONLY (design owner, 2026-11-18; defined here before any arm 1 answer exists):
+length in characters and in words; and whether the answer ends by asking the user a question, defined mechanically
+as: the last non-empty line of the answer, with markdown emphasis, heading and list markers stripped, ends with '?'.
+The definition is checked by hand on a control set of 10 answers before it is applied, and the control's result is
+reported. Both measures are reported per arm beside the scores and are never used as an adjustment or a covariate.
+Why: the ENGRAM arm's instruction profile carries provenance and ask-back habits the other arm's does not, so a
+difference in style between arms is a property of each product as shipped, to be described, not corrected.
+
 Per answer: whether the student opened its own session transcript (tool calls naming its path; this
 detector misses a path-free search such as listing every transcript file).
 
@@ -339,6 +347,16 @@ separate ENGRAM's storage from the model's choice or ability to reach it; it run
 mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
 not measure memory across days or sessions; and with one sample per cell and 17 scored conversations it
 detects only moderate effects.
+
+A known bound in the framing, the same in both arms (design owner, 2026-11-18): the exam brief makes the student a
+quiet bystander who keeps a record, and every question asks it to answer about the conversation 'from your record
+and memory', so the student is asked to REPORT on a conversation; but the instruction-following and
+preference-following items are graded on whether a fresh answer OBEYS an earlier instruction or preference. In the
+two conversations read so far (9 and 20), those two types are four of each conversation's twenty questions. The
+mismatch is identical in both arms, so it does not bias the arm comparison, but it may lower both arms' scores on
+those items, and it is one more reason our absolute scores are not comparable with the paper's. The brief and the
+question prefix are pinned and are not changed for it; changing them would be a declared amendment before the first
+scored run.
 
 ## 16. Budget (estimates from practice, never measured at scale)
 
