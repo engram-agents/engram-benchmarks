@@ -1954,3 +1954,26 @@ launcher, not this check. The path-of-origin fix (pending) keeps the same valida
 instrument exists yet; the refusal is a fact about the tool, not a verdict on any control. How the instrument is brought to
 a two-control session, and how that changes the order logged in the entry above, is the design owner's to rule; nothing is
 read before the ruling.
+
+## P1 answering pilot, control session 2: deviation from the pre-session entry, and the order of its reading (logged 2026-11-18, before any fix commit and before any reading)
+
+**Deviation, in plain words.** The pre-session entry for control 2 named `control-source-check.py` at 50015d6b as the
+instrument that reads control 2. That instrument cannot read a session with two controls (entry above), so **no
+50015d6b reading of control 2 exists, and none can.** The design owner's ruling (Office crossings 32433 and 32435, 21:42Z)
+treats this as the checker catching up with the earlier ruling that brought the plant tool and the launcher to the
+pre-log for control 2 (that ruling named two tools and missed the third). The fix is narrow: the source check accepts
+exactly two controls files, the full three-channel set unchanged, and {engram, none} with the ENGRAM control's required
+`memory_dir` (the student's memory folder, which clause (c) needs); every other set is refused, with a cell per refusal,
+and a cell shows the three-channel path reads the same before and after, so control 1's sealed readings are not put in
+question. It lands on top of the pending path-of-origin fix, with a discriminating cell for that fix's "token after the
+colon" guard, which the study lead's own mutant showed no cell tested.
+
+**Order, strict, because the instrument now changes after the data exists, by the person who knows what the student
+did.** (1) An independent reader fills a row for control 2 from the session record and the final rule text alone
+(controls file as planted, with the memory folder's location stated; nothing about outcomes), including the judgement of
+the nowhere fact's abstention, BEFORE the fixed instrument is run on control 2 by anyone. That row is the primary reading.
+(2) Then the fixed instrument reads control 2 once. Both are reported; if they differ, the row stands and the difference
+is a finding about the instrument. (3) The reader's colleague read of the PR 8 delta (subset change, path-of-origin
+commit, the new cell) comes after the row is sent. Reader: Halley (exposure to control 2: NO, quoted from their crossing
+32437: "control 2 exposure is NO. I have read no Office crossing of yours about what happened in control 2."). Nothing
+scored runs before control 2 is read.
