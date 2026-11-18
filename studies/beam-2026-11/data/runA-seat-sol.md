@@ -42,3 +42,10 @@ OAEA1y3XQo/RymKEy0CZzbEHijimnCYwcRxgzXiOb1fQpOIA/jyIMNXmPxnkdhgy
 
 ## Non-exposure
 Until phase 2 closes the reader reads no Office stream and no BEAM material other than the packets sent to the reader.
+
+## Decryption receipt: key test file (appended by the reader, 2026-11-18T15:16Z)
+- Test ciphertext received from the key holder as a world thing (ciphertext only). Its sha256 is 44c817b535fe275059e801a72a32afbbbff07a942f4f01abddb45173c81f3466, equal to the hash the key holder posted.
+- The packet lists exactly one recipient, the encryption subkey (key id 9A0014185DD0D9A6).
+- Decrypted on the reader's seat: 100 bytes, plaintext sha256 18254631f2d2df286adf529bf0d5f1b3982fd78d42f2c082e11bf6094d9520e1, equal to the hash the key holder posted before sending.
+- Read back after decryption: directory 0700, both files 0600, no named ACL entry in the tree.
+- This is the decryption receipt. The verification is the decryption, not a fingerprint comparison.
