@@ -17,7 +17,7 @@ usage: p1-session.py --end-state PATH --session ID --label NAME --question-file 
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
 
 Steps (every refusal in step 1 happens before anything is touched: no process killed, no copy, no directory made):
- 1 refusals, exit 2: a symlink in the end state resolving to, inside or above a protected path (a relative link that
+ 1 refusals, exit 2: a test-only hook variable set without P1_TEST_HOOKS=1; a symlink in the end state resolving to, inside or above a protected path (a relative link that
    stays inside the end state is fine; the count of links pointing outside it is printed); an env var missing; label outside [A-Za-z0-9._-]; a P1_PROTECTED entry that does not exist;
    --end-state (by realpath) not one of P1_PROTECTED; the slot equal to, inside or containing a protected path; the run
    directory exists; the end state lacks .engram/knowledge.db or .claude/; the question file or components file
@@ -48,7 +48,8 @@ A protected home's store is never opened with sqlite: it is hashed from a byte c
 temporary directory (protected_store_hash), because even a read-only sqlite connection writes -shm read marks. The memory
 folders are only read. Only the disposable slot copy is hashed in place.
 
-TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_session.py):
+TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_session.py). Setting any of them without
+P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never silently change a real run:
   P1_FEED4            run this script in place of feed4.py (the plan dump and the run)
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
@@ -59,6 +60,7 @@ import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "P1_PROTECTED")
+TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE")
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
 
@@ -212,10 +214,13 @@ def load_questions(path):
 
 def check_end_state_links(end, prot):
     """Walk the end state without following links. A symlink whose realpath is equal to, inside, or containing a
-    protected path is refused: cp -a keeps the link, so the student could write through it into a preserved home. One
-    exception: a RELATIVE link that resolves inside the end state itself stays inside the copy (a venv's lib64 -> lib),
-    so it is allowed; an ABSOLUTE link back into the end state would still point at the original and is refused.
-    Returns the count of symlinks that point outside the end state (informational: plugin venvs link to system
+    protected path is refused: cp -a keeps the link text, so the student could write through it into a preserved home.
+    The rule is judged from the COPY's side: after cp -a to the slot, does this link resolve inside the slot? One
+    exception is allowed, a RELATIVE link whose path, taken from the link's own directory, never climbs above the end
+    state's root (a venv's lib64 -> lib) and whose realpath is inside the end state. A relative link that leaves the
+    end state at any point is refused when it lands in a protected relation, even if it re-enters by the end state's
+    own directory name (E/a/x -> ../../E/real: in a copy beside E it resolves to the ORIGINAL E/real); an ABSOLUTE link
+    back into the end state is refused for the same reason. Returns the count of symlinks that point outside the end state (informational: plugin venvs link to system
     interpreters)."""
     outside = 0
     for dp, dns, fns in os.walk(end, followlinks=False):
@@ -227,8 +232,11 @@ def check_end_state_links(end, prot):
             in_end = under(target, end)
             if not in_end:
                 outside += 1
-            if in_end and not os.path.isabs(os.readlink(full)):
-                continue
+            text = os.readlink(full)
+            if not os.path.isabs(text):
+                from_root = os.path.normpath(os.path.join(os.path.relpath(dp, end), text))
+                if in_end and from_root != ".." and not from_root.startswith(".." + os.sep):
+                    continue  # never leaves the end state's root, so in the copy it stays inside the slot
             for p in prot:
                 if under(target, p) or under(p, target):
                     raise Refusal(f"the end state holds a symlink ({os.path.relpath(full, end)}) that resolves to "
@@ -241,6 +249,10 @@ def step1(a):
     for v in REQUIRED_ENV:
         if not env.get(v):
             raise Refusal(f"{v} is not set")
+    for hook in TEST_HOOKS:
+        if env.get(hook) and env.get("P1_TEST_HOOKS") != "1":
+            raise Refusal(f"{hook} is a test-only hook and is refused unless P1_TEST_HOOKS=1 is also set "
+                          "(a stray variable must never change a real run)")
     if not LABEL.fullmatch(a.label):
         raise Refusal(f"the label {a.label!r} is outside the charset [A-Za-z0-9._-] (one or more characters)")
     protected = [p for p in env["P1_PROTECTED"].split(":") if p]
@@ -455,8 +467,15 @@ def main(argv=None):
         write_setup(a, c, steps, start, rc)
     except BaseException as e:  # noqa: BLE001
         print(f"ERROR: setup.txt could not be written ({type(e).__name__}: {e})", file=sys.stderr)
-    print(f"exit {rc}")
-    if pending is not None and rc != 5 and not isinstance(pending, Exception):
+    reraise = pending is not None and rc != 5 and not isinstance(pending, Exception)
+    if reraise and isinstance(pending, SystemExit):  # print the status the process will really have
+        shown = 0 if pending.code is None else (pending.code if isinstance(pending.code, int) else 1)
+        print(f"exit {shown}")
+    elif reraise:
+        print(f"exit: interrupted ({type(pending).__name__}), the process ends by that interruption")
+    else:
+        print(f"exit {rc}")
+    if reraise:
         raise pending  # an interruption with nothing protected changed keeps its own exit behaviour
     return rc
 

@@ -6,7 +6,8 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
   P1_PLANT_CONTROL    a stub script run in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  a script run (BEAM_PY script SLOT) between the copy and the copy-fidelity check
-  P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified"""
+  P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
+Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, shutil, sqlite3, subprocess, sys
 import pytest
 from conftest import TOOLS
@@ -153,7 +154,7 @@ class World:
         e = {"PATH": os.environ["PATH"], "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
              "BEAM_RUNS_DIR": str(self.runs), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
-             "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
+             "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
         e.update({k: v for k, v in over.items() if v is not None})
         for k, v in over.items():
             if v is None:
@@ -178,6 +179,9 @@ class World:
         self.proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
                                       os.path.join(str(self.slot), ".engram", "marker")])
         return self.proc
+
+    def pres_path(self):
+        return __import__("pathlib").Path(self.pres)
 
     def snapshot(self):
         return {"slot": tree(self.slot), "pres": tree(self.pres), "pres2": tree(self.pres2),
@@ -706,3 +710,68 @@ def test_a_symlink_to_an_unrelated_outside_path_proceeds_and_the_count_is_printe
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     # the venv's python link (to the interpreter) and this one point outside the end state
     assert "symlinks pointing outside the end state: 2" in r.stdout
+
+
+# ------------------------------------------------------------------ round 4: out-and-back links, judged from the COPY's side
+def test_refuses_the_out_and_back_relative_link(w):
+    """E/work/x -> ../../E/real: lexically it re-enters E, but in the copy (a sibling of E) it resolves to the
+    ORIGINAL E/real, a protected path."""
+    (w.pres_path() / "real").write_text("original")
+    os.symlink("../../" + os.path.basename(w.pres) + "/real", os.path.join(w.pres, "work", "x"))
+    refusal(w, expect="symlink")
+
+
+def test_refuses_a_chain_of_relative_links_whose_second_hop_leaves_the_end_state(w):
+    os.symlink("l2", os.path.join(w.pres, "work", "l1"))  # the first hop stays inside
+    os.symlink("../../" + os.path.basename(w.pres2) + "/work", os.path.join(w.pres, "work", "l2"))  # the second leaves
+    refusal(w, expect="symlink")
+
+
+def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine(w):
+    """work/up -> ../.claude/projects climbs one level but never above the end state's own root."""
+    os.symlink("../.claude/projects", os.path.join(w.pres, "work", "up"))
+    r = w.run()
+    assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+    assert os.readlink(str(w.slot / "work" / "up")) == "../.claude/projects"
+
+
+# ------------------------------------------------------------------ round 4: the after-hash pass itself failing
+def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w):
+    """No protected home changed, but the proof could not be written (after-hashes.txt is made a directory), so the
+    launcher must not claim the homes are fine."""
+    blocker = w.runs / "p1-t1" / "after-hashes.txt"
+    hook = w.root / "block-after.py"; hook.write_text(f"import os\nos.makedirs({str(blocker)!r})\n")
+    r = w.run(P1_AFTER_COPY_HOOK=str(hook))
+    assert r.returncode == 5, (r.returncode, r.stdout, r.stderr)
+    assert "PROTECTED CHANGED: 2 home(s)" in r.stdout
+    assert sorted(changed_homes_printed(r.stdout)) == sorted([os.path.realpath(w.pres), os.path.realpath(w.pres2)])
+    assert "after-hash" in r.stderr
+
+
+# ------------------------------------------------------------------ round 4: test-only hooks are gated behind P1_TEST_HOOKS=1
+HOOK_VALUES = {"P1_TEST_RAISE": "Exception", "P1_FEED4": "stub", "P1_PLANT_CONTROL": "plant", "P1_AFTER_COPY_HOOK": "hook",
+               "P1_UTC_STAMP": "20261118T000000Z"}
+
+
+@pytest.mark.parametrize("var", sorted(HOOK_VALUES))
+def test_a_test_only_hook_without_p1_test_hooks_is_refused_naming_the_variable(w, var):
+    kw = {k: None for k in HOOK_VALUES}  # none of the others
+    kw["P1_TEST_HOOKS"] = None
+    path = {"P1_FEED4": w.stub, "P1_PLANT_CONTROL": w.plant, "P1_AFTER_COPY_HOOK": w.hook}.get(var)
+    kw[var] = str(path) if path else HOOK_VALUES[var]
+    refusal(w, expect=var, **kw)
+
+
+def test_no_hook_variable_and_no_gate_is_an_ordinary_run_that_uses_the_real_tools(w):
+    """Without any hook the launcher runs the real feed4.py; with no parquet it fails there, not in step 1."""
+    kw = {k: None for k in HOOK_VALUES}; kw["P1_TEST_HOOKS"] = None
+    r = w.run("--dry-run", **kw)
+    assert "P1_TEST_HOOKS" not in r.stderr  # it was not refused for lack of the gate
+    assert (w.runs / "p1-t1").exists()
+
+
+# ------------------------------------------------------------------ round 4: the printed status is the real status
+def test_a_re_raised_system_exit_prints_the_code_the_process_exits_with(w):
+    r = w.run(P1_TEST_RAISE="SystemExit")
+    last = [l for l in r.stdout.splitlines() if l.startswith("exit ")][-1]
+    assert last == f"exit {r.returncode}", (last, r.returncode)
