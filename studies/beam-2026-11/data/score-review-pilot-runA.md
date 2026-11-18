@@ -271,7 +271,7 @@ empty, the document changed: re-read and re-commit as above.
   in its commit, and lowercase comparison by the verifier.
 - 2026-11-18, design-owner decision (Office crossing 31876, 15:02:39Z): run A questions Q10 (instruction following)
   and Q15 (preference following) are RETIRED from this pilot's phase 3, because the project lead asked to see real
-  criterion-item cases (the earlier user message, the question, the official rubric with its grade, and the student's
+  criterion-item cases (the earlier user message, the question, the official rubric with the study lead's hand grade (renamed 2026-11-18; see Disclosures), and the student's
   answer) before any protocol for criterion items is designed, and no criterion item was settled yet, so showing one
   to him unblinds it for the phase-3 read. Q9 and Q16 stay as the pilot's criterion items, blind to him. Same day, on
   the project lead's read of the score-review principles v0.2 (not approved; Office crossing 31871): phase 2 for
