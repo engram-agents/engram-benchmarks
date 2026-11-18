@@ -544,3 +544,82 @@ def test_the_hash_opens_the_store_read_only(tmp_path):
     before = tree(tmp_path)
     P1S.store_content_hash(db)
     assert tree(tmp_path) == before
+
+
+# ------------------------------------------------------------------ round 2: hashing a protected home writes nothing
+def bytes_and_mtimes(root):
+    """{relpath: (sha256 | 'link:<target>', mtime_ns)} for every file and link under root (links not followed)."""
+    out = {}
+    for dp, dns, fns in os.walk(str(root)):
+        for n in fns:
+            full = os.path.join(dp, n)
+            st = os.lstat(full)
+            out[os.path.relpath(full, str(root))] = (
+                "link:" + os.readlink(full) if os.path.islink(full) else sha(full), st.st_mtime_ns)
+    return out
+
+
+@pytest.fixture
+def wal_home(tmp_path):
+    """A protected-style home whose store is in WAL mode with -wal (holding uncheckpointed rows) and -shm present. A
+    second connection is kept open so the three files stay on disk, as they do beside a store a live process had open."""
+    h = make_home(tmp_path / "wal-home")
+    db = os.path.join(h, ".engram", "knowledge.db")
+    keeper = sqlite3.connect(db)
+    keeper.execute("pragma journal_mode=wal")
+    keeper.execute("pragma wal_autocheckpoint=0")
+    keeper.execute("insert into nodes values ('w1', 'a row that lives only in the wal')")
+    keeper.commit()
+    assert os.path.exists(db + "-wal") and os.path.exists(db + "-shm")
+    yield h
+    keeper.close()
+
+
+def test_protected_store_hash_leaves_every_byte_and_mtime_under_engram_alone(wal_home):
+    eng = os.path.join(wal_home, ".engram")
+    before = bytes_and_mtimes(eng)
+    assert {"knowledge.db", "knowledge.db-wal", "knowledge.db-shm"} <= set(before)
+    h, t, n = P1S.protected_store_hash(wal_home)
+    assert bytes_and_mtimes(eng) == before
+
+
+def test_protected_store_hash_sees_the_rows_that_live_only_in_the_wal(wal_home, tmp_path):
+    """The copy carries -wal and -shm with the db, so the hash is the hash of what a reader of the live store sees."""
+    h, t, n = P1S.protected_store_hash(wal_home)
+    plain = str(tmp_path / "plain.db"); make_db(plain)
+    h0, _, n0 = P1S.store_content_hash(plain)
+    assert n == n0 + 1 and h != h0  # the extra wal-only row is in the count and the hash
+
+
+def test_protected_store_hash_matches_the_in_place_method_on_an_ordinary_store(tmp_path):
+    h = make_home(tmp_path / "plain-home")
+    assert P1S.protected_store_hash(h) == P1S.store_content_hash(os.path.join(h, ".engram", "knowledge.db"))
+
+
+def test_protected_store_hash_removes_its_temporary_copy(wal_home):
+    import tempfile
+    before = set(os.listdir(tempfile.gettempdir()))
+    P1S.protected_store_hash(wal_home)
+    assert set(os.listdir(tempfile.gettempdir())) == before
+
+
+def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
+    """home_record is what before-hashes and after-hashes call: the store AND the memory-folder walk, read-only."""
+    before = bytes_and_mtimes(wal_home)
+    assert any("memory" in k for k in before)
+    rec = P1S.home_record(wal_home)
+    assert "memory 3 files" in rec and "tables=" in rec
+    assert bytes_and_mtimes(wal_home) == before
+
+
+def test_the_launcher_leaves_a_wal_mode_protected_home_untouched_bytes_and_mtimes(w):
+    keeper = sqlite3.connect(os.path.join(w.pres, ".engram", "knowledge.db"))
+    try:
+        keeper.execute("pragma journal_mode=wal"); keeper.execute("pragma wal_autocheckpoint=0")
+        keeper.execute("insert into nodes values ('w1', 'wal only')"); keeper.commit()
+        before = bytes_and_mtimes(w.pres)
+        r = w.run()
+        assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+        assert bytes_and_mtimes(w.pres) == before
+    finally:
+        keeper.close()

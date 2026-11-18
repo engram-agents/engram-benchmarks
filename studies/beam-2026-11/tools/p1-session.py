@@ -43,9 +43,9 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
 Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
 5 a protected home changed (overrides every other code).
 
-Reads of the preserved stores open knowledge.db read-only (mode=ro). Known bound: a store in WAL mode with no -shm file
-may get one created by that read-only open; this launcher does not use immutable=1 because that would ignore a pending
--wal and change what is hashed.
+A protected home's store is never opened with sqlite: it is hashed from a byte copy of knowledge.db, -wal and -shm in a
+temporary directory (protected_store_hash), because even a read-only sqlite connection writes -shm read marks. The memory
+folders are only read. Only the disposable slot copy is hashed in place.
 
 TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_session.py):
   P1_FEED4            run this script in place of feed4.py (the plan dump and the run)
@@ -53,7 +53,7 @@ TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_se
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
 """
-import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, time, traceback
+import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "P1_PROTECTED")
@@ -79,6 +79,23 @@ def store_content_hash(path):
         rows = sorted(repr(r) for r in c.execute(f'select * from "{t}"')); n += len(rows)
         h.update(t.encode()); [h.update(r.encode()) for r in rows]
     c.close(); return h.hexdigest(), len(tabs), n
+
+
+def protected_store_hash(home):
+    """store_content_hash of a PROTECTED home's store, read from a temporary COPY, so nothing under the protected home is
+    written. Opening a WAL-mode store with sqlite writes read marks into its -shm file even on a read-only connection
+    (measured: the -shm mtime moved), so the originals are never opened with sqlite: knowledge.db and, if present,
+    knowledge.db-wal and knowledge.db-shm are copied byte for byte into a fresh temporary directory, the copy is
+    hashed, and the directory is removed. Returns the same (sha256 hex, table count, row count)."""
+    src = os.path.join(home, ".engram", "knowledge.db")
+    tmp = tempfile.mkdtemp(prefix="p1-store-")
+    try:
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(src + suffix):
+                shutil.copyfile(src + suffix, os.path.join(tmp, "knowledge.db" + suffix))
+        return store_content_hash(os.path.join(tmp, "knowledge.db"))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ------------------------------------------------------------------------------------------------ hashing the homes
@@ -112,7 +129,7 @@ def home_record(home):
     lines = [f"home {home}"]
     db = os.path.join(home, ".engram", "knowledge.db")
     if os.path.exists(db):
-        h, t, n = store_content_hash(db)
+        h, t, n = protected_store_hash(home)
         lines.append(f"store tables={t} rows={n} sha256={h}")
     else:
         lines.append("store ABSENT")
@@ -365,7 +382,7 @@ def main(argv=None):
     try:
         c = step1(a)
         before = records(c["protected"], tolerant=False)
-        c["before_store"] = store_content_hash(os.path.join(c["end"], ".engram", "knowledge.db"))
+        c["before_store"] = protected_store_hash(c["end"])
     except (Refusal, sqlite3.Error, OSError) as e:  # nothing has been touched yet: an unreadable input is a refusal
         print(f"REFUSE: {e}", file=sys.stderr)
         return 2
