@@ -1939,3 +1939,18 @@ one.**" It reports a graph search for the question's terms returning zero nodes.
 
 Next, in this order: `control-source-check.py` at 50015d6b on this record under the final rule (entry above), the study
 lead's judgement of C3's abstention, then the same record on the instrument after the path-of-origin conformance fix.
+
+## P1 answering pilot, control session 2: the logged instrument cannot read it (logged 2026-11-18, before any reading exists)
+
+Run as logged, `control-source-check.py` at 50015d6b (sha256 982e953e..., from the pinned checkout) on control 2's
+record, with a controls file of the session's two controls (C1 channel engram, token, evidence file and run directory;
+C3 channel none), exits 1 before reading any turn:
+
+    FAIL: the controls must be exactly one of each channel ['engram', 'folder', 'none'], got ['engram', 'none']
+
+The check validates its controls file as exactly one control per channel, and control 2 plants no folder fact by design
+(entry "control 2 cannot run with the tools as built"); the tool fix made for control 2 reached the plant and the
+launcher, not this check. The path-of-origin fix (pending) keeps the same validation. So no reading of control 2 by any
+instrument exists yet; the refusal is a fact about the tool, not a verdict on any control. How the instrument is brought to
+a two-control session, and how that changes the order logged in the entry above, is the design owner's to rule; nothing is
+read before the ruling.
