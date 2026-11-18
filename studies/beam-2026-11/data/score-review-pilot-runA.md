@@ -548,3 +548,18 @@ Each line is the study lead's own commit. Times are UTC.
     98b90f3f4b 3256ead49be92560457c7455bcd78e187aabbc20e2fa355ed6784134b74b92ad
     b9cd2f4ff2 2813edfeffe0c03275a234087515cea06cd3db6c93646ed30151099b4baad8b5
     e728feacb7 4e8e4a3c50eee01c7b1ae75e724e25346358860722dcc1d32b663d72420c7368
+- 2026-11-18T15:35Z. POST HOC CHANGE after phase 2 started (design owner, team crossing 32017): the pilot's official
+  grades for phase 3 are now the QUESTION-SEEING judge's grades of run A, not the study lead's hand grades
+  (disclosed above). Judge: claude-sonnet-5-5 at low effort (the project lead chose Sonnet on 2026-11-16,
+  conditional on a cost pilot whose condition was met; low effort as in that pilot), one call per rubric item, the
+  BEAM template at commit 3e12035532eb85768f1a7cd779832b650c4b2ef9 (template sha256
+  d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869, refused by the runner on any other value) with
+  the question filled; score parsed as a number. Run on run A's 20 answers: 55 rubric items, 0 unscored, every call
+  served by that model. Before the run, a control showed the built prompt carries the item's question and no
+  unfilled placeholder, and the no-question prompt does not carry it. Raw output sha256
+  b653ea0dc47d95e9a565295ad58dac586a2609125ebc85227037b192abb33c7c; grades file (the import format) sha256
+  d9b63979acb0ef6ec7e2c3b56136850ba725b643f804e62f8e3b9b61e38ff23e, encrypted only to the key holder's encryption
+  subkey (one recipient packet), ciphertext sha256 b4ebe47340402769b6d41fc6df82bcd67ec07d63fe705d3cef7b781fbffd2960,
+  delivered as a team-world thing and downloaded back byte-identical. The study lead's hand grades stay as a second,
+  labelled column, and agreement between the two columns is reported at settlement. Per-item grades are not
+  published before settlement. Phase 2 continues unchanged: its packets carry no grades.
