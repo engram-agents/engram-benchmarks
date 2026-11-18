@@ -17,7 +17,7 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 ## 2. Hypotheses (stated before any scored run)
 
 - H1 (primary): arm 2's OFFICIAL overall score on the scored conversations of the 100K split is higher
-  than arm 1's (scored by the published judge of section 10).
+  than arm 1's (scored by the question-seeing judge of section 10).
 - H0: no difference, or arm 1 higher. A null or a loss is a publishable result.
 - Arm 3 is reported descriptively; no hypothesis is stated for it.
 
@@ -46,9 +46,9 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 
   It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
   study then measures is each setup *when the user has said this material matters*.
-- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14):
-  the rule is told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also excludes the student's own session transcript;
-  that wording is OPEN until frozen.
+- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14): the rule is
+  told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also
+  excludes the student's own session transcript; that wording is OPEN until frozen.
 - **Each arm's own memory practice.** The earlier condition of comparable length is withdrawn
   (Amendment 2 in the tuning log): it cannot hold together with existing components only and no exam
   prose. Token counts are in the student model's tokenizer (Qwen3.8-27B):
@@ -168,6 +168,14 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 10. Scoring
 
+Two judges, named by the one thing that differs between them (the project lead's request of 2026-11-18):
+
+- **Question-seeing judge**: the judge is shown the question, the rubric item and the response. This is the prompt
+  printed in the benchmark's paper (Listing 20). It is this study's judge for both the OFFICIAL and the ADJUSTED
+  score.
+- **No-question judge**: the judge is shown only the rubric item and the response, never the question. This is what
+  the benchmark's released evaluation code does. In this study it appears only as a sensitivity column.
+
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
 - Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper (published at ICLR 2026,
@@ -180,17 +188,17 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
   judge's score as a number (at b2da22e every score conversion of the earlier code, `int()`, upstream issue 8,
   became `float()`), so the paper and the current code agree.
-- Judge prompt, used by both the OFFICIAL and the ADJUSTED column: the benchmark's PUBLISHED judge protocol, the
-  paper's Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix H), whose
-  inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the question.
-  The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
+- The question-seeing judge's prompt, used for both the OFFICIAL and the ADJUSTED column, is the prompt printed in
+  the benchmark's paper, Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix
+  H), whose inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the
+  question. The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
   3e12035532eb85768f1a7cd779832b650c4b2ef9 (template sha256
   d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869), with `<question>` filled by the item's
-  question. Compared with Listing 20 word by word after normalising whitespace, every difference between the two
-  is typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none is in wording: they are
-  one text. (How many differences one counts depends on the diff unit, so no count is given; the comparison is
-  repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored
-  under the benchmark's published judge protocol.
+  question. Compared with Listing 20 word by word after normalising whitespace, every difference between the two is
+  typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none is in wording: they are one
+  text. (How many differences one counts depends on the diff unit, so no count is given; the comparison is
+  repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored by
+  the question-seeing judge, as printed in the paper.
 - Why not the released code: no judge call in the released evaluation code (the ten of the eleven `evaluate_*`
   functions in `src/evaluation/compute_metrics.py` that format `unified_llm_judge_base_prompt` from
   `src/prompts.py`) fills
@@ -198,45 +206,43 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   3e12035 the template asks for it, so the judge saw the literal string `<question>`; at
   b2da22eac88bb0874c64665f13457eb99835774a (the current main) the question line is removed, while the
   instruction to score 0.0 when the response does not address the question remains (reported upstream as
-  issue 15). The paper gives no reason for a judge without the question. The one passage that could bear on it
+  issue 15). The paper gives no reason for a no-question judge. The one passage that could bear on it
   (nuggets are "atomic, self-contained") describes how rubric items are written, not what the judge is shown, so
   it is not a second place in the paper that disagrees with Listing 20, which shows the question to the judge.
 - Not known: which code produced the paper's results table. "Official" here does not mean that our scores
   reproduce the paper's numbers.
-- Which judge this study uses is settled: the published judge above, which sees the question, is canonical (the
+- Which judge this study uses is settled: the question-seeing judge is canonical (the
   project lead's ruling of 2026-11-18). The known-answer check below does not reopen that choice.
-- Known-answer check (the project lead's test), committed and run before any scored item is judged. Its PURPOSE,
-  in the project lead's framing: a rough bound on how far the released judge, which never sees the question, may
-  have moved the scores that others report after running the released code. It is not a correction of anyone's
-  score: a judge flaw does not make the answers that judge rejected correct, so a proper score for such a system
-  needs a rerun under the published judge. The check is a small set of responses whose verdicts are fixed in
-  advance, judged with and without the question by the study's own judge (same model, settings and parsing).
-  Part A: constructed responses that satisfy a rubric item's
-  words without addressing the question, whose right verdict (0.0 under the responsiveness rule) is fixed by
-  construction. Part B: run A items whose verdicts the three-reader score review has settled; these are the
-  team's own verdicts, not independent ones, and are labelled so. Expected direction, written now: showing the
-  question changes verdicts mainly on off-topic and abstention responses and little on on-topic ones; a large
-  shift on on-topic responses would itself be a finding, and is reported. The check's own pre-log fixes the set
-  sizes and the decision rule before the first call. The judge with the question counts as CLEARLY BETTER only
-  if it matches the fixed verdicts on more Part A items and on no fewer Part B items. Every other outcome (a tie
-  on Part A, fewer Part A matches, or fewer Part B matches) counts as NOT CLEARLY BETTER; a tie is a legitimate
-  result of the check, not a failed check. A REVERSAL (the judge with the question matching fewer fixed
-  verdicts than the judge without it, on Part A or on Part B) is stated in the report's summary, beside the
-  primary result, not only in the check's own log; its cause is then investigated (a rubric item that misleads
-  the judge, or our own fixed verdicts or key points being wrong), obvious errors are fixed, and the published
-  judge stays primary. Any change to the check's fixed verdicts made after its result is seen is logged as post
-  hoc, with the first result kept and reported beside the corrected one (the design owner's requirement). The
-  outcome decides only how far the released judge runs, which is how the check measures the bound above: if clearly
-  better, the released judge runs as a sensitivity column on a stated population; if not clearly better, it runs
-  in full, on every item of both columns, so OFFICIAL and ADJUSTED are each reported under both judges (the
-  project lead's four scores).
-- In every outcome, H1 and the primary analysis (section 11) are tested on the scores of the published judge
-  above; "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The released judge (the b2da22e
-  template, no question) is always the sensitivity column: its population is stated before it runs (the full
-  set when the check is not clearly better), its scores are reported beside the primary ones, and they are
-  never folded into OFFICIAL or ADJUSTED or used to test H1. Issue 15's own
-  figures (on one run of one system, supplying the question changed the verdict on 160 of 1,051 rubric items)
-  are that reporter's measurement, cited as theirs and not as ours.
+- Known-answer check (the project lead's test), committed and run before any scored item is judged. Its PURPOSE, in
+  the project lead's framing: a rough bound on how far the no-question judge, which the released code uses, may have
+  moved the scores that others report after running the released code. It is not a correction of anyone's score: a
+  judge flaw does not make the answers that judge rejected correct, so a proper score for such a system needs a
+  rerun under the question-seeing judge. The check is a small set of responses whose verdicts are fixed in advance,
+  judged with and without the question by the study's own judge (same model, settings and parsing). Part A:
+  constructed responses that satisfy a rubric item's words without addressing the question, whose right verdict (0.0
+  under the responsiveness rule) is fixed by construction. Part B: run A items whose verdicts the three-reader score
+  review has settled; these are the team's own verdicts, not independent ones, and are labelled so. Expected
+  direction, written now: showing the question changes verdicts mainly on off-topic and abstention responses and
+  little on on-topic ones; a large shift on on-topic responses would itself be a finding, and is reported. The
+  check's own pre-log fixes the set sizes and the decision rule before the first call. The question-seeing judge
+  counts as CLEARLY BETTER only if it matches the fixed verdicts on more Part A items and on no fewer Part B items.
+  Every other outcome (a tie on Part A, fewer Part A matches, or fewer Part B matches) counts as NOT CLEARLY BETTER;
+  a tie is a legitimate result of the check, not a failed check. A REVERSAL (the question-seeing judge matching
+  fewer fixed verdicts than the no-question judge, on Part A or on Part B) is stated in the report's summary, beside
+  the primary result, not only in the check's own log; its cause is then investigated (a rubric item that misleads
+  the judge, or our own fixed verdicts or key points being wrong), obvious errors are fixed, and the question-seeing
+  judge stays primary. Any change to the check's fixed verdicts made after its result is seen is logged as post hoc,
+  with the first result kept and reported beside the corrected one (the design owner's requirement). The outcome
+  decides only how far the no-question judge runs, which is how the check measures the bound above: if clearly
+  better, the no-question judge runs as a sensitivity column on a stated population; if not clearly better, it runs
+  in full, on every item of both columns, so OFFICIAL and ADJUSTED are each reported under both judges (the project
+  lead's four scores).
+- In every outcome, H1 and the primary analysis (section 11) are tested on the scores of the question-seeing judge;
+  "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The no-question judge (the b2da22e template)
+  is always the sensitivity column: its population is stated before it runs (the full set when the check is not
+  clearly better), its scores are reported beside the primary ones, and they are never folded into OFFICIAL or
+  ADJUSTED or used to test H1. Issue 15's own figures (on one run of one system, supplying the question changed the
+  verdict on 160 of 1,051 rubric items) are that reporter's measurement, cited as theirs and not as ours.
 - OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold answer is
   "confirmed wrong" only after a first-hand check against the conversation text. Before any finding goes upstream
   it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported there
@@ -249,7 +255,7 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 11. Primary analysis
 
-- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the published judge of
+- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the question-seeing judge of
   section 10. The OFFICIAL score is the central result (Lei, 2026-11-17).
 - Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
   in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
