@@ -1750,3 +1750,13 @@ Control 1's row 3 (the final rule, read by the folded instrument, control-source
 `e70f3dbc3958cb4140ff566caec5abb0a73a0416ed78806960bd270b62df1412`. The instrument fixes for control 2 are pushed for review: PR 8 at 3ef1d400 (plant-control ENGRAM-only mode; the
 source check on the final rule) and PR 11 at dd611a77 (the launcher's engram-plus-nowhere plant set and the required
 BEAM_PARQUET). No session has run since control 1.
+
+## P1 answering pilot: the source check corrected after review; control 1 re-read on it, held (logged 2026-11-18)
+
+PR 8's reviewer round on 3ef1d400 found two ways the source check could err toward PASS (an echo removal that could hide a
+genuine return when the student's query was the token itself; and a (c') exception matched by text rather than by the
+written item). Both were the study lead's specification, not the rule; the rule text is unchanged. Fixed at 8fdab327:
+every approximation now errs toward FAIL for the clause it serves, and (c') excuses a return only when the returned item
+is identified as one the student wrote (an ENGRAM node id it created, or a file it created with Write). Control 1 was
+re-read on the corrected instrument; that reading, row 3b, is held with the others until the independent reader's row is
+in; sha256 `14ec40b278f2f0d0911f9eda227ce6eb4d8535e4e875c24c55bb8140e5b79cb4`. Row 3 (on 3ef1d400) stays as committed; the write-up reports both.
