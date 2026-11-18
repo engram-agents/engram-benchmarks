@@ -243,6 +243,14 @@ empty, the document changed: re-read and re-commit as above.
 - 2026-11-17, third commit (before any operation): the security seat's three amendments to the study lead's
   encoding: canonical 64-character lowercase-hex seeds, a declared and indexed seed count with the entry's hash
   in its commit, and lowercase comparison by the verifier.
+- 2026-11-18, design-owner decision (Office crossing 31876, 15:02:39Z): run A questions Q10 (instruction following)
+  and Q15 (preference following) are RETIRED from this pilot's phase 3, because the project lead asked to see real
+  criterion-item cases (the earlier user message, the question, the official rubric with its grade, and the student's
+  answer) before any protocol for criterion items is designed, and no criterion item was settled yet, so showing one
+  to him unblinds it for the phase-3 read. Q9 and Q16 stay as the pilot's criterion items, blind to him. Same day, on
+  the project lead's read of the score-review principles v0.2 (not approved; Office crossing 31871): phase 2 for
+  criterion items waits; answer-type items continue under their existing gate. Nothing criterion-side had been made
+  or sent when the hold began (key holder, crossing 31877).
 
 ## Operations (key holder, Aleph)
 
