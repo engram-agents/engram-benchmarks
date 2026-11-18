@@ -1769,3 +1769,33 @@ unknown counts). Running the fixed tool on control 1's real record then showed a
 arrive wrapped as `{"result": "<inner JSON string>"}`, while every test used the bare inner form; fixed at 50015d6b with
 cells in the real shape. Control 1's readings by each instrument version under the final rule are held with the other
 sealed texts until the independent reader's row is in; sha256 `990bc1287b0b76cc46e010de65e37b1869bc03e7e2cddf1142a381769846d025`. The rule text is unchanged throughout.
+
+## P1 answering pilot: the launcher pinned for control 2 and every later session (logged 2026-11-18, before control 2 runs)
+
+**Commit.** engram-benchmarks `e62f51ac4e599ffd853693861fcf37d6fcad0540`, the head of PR 11 (it contains PR 8's head
+50015d6b by merge). Control 1 ran from 0dc77c11 and stays recorded as such. Every session from control 2 on runs from a
+checkout of this commit. sha256 at this commit:
+
+| file | sha256 | changed since control 1 |
+|---|---|---|
+| `tools/p1-session.py` | `b645d9c4ee053f556e6b4d2c2b026584d99ef7b8e5f29177f4fea216db9117de` | yes: the ENGRAM-plus-nowhere plant set; BEAM_PARQUET required and verified against the registered prefix in step 1, its full hash and the kind of check written to setup.txt |
+| `tools/plant-control.py` | `ad79061ad48400d057cf81f2b2d40c74dea97caa7046518bbc15245bfa822cf0` | yes: the ENGRAM-only mode; the memory-folder check over the full entry set |
+| `tools/control-source-check.py` | `982e953e1fd60dd0885831f3b284279ff48fb96110c32e2d1abe6119b4a9c27b` | yes: the final control rule (entry above) |
+| `tools/feed4.py` | `9e49f2bee2cfd9799a63a0d0dee197ec910736dde5cc69455896238c9d0226c8` | no |
+| `tools/feed.py` | `9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c` | no |
+| `tools/answer-delivery-check.py` | `9a3ed04f1120576d76d41304c48b93ae872edee7cf31a9c41895a992484861e4` | no |
+| `tools/p1-question-file.py` | `68251253dbcf0cdd19b8cd5fa1f7c681562b336e4edfef82d842dc9ddc783d33` | no |
+
+The three-channel path plans the same plant and feed4 commands as at 0dc77c11 (a cell compares them with a capture
+taken from the unchanged launcher), so control 1's run is not put in question by the change.
+
+**Review.** The launcher: three reviewer-fairy rounds before the colleague read; a fourth fairy round on the control 2
+scope (approved); colleague (fallback seat) approvals at 45c63758, 0dc77c11, d9fc930b, fae619ee and e62f51ac. plant-control
+and the source check (PR 8, head 50015d6b): two reviewer-fairy rounds on the post-approval scope, both requesting changes,
+all folded; the colleague delta read of PR 8 is still owed, and **control 2 does not run until it is in**.
+
+**Measured on the study lead's seat, not by a reviewer:** the registered dataset file is 5,429,768 bytes and its full
+sha256 begins with the registered prefix; the launcher hashes it in about 0.01 s. A dry run of control 2 (no student,
+no GPU) on a copy of the k = 1 end state passed every step: plant mode ENGRAM-only, the built-in folder unchanged
+(1 folder, 0 entries), the dataset check against the registered prefix, the three preserved homes byte-equal before and
+after. No session has run on the GPU since control 1.
