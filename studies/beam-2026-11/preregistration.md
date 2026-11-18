@@ -203,9 +203,15 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   it is not a second place in the paper that disagrees with Listing 20, which shows the question to the judge.
 - Not known: which code produced the paper's results table. "Official" here does not mean that our scores
   reproduce the paper's numbers.
-- Known-answer check (the project lead's test), committed and run before any scored item is judged: a small
-  set of responses whose verdicts are fixed in advance, judged with and without the question by the study's
-  own judge (same model, settings and parsing). Part A: constructed responses that satisfy a rubric item's
+- Which judge this study uses is settled: the published judge above, which sees the question, is canonical (the
+  project lead's ruling of 2026-11-18). The known-answer check below does not reopen that choice.
+- Known-answer check (the project lead's test), committed and run before any scored item is judged. Its PURPOSE,
+  in the project lead's framing: a rough bound on how far the released judge, which never sees the question, may
+  have moved the scores that others report after running the released code. It is not a correction of anyone's
+  score: a judge flaw does not make the answers that judge rejected correct, so a proper score for such a system
+  needs a rerun under the published judge. The check is a small set of responses whose verdicts are fixed in
+  advance, judged with and without the question by the study's own judge (same model, settings and parsing).
+  Part A: constructed responses that satisfy a rubric item's
   words without addressing the question, whose right verdict (0.0 under the responsiveness rule) is fixed by
   construction. Part B: run A items whose verdicts the three-reader score review has settled; these are the
   team's own verdicts, not independent ones, and are labelled so. Expected direction, written now: showing the
@@ -216,7 +222,11 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
   on Part A, fewer Part A matches, or fewer Part B matches) counts as NOT CLEARLY BETTER; a tie is a legitimate
   result of the check, not a failed check. A REVERSAL (the judge with the question matching fewer fixed
   verdicts than the judge without it, on Part A or on Part B) is stated in the report's summary, beside the
-  primary result, not only in the check's own log. The outcome decides only how far the released judge runs: if clearly
+  primary result, not only in the check's own log; its cause is then investigated (a rubric item that misleads
+  the judge, or our own fixed verdicts or key points being wrong), obvious errors are fixed, and the published
+  judge stays primary. Any change to the check's fixed verdicts made after its result is seen is logged as post
+  hoc, with the first result kept and reported beside the corrected one (the design owner's requirement). The
+  outcome decides only how far the released judge runs, which is how the check measures the bound above: if clearly
   better, the released judge runs as a sensitivity column on a stated population; if not clearly better, it runs
   in full, on every item of both columns, so OFFICIAL and ADJUSTED are each reported under both judges (the
   project lead's four scores).
