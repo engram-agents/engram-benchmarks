@@ -156,28 +156,41 @@ unchanged when `--builtin-fact` is given.
 
 `control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), decides
 each planted fact on REACHABILITY, not on the answer (the final rule, design owner's rulings of 2026-11-18). **Design
-principle: every approximation errs toward FAIL for the clause it serves.** An engram/folder fact PASSES iff (a) a read
+principle: every approximation errs toward FAIL for the clause it serves; the module docstring applies it as a class rule:
+it ENUMERATES the seven exemption sites S1 to S7 (every place something is decided NOT to count), and for each names what
+it exempts, the positive known-shape evidence it requires, and that an unknown or off-shape input COUNTS (cells
+`test_r3_s1_*` to `test_r3_s7_*`).** An engram/folder fact PASSES iff (a) a read
 through its intended channel, named by STORAGE (a pinned ENGRAM read tool; or any call whose target is inside the memory
 folder, the folder of the control's `folder_file`: a Read, a Grep/Glob `path`, a Bash command naming a path inside it,
-`~` / `$HOME` / `${HOME}` resolved to the home taken from `folder_file`), in a turn after the compaction returned the token
+`~` / `$HOME` / `${HOME}` resolved to the home taken from `folder_file`, quote-split words such as `"$HOME"/.claude/...`
+joined), in a turn after the compaction returned the token
 in that call's tool result, (b) the student's own query text echoed back never counts: for (a) every occurrence of every
 string of the call's own input (`payload_json` decoded) is stripped from the result first (a stored value equal to the
-query is stripped too, toward FAIL); for (c) and (d') the echo of an `mcp__` tool's result is stripped at most once per
-occurrence in the input (`strip_echo_once`), so a query that is exactly the token with a store that returned it too still
-counts as a return, and a Grep, Bash or Read result is never stripped, (c) no read through the other channel returned the
-token anywhere in the session, except (c') a returned item the tool can IDENTIFY as one the student wrote after its first
+query is stripped too, toward FAIL); for (c) and (d') only the top-level `query` field of an `engram_query` / `engram_surface` result is stripped (the
+one echo the server is known to produce); every other tool, a result that does not parse and a result without that field
+is not stripped, so an `engram_list` contains-filter on the token that returns one stored copy is a return, and so is a
+query that is exactly the token whose result also holds a stored copy; a Grep, Bash or Read result is never stripped, (c)
+no read through the other channel returned the token anywhere in the session (for a folder control the other channel is
+every tool of the pinned ENGRAM server except its known writes, the `readOnlyHint=false` ones, so `engram_history` and
+`engram_diagnose` count and an unknown tool counts), except (c') a returned item the tool can IDENTIFY as one the student wrote after its first
 intended read: for the ENGRAM channel the result is parsed and every dict holding the token must carry the id of a node the
-student's own ENGRAM write created (its result reports the id) after that read, with no token outside those dicts; for the
-folder channel the read must be of a file the student itself created with a Write after that read, no earlier call having
-named it (an Edit/MultiEdit of a file is never excused, a grep of the whole folder is not excused); a `note:` names the
+student's own creating tool reported created after that read, under that tool's own key and with status "created"
+(`engram_add_observation` `observation_id`, the batch's `results[].observation_id`, `engram_derive` `derivation_id`,
+`engram_add_conjecture` `conjecture_id`, `engram_ask` `question_id`, `engram_add_definition` `definition_id`; the keys are
+cited to the plugin source in the code), with no token outside those dicts; `engram_supersede`, `engram_contradict`,
+`engram_retract` and every other tool create no excusing id, and no bare `id` or generic key is read; for the
+folder channel the read must be of a file the student itself created with a Write (absolute path, result "created
+successfully") after that read, no earlier call having named it (an Edit/MultiEdit of a file is never excused, a grep of the whole folder is not excused); a `note:` names the
 node ids or the file; a pre-existing item, an unparseable result or any other return FAILs, and (d) the evidence file or
 the run directory (the optional per-control `run_dir`) was not opened before that first read (opened after it is noted,
 not void); an opening is a FILE-CAPABLE call, by default-deny: every call except `ToolSearch`, `TodoWrite`,
-`ExitPlanMode`, `EnterPlanMode`, `AskUserQuestion` and any `mcp__` tool (so `Task`, `Agent`, `WebFetch` and unknown tools
-count) that names them or that returns the token from a path outside both channels, while a path in an MCP tool's
+`ExitPlanMode`, `EnterPlanMode`, `AskUserQuestion` and any tool of the pinned ENGRAM server (so `Task`, `Agent`,
+`WebFetch`, a tool of another MCP server and unknown tools count) that names them or that returns the token from a path outside both channels, while a path in an MCP tool's
 arguments is only a mention. The answer is printed beside the verdict and decides nothing: a refusal that quotes the token
-passes only if a channel read returned it. Other tool kinds are listed and neither pass nor fail. It never decides
-abstention for the `none` control.
+passes only if a channel read returned it. Other tool kinds are listed and neither pass nor fail. Stated bound (S7): a folder target the checker cannot resolve (a
+relative path, a glob, a variable other than HOME, a subshell path, a Grep with no `path`) is not seen, and a `Task` or
+`Agent` subagent that reads the memory folder returns the token with no folder target in this stream, so for the engram
+control it is a note at most. It never decides abstention for the `none` control.
 
 Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
 cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.

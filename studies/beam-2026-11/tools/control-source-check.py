@@ -17,10 +17,71 @@ Inputs (all written by feed4.py and the planting step):
               an optional per-control field (a control file without it is accepted unchanged); the run directories of all
               controls are watched together, like the evidence files.
 
-Design principle (PR 8 reviewer round 2). Every approximation this instrument makes errs toward FAIL for the clause it
-serves: where it cannot tell, a fact fails rather than passes. The echo strip is therefore strip-ALL for (a) (where
-over-stripping fails the fact) and strip-ONCE for (c) and (d') (where over-stripping would hide a real return and pass it);
-(c') excuses a return only when it can IDENTIFY the returned item as one the student wrote, never by matching text.
+Design principle (PR 8 reviewer rounds 2 and 3). Every approximation this instrument makes errs toward FAIL for the clause
+it serves: where it cannot tell, a fact fails rather than passes.
+
+The class rule (round 3). Rounds 2 and 3 each found the next member of ONE class: a place where the instrument decides that
+something DOES NOT COUNT (an echo, the student's own write, a mention, a non-target) on a heuristic that a stream outside the
+heuristic's assumption turns into a false PASS. So:
+  1. ENUMERATE every exemption site: every code path whose effect is that a token occurrence, a call or a write is NOT counted
+     against a fact, or NOT counted as an opening or as an other-channel read. For each, the list below names (a) what it
+     exempts, (b) the POSITIVE, KNOWN-SHAPE evidence it requires, (c) what happens when that evidence is absent or the shape
+     is unknown: it COUNTS, toward FAIL. No exemption rests on "this tool usually does not X".
+  2. Each site has test cells (tests/, `test_r3_sN_*`) that feed it an unknown or off-shape input and assert it counts.
+
+EXEMPTION SITES (the full list; read the rule text below for the clauses they serve)
+  S1 (a)'s strip-all. Exempts: an occurrence of a string leaf of the call's own input from counting as the intended-channel
+     read. Evidence: the occurrence equals or lies inside such a leaf. Unknown: it is removed all the same, so the fact
+     FAILs (the safe direction for (a): over-stripping can only fail the fact).
+  S2 the echo strip of (c) and (d'). Exempts: the echo of the student's query from counting as an other-channel return or
+     an opening. Evidence: the call is engram_query or engram_surface of the pinned server, the result parses as a JSON
+     object, and it has a top-level string field `query` (both tools echo it: engram_query.py:3237 tiered, :3199 debug;
+     :2843 and :2611 for surface). Only the value of that one field is removed. Unknown: no echo is removed, the return
+     counts. Every other tool is unknown, `engram_list` included (its structured result carries stored nodes and no echo of
+     its filter, engram_query.py:3802-3817), and so is a result that does not parse or has no top-level `query`. (a) keeps
+     S1.
+  S3 (c') ENGRAM side, the student's own node. Exempts: a returned node from counting as a return of the other channel.
+     Evidence: the node's id was REPORTED CREATED by a creating tool of the pinned server, under that tool's own key and with
+     the same result's `status` "created", before the read and after the first intended read: engram_add_observation ->
+     observation_id (engram_observation.py:2176); engram_add_observation_batch -> each item of the top-level `results` list
+     that reports status "created", its observation_id (items are the single call's result, engram_observation.py:2808);
+     engram_derive -> derivation_id (engram_derive.py:335); engram_add_conjecture -> conjecture_id (engram_epistemic.py:575);
+     engram_ask -> question_id (engram_derive.py:775); engram_add_definition -> definition_id (engram_epistemic.py:448).
+     Not creating, so no id: engram_supersede (pure-wire: its `new_node_id` is the caller's input echoed back, server.py:7359-
+     7361, :7410, engram_revision.py:3857; the replacement is created by the tool that came first), engram_contradict (its
+     `conflicts.node_a/node_b` `id`s are two EXISTING nodes, engram_derive.py:597-600, and its `contradiction_id` names the
+     contradiction node, not a node the student claims), engram_retract, engram_resolve, engram_add_edge, engram_link_about
+     and every other tool. No bare `id` key, no generic key. Unknown: an unknown tool, a result that does not parse, is not
+     a JSON object, has no status "created", or whose key is absent, not a string or nested, reports no id; the return
+     counts. A read result is excused only if every dict with an `id` that holds the token carries such an id and no token
+     lies outside those dicts (after S2).
+  S4 (c') FOLDER side, the student's own file. Exempts: a read of a file from counting as a return of the other channel.
+     Evidence: a `Write` call with an absolute `file_path` whose result REPORTS the file "created successfully" (an
+     overwrite is reported "updated"), after the first intended read, no earlier call having named the file (full path or
+     base name); the read comes after the Write and every in-folder path it targets is such a file. An Edit or MultiEdit
+     never creates; a write through Bash is not recognized. Unknown: a Write whose result does not say created, a relative
+     path, any other tool: no creation, the return counts.
+  S5 (d') FILE-CAPABLE. Exempts: a call from being an opening (a path in its arguments or its results is then a mention).
+     Evidence: the call is one of NOT_FILE_CAPABLE (ToolSearch, TodoWrite, ExitPlanMode, EnterPlanMode, AskUserQuestion), or
+     a tool of the PINNED ENGRAM server (prefix mcp__plugin_engram_engram__). Unknown: every other call is file-capable (Read,
+     Bash, Grep, Glob, NotebookRead, LS, Task, Agent, WebFetch, Write, Edit, a tool of any other MCP server, any tool this
+     file has never heard of): it opens if it names the evidence file or the run directory, or returns the token from a path
+     outside both channels.
+  S6 which ENGRAM tools are the other channel of a folder control. Exempts: a call to the pinned server from being a read of
+     the ENGRAM channel. Evidence: the tool is a KNOWN write, that is, declared readOnlyHint=false by the server's @mcp.tool
+     annotations (ENGRAM_KNOWN_WRITES: its result is the student's own act, not a read of the graph). Unknown: every other
+     tool of the pinned server counts as an ENGRAM read for (c), the pinned read tools, the other readOnlyHint=true tools
+     (engram_history, engram_diagnose, engram_stats, engram_cascade_frontier, ...) and a tool the list has never heard of.
+     (a) is narrower on purpose: the intended ENGRAM channel is the pinned list ENGRAM_READ only (unknown: it does not pass).
+  S7 folder-target recognition in a shell command, and the one residual toward PASS. Exempts: a call from being a read of the
+     folder channel. Evidence: a Read/NotebookRead file_path, a Grep/Glob path, or an absolute path word of a Bash command
+     that resolves (realpath) inside the folder, with `~`, `$HOME`, `${HOME}` resolved to the home taken from the
+     folder_file and adjacent quoted and unquoted segments of one shell word joined (`"$HOME"/.claude/...`, `'~'/...`).
+     Unknown: a target the checker cannot resolve is NOT seen. That is inherent in a rule that names the folder channel by
+     its target, and the ONE place a PASS can hide a folder return for an engram control: a relative path, a glob, a variable
+     other than HOME, a path built by a subshell, a Grep with no `path`, and a Task or Agent
+     subagent that reads the memory folder (the subagent's own reads are not in this stream; for the engram control that is a
+     note at most, for the folder control the call is not a folder read either).
 
 The rule (design owner's ruling, 2026-11-18, final form). An engram/folder fact PASSES iff
   (a) a read through the INTENDED channel, in a turn after both the resume and the compaction, returned the planted token
@@ -29,64 +90,34 @@ The rule (design owner's ruling, 2026-11-18, final form). An engram/folder fact 
       surface}: the server prefix is pinned, a different mcp server never counts); folder = ANY call whose TARGET is inside
       the student's memory folder (the directory of the control's folder_file; realpath compare): a Read/NotebookRead
       file_path, a Grep/Glob path (or an absolute Glob pattern), a Bash command with an absolute path word that resolves
-      inside it (a grep, cat, ls or stat of it). In a Bash command `~`, `$HOME` and `${HOME}` resolve to the student's
-      home, taken from the folder_file's path (the part before "/.claude/"); with no such part they are not resolved.
-      Bound: a relative path, a glob, a variable other than HOME or a path built by a subshell in a Bash command cannot be
-      resolved, so it is not seen (toward FAIL for a folder control; for an engram control it can hide a folder return:
-      the one remaining approximation toward PASS, stated); a `Read` of a file with a folder_file's base name counts
-      wherever it sits (kept from bfab5a3); Write/Edit and MCP tools have no read target. The token must be in THAT call's
-      own result after (b)'s strip-ALL stripping. "After the resume" is the run itself (the events file is the resumed
-      session's); "after the compaction" is every turn after the LAST turn row of kind "compact" (no such row: every turn).
-      Any such turn counts, not only the control's own;
-  (b) a token present only in the student's own query or prompt text never counts. The echo of the student's input is
-      removed from a tool result before the token is searched for, by two functions. For (a), `strip_strings` removes EVERY
-      occurrence of every string leaf of the call's own input (each JSON string leaf of the tool_use input, plus the
+      inside it (a grep, cat, ls or stat of it); see S7 for the shell forms resolved and the bound. A `Read` of a file with
+      a folder_file's base name counts wherever it sits (kept from bfab5a3); Write/Edit and MCP tools have no read target.
+      The token must be in THAT call's own result after S1's stripping. "After the resume" is the run itself (the events
+      file is the resumed session's); "after the compaction" is every turn after the LAST turn row of kind "compact" (no
+      such row: every turn). Any such turn counts, not only the control's own;
+  (b) a token present only in the student's own query or prompt text never counts. For (a), `strip_strings` (S1) removes
+      EVERY occurrence of every string leaf of the call's own input (each JSON string leaf of the tool_use input, plus the
       leaves of any string that is itself JSON, e.g. `payload_json`, decoded; matched case-insensitively, also in its
       JSON-escaped spelling, replaced by a NUL so neighbours never splice into a token). Bound: a stored value that equals
       (or contains, as a whole leaf) the query string, or a one-character leaf, is removed too: a false negative toward
-      FAIL, the safe direction for (a). For (c) and (d') `strip_echo_once` removes each leaf AT MOST ONCE per occurrence of
-      that leaf in the input (a decoded `payload_json` leaf is consumed together with the whole payload string when that
-      is what the result echoes): a query that is exactly the token, with a store that returned it too, leaves the stored
-      occurrence and the return COUNTS. A leaf that is not itself the token and only overlaps a token occurrence is never
-      removed there (a query "7Z" cannot blank part of the token). Only the result of an `mcp__` tool is stripped, because
-      only a structured tool hands its query back: a Grep, Bash, Read or Glob does not echo its input, so a Grep whose
-      pattern is the token and whose one result line holds it is a return (nothing is removed from such a result). Bounds:
-      a tool that echoes its input more than once per result leaves an extra echo, which also errs toward FAIL here; and
-      an `mcp__` result in which the token appears exactly once, with a leaf equal to the token, is read as the echo (the
-      one place this strip errs toward PASS: an echo-only result must not fail (c));
+      FAIL. For (c) and (d') only S2 removes anything: a query that is exactly the token, with a store that returned it too,
+      leaves the stored occurrence and the return COUNTS, and a Grep, Bash, Read or Glob result is never stripped;
   (c) no read through the OTHER channel returned it in that session (all turns, before or after the compaction): for an
-      engram control a folder-channel read (as in (a)) returning the token, for a folder control an ENGRAM read returning
-      it (both after `strip_echo_once`). Calls of other kinds (ToolSearch, other MCP tools, writes) neither pass nor fail a
-      control under (a)/(c); they are listed. Exception (c'): the returned item is one the student itself wrote in the
-      session AFTER the first intended read that returned the token, and the tool IDENTIFIES it, never by its text.
-      Other channel = ENGRAM (a folder control): the ids the student's own ENGRAM writes created after that read (the
-      pinned server's non-read calls; the ids their results report under the keys id, observation_id, derivation_id,
-      result_node_id, conjecture_id, question_id, definition_id, tension_id, contradiction_id; a key that only REFERS to a
-      node, such as target_id or superseded_id, is not read). The result is parsed as JSON (JSON inside a JSON string is
-      decoded recursively); every dict with an `id` whose string values hold the token must have the id of one of those
-      later-written nodes (written before this read), and no occurrence of the token may lie outside those dicts (they are
-      removed from the serialized result, `strip_echo_once` is applied to what remains). Anything else, including a result
-      that does not parse or a write whose result reports no id, counts as a return. Other channel = FOLDER (an engram
-      control): the read must be of a file the student itself CREATED with a Write after that read, no call before that
-      Write having named the file (full path or base name in its input), and the read coming after the Write; every
-      in-folder path the read targets must be such a file (a grep of the whole folder is never excused). An Edit or a
-      MultiEdit is NEVER a creation (the file may already have held the token), and a write through Bash (`echo > file`) is
-      not recognized as a write. Writes BEFORE the first intended read never excuse anything, an other-channel return before
-      it is never excused, and a pre-existing item holding the token still FAILs. When the exception is what prevented a
-      FAIL, a `note:` names the node id(s) with the write (tool, turn), or the file path with its Write (turn). The check
-      relies on the tool result's shape, so a result the channel reshapes is read as unparseable: a false negative toward
-      FAIL;
+      engram control a folder-channel read (as in (a)) returning the token, for a folder control an ENGRAM call returning it
+      (S6; both after S2). Calls of other kinds (ToolSearch, other MCP tools, writes) neither pass nor fail a control under
+      (a)/(c); they are listed. Exception (c'): the returned item is one the student itself wrote in the session AFTER the
+      first intended read that returned the token, and the tool IDENTIFIES it, never by its text: for a folder control the
+      node ids of S3, for an engram control the files of S4. The returning read must come after the write. Writes BEFORE the
+      first intended read never excuse anything, an other-channel return before it is never excused, and a pre-existing item
+      holding the token still FAILs. When the exception is what prevented a FAIL, a `note:` names the node id(s) with the
+      write (tool, turn), or the file path with its Write (turn). The check relies on the tool result's shape, so a result
+      the channel reshapes is read as unparseable: a false negative toward FAIL;
   (d) the evidence file or the run directory opened BEFORE the first read that satisfies (a) FAILs, in stream order
       across the whole session (the satisfying call itself naming it counts as before: the conservative side); opened
-      AFTER it is only noted. (d') An OPENING is a FILE-CAPABLE call that EITHER names the evidence file or the run
+      AFTER it is only noted. (d') An OPENING is a FILE-CAPABLE call (S5) that EITHER names the evidence file or the run
       directory ('named' = its full path or its base name appearing in the call's input, `~` / `$HOME` / `${HOME}`
-      expanded as above) OR returns the token (after `strip_echo_once`) while its target is NOT inside the memory folder (a
-      path outside both channels). FILE-CAPABLE is by default-deny: every call is file-capable (Read, Bash, Grep, Glob,
-      NotebookRead, LS, Task, Agent, WebFetch, Write, Edit and any tool this file has never heard of) EXCEPT the calls in
-      NOT_FILE_CAPABLE (ToolSearch, TodoWrite, ExitPlanMode, EnterPlanMode, AskUserQuestion) and any name starting with
-      "mcp__" (ENGRAM and every other MCP tool): a path in the arguments or results of those is a mention, never an
-      opening. Bound: an MCP tool that can itself read files is treated as a mention (the rule's wording), the one place a
-      PASS can hide an opening.
+      expanded and quote-split words joined as in S7) OR returns the token while its target is NOT inside the memory folder
+      (a path outside both channels; nothing is echo-stripped there).
 none: FAIL if the answer contains the engram or folder token, else REVIEW (a human judges abstention).
 Alignment: row k of turns.jsonl must pair with the k-th `result` event on BOTH its `session_id` (the row's, which
 feed4.py logs from the stream's system event, against the result event's own session_id; a row that carries one while
@@ -107,6 +138,10 @@ ENGRAM_READ = re.compile(r"^" + re.escape(ENGRAM_SERVER_PREFIX)
                          + r"engram_(query|inspect|get_subgraph|list|list_focused|query_pattern|surface)$")
 ENGRAM_ANY = re.compile(r"^" + re.escape(ENGRAM_SERVER_PREFIX) + r"engram_")
 CHANNELS = ("engram", "folder", "none")
+# S2: the pinned tools that hand the student's query back, in a top-level string field `query` (engram_query.py:3237 tiered,
+# :3199 debug; :2843 surface, :2611 surface no-match). engram_list does not (engram_query.py:3802-3817): it is NOT here.
+ENGRAM_ECHO_TOOLS = frozenset(ENGRAM_SERVER_PREFIX + n for n in ("engram_query", "engram_surface"))
+ECHO_KEY = "query"
 
 
 def read_jsonl(path):
@@ -171,10 +206,18 @@ def expand_home(s, home):
     return re.sub(r"(?<![\w$~./-])~(?=/|$|[\s'\"`;|&<>()])", lambda m: home, s)
 
 
+def fold_quotes(s):
+    """S7: join the adjacent quoted and unquoted segments of one shell word (`"$HOME"/.claude/x`, `'~'/x`) by dropping the quote
+    characters, also the backslash-escaped quote of a JSON dump. Only ever an ADDITIONAL candidate beside the raw text."""
+    return re.sub(r'\\"|["\']', "", s)
+
+
 def names_file(call, path, home=None):
-    """(d') 'named': the path or its base name appears in the call's input (`~` / `$HOME` / `${HOME}` expanded)."""
+    """(d') 'named': the path or its base name appears in the call's input (`~` / `$HOME` / `${HOME}` expanded, quote-split
+    words joined)."""
     s = json.dumps(call["input"]) if call["input"] is not None else ""
-    return path in s or os.path.basename(path) in s or path in expand_home(s, home)
+    return (path in s or os.path.basename(path) in s or path in expand_home(s, home)
+            or path in expand_home(fold_quotes(s), home))
 
 
 def has(text, token):
@@ -221,65 +264,33 @@ def stripped_result(call):
     return strip_strings(call["result"] or "", leaves)
 
 
-def leaf_nodes(x):
-    """The string leaves of a JSON-ish input as a forest of (string, children): a string that is itself JSON (a
-    `payload_json`) carries its decoded leaves as its children."""
-    if isinstance(x, str):
-        kids = []
-        if x.strip()[:1] in ("{", "["):
-            try:
-                kids = leaf_nodes(json.loads(x))
-            except ValueError:
-                pass
-        return [(x, kids)]
-    if isinstance(x, dict):
-        return [n for v in x.values() for n in leaf_nodes(v)]
-    if isinstance(x, (list, tuple)):
-        return [n for v in x for n in leaf_nodes(v)]
-    return []
+def obj_holds(x, tok):
+    """True if a parsed JSON value holds the token in its serialization (keys included) or in any string leaf (decoded)."""
+    out = []
+    string_leaves(x, out)
+    return has(json.dumps(x, ensure_ascii=False), tok) or any(has(v, tok) for v in out)
 
 
-def remove_once(text, s, token):
-    """Remove ONE occurrence of `s` (raw or JSON-escaped, case-insensitive) from `text`, the first one eligible; returns
-    (text, removed). A leaf that does not itself contain the token is never taken from a spot that overlaps a token
-    occurrence: a short query cannot blank part of a stored token."""
-    spans = [m.span() for m in re.finditer(re.escape(token), text, re.IGNORECASE)] if token else []
-    whole = token.lower() in s.lower()
-    best = None
-    for f in {x for x in (s, json.dumps(s)[1:-1], json.dumps(s, ensure_ascii=False)[1:-1]) if x}:
-        for m in re.finditer(re.escape(f), text, re.IGNORECASE):
-            a, b = m.span()
-            if whole or not any(a < tb and ta < b for ta, tb in spans):
-                if best is None or a < best[0]:
-                    best = (a, b)
-                break
-    if best is None:
-        return text, False
-    return text[:best[0]] + "\0" + text[best[1]:], True
+def without_echo(call, obj):
+    """S2: the parsed result with the one KNOWN echo removed: the top-level string `query` of engram_query / engram_surface.
+    Anything else (another tool, a result that is not an object, no top-level string `query`) is returned unchanged."""
+    if call["name"] in ENGRAM_ECHO_TOOLS and isinstance(obj, dict) and isinstance(obj.get(ECHO_KEY), str):
+        return {**obj, ECHO_KEY: None}
+    return obj
 
 
-def strip_echo_once(text, nodes, token):
-    """Rules (c) and (d')'s echo strip: remove each input string leaf AT MOST ONCE per occurrence of that leaf in the input
-    (`nodes` = leaf_nodes(input)). When a payload string is found its decoded leaves are not removed again (one echo);
-    when it is not, they are tried. A query that is exactly the token, with a store that returned it too, leaves the stored
-    occurrence behind, so the return counts. Bound: a tool that echoes its input more than once per result leaves an extra
-    echo, which also errs toward FAIL here."""
-    for s, kids in sorted(nodes, key=lambda n: -len(n[0])):
-        if not s:
-            continue
-        text, gone = remove_once(text, s, token)
-        if not gone and kids:
-            text = strip_echo_once(text, kids, token)
-    return text
-
-
-def echo_once_result(call, token):
-    """The result for (c) and (d'). Only an `mcp__` tool is a structured tool that can hand its query back, so only its
-    result is echo-stripped. A file or shell tool (Grep, Bash, Read, Glob, ...) does not echo its input: its single
-    occurrence of a token that equals the pattern is the file's content, so nothing is removed (toward FAIL)."""
-    if not call["name"].startswith("mcp__"):
-        return call["result"] or ""
-    return strip_echo_once(call["result"] or "", leaf_nodes(call["input"]), token)
+def returns_token(call, tok):
+    """The call's result holds the token for (c) and (d'), after S2's echo removal. A result that does not parse, a tool that
+    is not a known echo tool and a result without the known echo field are not stripped at all (toward FAIL)."""
+    raw = call["result"] or ""
+    if not has(raw, tok):
+        return False
+    if call["name"] not in ENGRAM_ECHO_TOOLS:
+        return True
+    obj = parse_result(raw)
+    if not (isinstance(obj, dict) and isinstance(obj.get(ECHO_KEY), str)):
+        return True
+    return obj_holds(without_echo(call, obj), tok)
 
 
 # ---- the folder channel is named by STORAGE (rule (a)): any call whose target is inside the memory folder
@@ -288,14 +299,44 @@ def echo_once_result(call, token):
 NOT_FILE_CAPABLE = frozenset({"ToolSearch", "TodoWrite", "ExitPlanMode", "EnterPlanMode", "AskUserQuestion"})
 CREATE_TOOLS = frozenset({"Write"})   # (c') folder side: only a Write creates a file; an Edit/MultiEdit never does
 BASH_ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`;|&<>()=:,]*")   # an absolute path word of a shell command
-# (c') ENGRAM side: result keys that report a node the write CREATED (a key that only refers to one, such as target_id,
-# superseded_id, node_id or evidence_id, is not here)
-CREATED_ID_KEYS = frozenset({"id", "observation_id", "derivation_id", "result_node_id", "conjecture_id", "question_id",
-                             "definition_id", "tension_id", "contradiction_id"})
+# S3 (c') ENGRAM side: the tools that CREATE a node, each with the key its own success result reports the new id under (the
+# success result is the one with "status": "created"). Read from the pinned plugin source:
+#   engram_add_observation        observation_id   engram_observation.py:2176
+#   engram_add_observation_batch  results[].observation_id, one per item  engram_observation.py:2808 (item = the line above)
+#   engram_derive                 derivation_id    engram_derive.py:335
+#   engram_add_conjecture         conjecture_id    engram_epistemic.py:575
+#   engram_ask                    question_id      engram_derive.py:775
+#   engram_add_definition         definition_id    engram_epistemic.py:448
+# Deliberately NOT here: engram_supersede (pure-wire: `new_node_id` is the caller's input echoed back, server.py:7359-7361,
+# :7410, engram_revision.py:3857), engram_contradict (`conflicts.node_a/node_b` carry the `id` of two EXISTING nodes,
+# engram_derive.py:597-600; its `contradiction_id` names the contradiction node), engram_retract, engram_resolve,
+# engram_add_edge, engram_link_about, and every unknown tool. No bare `id` and no generic key.
+CREATING_KEYS = {"engram_add_observation": "observation_id", "engram_add_observation_batch": "observation_id",
+                 "engram_derive": "derivation_id", "engram_add_conjecture": "conjecture_id", "engram_ask": "question_id",
+                 "engram_add_definition": "definition_id"}
+BATCH_TOOL = "engram_add_observation_batch"
+CREATED_FILE_RESULT = re.compile(r"\bcreated successfully\b", re.IGNORECASE)   # S4: what a Write reports for a NEW file
+# S6: the pinned server's KNOWN writes: the @mcp.tool entries of server.py that declare readOnlyHint=false (49 of 64 tools on
+# the plugin this was read from). Their results are the student's own act, so they are not a read of the ENGRAM channel; every
+# other tool of the server (the readOnlyHint=true ones and any unknown one) counts as an ENGRAM read for (c). The cell
+# `test_r3_s6_the_known_write_list_...` checks this list against the plugin tree named by P1_ENGRAM_PLUGIN.
+ENGRAM_KNOWN_WRITES = frozenset("""
+engram_add_observation engram_requote engram_add_observation_batch engram_cascade_start_unblock engram_cascade_end_unblock
+engram_cascade_resolve engram_checkpoint engram_nap engram_advance_turn engram_reflect engram_add_axiom engram_add_definition
+engram_add_conjecture engram_add_goal engram_deactivate_goal engram_activate_goal engram_add_person engram_update_person
+engram_add_special_moment engram_set_trust_tier engram_set_person_lineage engram_add_trust_signal engram_add_cornerstone
+engram_outgrow_cornerstone engram_link_about engram_remove_edge engram_add_edge engram_retype_edge engram_goal_tension
+engram_add_lesson engram_lesson_register_incident engram_update_lesson engram_register_exemplar engram_add_task
+engram_update_task engram_report_feeling engram_derive engram_contradict engram_ask engram_resolve engram_supersede
+engram_retract engram_focus engram_unfocus engram_focus_save engram_focus_load engram_focus_swap engram_focus_delete_set
+engram_set_recall_summaries
+""".split())
 
 
 def file_capable(name):
-    return not (name.startswith("mcp__") or name in NOT_FILE_CAPABLE)
+    """S5: not file-capable only the named harness tools and the tools of the PINNED ENGRAM server; every other call, a tool
+    of another MCP server included, is file-capable (default-deny)."""
+    return not (name.startswith(ENGRAM_SERVER_PREFIX) or name in NOT_FILE_CAPABLE)
 
 
 def folder_dirs(folder_files):
@@ -310,7 +351,8 @@ def inside(path, dirs):
 def folder_target_paths(call, folder_files):
     """The paths, as the call wrote them, that the call TARGETS inside the memory folder (the directory of a control's
     folder_file; realpath compare): Read/NotebookRead file_path; Grep/Glob path (a Glob pattern that is itself absolute
-    too); a Bash command's absolute path words (`~`, `$HOME`, `${HOME}` expanded to the home taken from the folder_file).
+    too); a Bash command's absolute path words (`~`, `$HOME`, `${HOME}` expanded to the home taken from the folder_file,
+    adjacent quoted and unquoted segments of a word joined).
     A `Read` of a file whose base name is a folder_file's counts as well (the bfab5a3 matching). Write/Edit and MCP tools
     have no read target. An empty list = the call is not in the folder channel."""
     inp = call["input"] if isinstance(call["input"], dict) else {}
@@ -328,7 +370,9 @@ def folder_target_paths(call, folder_files):
         cmd = inp.get("command")
         if not isinstance(cmd, str):
             return []
-        return [m for m in BASH_ABS_PATH.findall(expand_home(cmd, home_of(folder_files))) if inside(m, dirs)]
+        home = home_of(folder_files)
+        words = BASH_ABS_PATH.findall(expand_home(cmd, home)) + BASH_ABS_PATH.findall(expand_home(fold_quotes(cmd), home))
+        return [m for m in dict.fromkeys(words) if inside(m, dirs)]
     return []
 
 
@@ -340,8 +384,13 @@ def intended(ch, call, folder_files):
     return bool(ENGRAM_READ.match(call["name"])) if ch == "engram" else folder_target(call, folder_files)
 
 
+def engram_counts_as_read(name):
+    """S6: a call of the pinned server is a read of the ENGRAM channel unless it is a KNOWN write."""
+    return name.startswith(ENGRAM_SERVER_PREFIX) and name[len(ENGRAM_SERVER_PREFIX):] not in ENGRAM_KNOWN_WRITES
+
+
 def other_channel(ch, call, folder_files):
-    return folder_target(call, folder_files) if ch == "engram" else bool(ENGRAM_READ.match(call["name"]))
+    return folder_target(call, folder_files) if ch == "engram" else engram_counts_as_read(call["name"])
 
 
 # ---- (c') the exception identifies the written ITEM: an ENGRAM node id, or a file the student created
@@ -394,28 +443,33 @@ def without_dicts(x, drop):
     return x
 
 
-def created_ids(result):
-    """The ids a write's result reports as created (CREATED_ID_KEYS)."""
-    out = set()
-    for d in walk_dicts(parse_result(result)):
-        for k, v in d.items():
-            if k in CREATED_ID_KEYS:
-                out.update(x for x in (v if isinstance(v, list) else [v]) if isinstance(x, str))
-    return out
+def created_ids(call):
+    """S3: the ids a creating tool of the pinned server reports CREATED in its own result (CREATING_KEYS): a JSON object
+    whose `status` is "created" and whose creation key is a string; for the batch, each item of the top-level `results`
+    list that reports the same. Any other tool, shape or status: no id."""
+    name = call["name"]
+    key = CREATING_KEYS.get(name[len(ENGRAM_SERVER_PREFIX):]) if name.startswith(ENGRAM_SERVER_PREFIX) else None
+    obj = parse_result(call["result"] or "") if key else None
+    if not isinstance(obj, dict):
+        return set()
+    items = [obj]
+    if name[len(ENGRAM_SERVER_PREFIX):] == BATCH_TOOL:
+        items = obj.get("results") if isinstance(obj.get("results"), list) else []
+    return {it[key] for it in items if isinstance(it, dict) and it.get("status") == "created" and isinstance(it.get(key), str)}
 
 
 def excused_node_ids(call, tok, later_ids):
-    """(c'), ENGRAM as the other channel: the set of excused node ids of an ENGRAM read result that holds the token, or None
-    if the return counts. Excused only if the result parses, every dict with an `id` whose string values hold the token has
-    the id of a node the student wrote later (`later_ids`), and no occurrence of the token lies outside those dicts."""
+    """(c'), ENGRAM as the other channel: the set of excused node ids of an ENGRAM result that holds the token, or None if
+    the return counts. Excused only if the result parses, every dict with an `id` whose string values hold the token has the
+    id of a node the student wrote later (`later_ids`), and no occurrence of the token lies outside those dicts (after S2)."""
     obj = parse_result(call["result"] or "")
     if obj is None:
         return None
+    obj = without_echo(call, obj)
     holders = [d for d in walk_dicts(obj) if isinstance(d.get("id"), str) and dict_holds(d, tok)]
     if not holders or not {d["id"] for d in holders} <= later_ids:
         return None
-    rest = json.dumps(without_dicts(obj, {id(d) for d in holders}), ensure_ascii=False)
-    if has(strip_echo_once(rest, leaf_nodes(call["input"]), tok), tok):
+    if obj_holds(without_dicts(obj, {id(d) for d in holders}), tok):
         return None
     return {d["id"] for d in holders}
 
@@ -423,11 +477,13 @@ def excused_node_ids(call, tok, later_ids):
 def created_files(flat, first_i, folder_files):
     """(c') FOLDER as the other channel: {realpath: (index, path as written)} of the files the student itself CREATED with a
     Write after the first intended read (flat index > first_i), no call before that Write naming the file. An Edit or a
-    MultiEdit is never a creation (the file may already have held the token)."""
+    MultiEdit is never a creation (the file may already have held the token). S4: the Write has an absolute path and its
+    result says "created successfully" (an overwrite is reported "updated"); anything else is no creation."""
     home, out = home_of(folder_files), {}
     for i, (_, c) in enumerate(flat):
         fp = c["input"].get("file_path") if isinstance(c["input"], dict) else None
-        if i <= first_i or c["name"] not in CREATE_TOOLS or not isinstance(fp, str) or not fp:
+        if (i <= first_i or c["name"] not in CREATE_TOOLS or not isinstance(fp, str) or not os.path.isabs(fp)
+                or not CREATED_FILE_RESULT.search(c["result"] or "")):
             continue
         rp = os.path.realpath(fp)
         if rp not in out and not any(names_file(c2, fp, home) for _, c2 in flat[:i]):
@@ -447,14 +503,14 @@ def excused_files(call, j, created, folder_files):
 
 def opening(c, tok, folder_files, opener_paths):
     """(d'): 'named' if a FILE-CAPABLE call (default-deny, see NOT_FILE_CAPABLE) names the evidence file / run directory
-    (full path or base name), 'outside' if one returns the token (after strip_echo_once) from a path outside both channels;
+    (full path or base name), 'outside' if one returns the token (nothing echo-stripped: S2) from a path outside both channels;
     None otherwise (an MCP tool, ToolSearch and the like only mention)."""
     if not file_capable(c["name"]):
         return None
     home = home_of(folder_files)
     if any(names_file(c, p, home) for p in opener_paths):
         return "named"
-    if not folder_target(c, folder_files) and has(echo_once_result(c, tok), tok):
+    if not folder_target(c, folder_files) and returns_token(c, tok):
         return "outside"
     return None
 
@@ -480,17 +536,16 @@ def judge(ctl, answer, flat, last_compact, folder_files, opener_paths, all_token
         else:
             why.append("the folder file was not read (no call into the memory folder in a turn after the compaction)" if not in_scope else
                        "the folder file was not read through a call whose result held the token (the student's own input echo stripped)")
-    # (c) and its exception (c'): the other channel returned the token (after strip_echo_once) unless the returned item is
+    # (c) and its exception (c'): the other channel returned the token (after S2) unless the returned item is
     # IDENTIFIED as one the student wrote after its first intended read
     ewrites, created = [], {}
     if first_i is not None and ch == "folder":
-        ewrites = [(i, ti, c, created_ids(c["result"] or "")) for i, (ti, c) in enumerate(flat)
-                   if i > first_i and ENGRAM_ANY.match(c["name"]) and not ENGRAM_READ.match(c["name"])]
+        ewrites = [(i, ti, c, created_ids(c)) for i, (ti, c) in enumerate(flat) if i > first_i]
     elif first_i is not None:
         created = created_files(flat, first_i, folder_files)
     returned, excused = False, {}
     for j, (_, c) in enumerate(flat):
-        if not other_channel(ch, c, folder_files) or not has(echo_once_result(c, tok), tok):
+        if not other_channel(ch, c, folder_files) or not returns_token(c, tok):
             continue
         if ch == "folder":
             later = {}
