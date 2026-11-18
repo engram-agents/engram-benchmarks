@@ -1354,3 +1354,99 @@ def test_r3_the_docstring_names_the_sites_the_subagent_bound_and_the_cited_creat
     for cite in ("engram_observation.py:2176", "engram_observation.py:2808", "engram_derive.py:335", "engram_epistemic.py:575",
                  "engram_derive.py:775", "engram_epistemic.py:448", "engram_query.py:3237", ":3199", ":2843", ":2611"):
         assert cite in src, cite
+
+
+# ---- the REAL result envelope: Claude Code records an ENGRAM MCP tool result as {"result": "<inner JSON as a string>"}
+# (measured on a real session record). S2 and S3 read the INNER object; only exactly this shape is unwrapped.
+def env(inner):
+    """The real envelope around an inner result object: a one-key dict whose `result` is the inner JSON, as a string."""
+    return json.dumps({"result": json.dumps(inner)})
+
+
+def test_env_s2_a_query_echo_in_the_real_envelope_is_not_a_return(tmp_path):
+    q = f"lantern {T_FOLDER} room"
+    res = env({"results": [], "query": q, "total_matches": 0})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": q}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS" and r.returncode == 0, r.stdout
+
+
+def test_env_s2_a_stored_value_beside_the_echo_in_the_real_envelope_still_counts(tmp_path):
+    q = f"lantern {T_FOLDER} room"
+    res = env({"results": [{"id": "ob_0007", "summary": f"older {T_FOLDER}"}], "query": q})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": q}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_env_s3_the_students_own_node_in_the_real_envelope_is_excused_and_the_note_names_the_id(tmp_path):
+    w = call(ENG_W, {"payload_json": json.dumps({"claim": PROBE_Q})},
+             env({"status": "created", "observation_id": "ob_0109"}))
+    lst = call(ENG_LIST, {}, env({"status": "ok", "nodes": [{"id": "ob_0109", "type": "observation_factual", "claim": PROBE_Q}]}))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [w, lst]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert any("ob_0109" in ln for ln in r.stdout.splitlines() if ln.strip().startswith("note:")), r.stdout
+
+
+def test_env_s3_a_preexisting_node_in_the_real_envelope_still_fails(tmp_path):
+    w = call(ENG_W, {"payload_json": json.dumps({"claim": PROBE_Q})}, env({"status": "created", "observation_id": "ob_0109"}))
+    lst = call(ENG_LIST, {}, env({"status": "ok", "nodes": [{"id": "ob_0007", "claim": f"older {T_FOLDER}"}]}))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [w, lst]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_env_control_1_end_to_end_in_the_real_envelope_shape(tmp_path):
+    """Folder control: a shell grep of the memory folder returns the token; then an envelope engram_query whose query holds
+    the token (empty results); then an envelope add_observation quoting the token (created, id X); then an envelope
+    engram_list returning node X holding the token. PASS, and the note names X."""
+    grep = call("Bash", {"command": f"grep -r lantern {MEM}"}, f"{MEM}/reference_note.md:the lantern code {T_FOLDER}")
+    q = call(ENG_Q, {"query": PROBE_Q}, env({"results": [], "query": PROBE_Q, "total_matches": 0}))
+    w = call(ENG_W, {"payload_json": json.dumps({"claim": PROBE_Q})},
+             env({"status": "created", "observation_id": "ob_0123", "type": "observation_factual"}))
+    lst = call(ENG_LIST, {}, env({"status": "ok", "count": 1, "nodes": [{"id": "ob_0123", "type": "observation_factual", "claim": PROBE_Q}]}))
+    r = run_check(tmp_path, reach_run(fol=[grep, q, w, lst]))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert any("ob_0123" in ln for ln in r.stdout.splitlines() if ln.strip().startswith("note:")), r.stdout
+
+
+# off-shape: each must COUNT (the echo is not stripped / no id is reported)
+def _offshape_results(inner):
+    return [
+        json.dumps({"result": json.dumps(inner), "extra": 1}),                     # two keys
+        json.dumps({"result": "ok " + json.dumps(inner)}),                         # `result` is a string that is not JSON
+        json.dumps({"result": inner}),                                             # `result` is not a string (nested object)
+        json.dumps({"results": json.dumps(inner)}),                                # another key
+    ]
+
+
+@pytest.mark.parametrize("k", range(4))
+def test_env_off_shape_echo_is_not_stripped(tmp_path, k):
+    q = f"lantern {T_FOLDER} room"
+    res = _offshape_results({"results": [], "query": q})[k]
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": q}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", (res, r.stdout)
+
+
+@pytest.mark.parametrize("k", range(4))
+def test_env_off_shape_created_result_reports_no_id(tmp_path, k):
+    w = call(ENG_W, {"payload_json": json.dumps({"claim": PROBE_Q})},
+             _offshape_results({"status": "created", "observation_id": "ob_0109"})[k])
+    lst = call(ENG_LIST, {}, env({"status": "ok", "nodes": [{"id": "ob_0109", "claim": PROBE_Q}]}))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [w, lst]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", (k, r.stdout)
+
+
+def test_env_an_envelope_whose_inner_has_no_status_created_reports_no_id(tmp_path):
+    w = call(ENG_W, {"payload_json": json.dumps({"claim": PROBE_Q})},
+             env({"status": "failed_not_durable", "observation_id": "ob_0109"}))
+    lst = call(ENG_LIST, {}, env({"status": "ok", "nodes": [{"id": "ob_0109", "claim": PROBE_Q}]}))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [w, lst]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_env_unwrap_is_exactly_one_key_result_string_json():
+    m = load_tool()
+    inner = {"status": "created", "observation_id": "ob_0109"}
+    assert m.parse_result(env(inner)) == inner
+    assert m.parse_result(json.dumps({"result": json.dumps(inner), "x": 1})) == {"result": inner, "x": 1}
+    assert m.parse_result(json.dumps({"result": "plain text"})) == {"result": "plain text"}
+    assert m.parse_result(json.dumps({"result": inner})) == {"result": inner}
+    assert m.parse_result("not json") is None

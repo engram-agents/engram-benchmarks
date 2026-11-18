@@ -29,6 +29,14 @@ heuristic's assumption turns into a false PASS. So:
      is unknown: it COUNTS, toward FAIL. No exemption rests on "this tool usually does not X".
   2. Each site has test cells (tests/, `test_r3_sN_*`) that feed it an unknown or off-shape input and assert it counts.
 
+KNOWN RESULT SHAPES. S2 and S3 read fields of an ENGRAM tool result, which is recorded in the stream in one of two shapes: the
+bare inner JSON object (the shape of the fixtures and of the server's own return), or the ENVELOPE Claude Code records for an
+MCP tool: a JSON object with exactly one key "result" whose value is a string holding the inner JSON,
+`{"result": "{\\"status\\": \\"created\\", ...}"}` (measured on a real session record). `unwrap_envelope` recognises exactly
+that envelope and `parse_result` applies it; the inner value is what S2 and S3 read. Any other shape (a second key, another
+key name, a `result` that is not a string, a `result` string that is not JSON) is NOT unwrapped: it is read as it parses,
+so S2 strips no echo and S3 reports no id (they count, toward FAIL).
+
 EXEMPTION SITES (the full list; read the rule text below for the clauses they serve)
   S1 (a)'s strip-all. Exempts: an occurrence of a string leaf of the call's own input from counting as the intended-channel
      read. Evidence: the occurrence equals or lies inside such a leaf. Unknown: it is removed all the same, so the fact
@@ -410,10 +418,24 @@ def deep_decode(x):
     return x
 
 
+def unwrap_envelope(outer):
+    """The ONE known envelope: Claude Code records an ENGRAM MCP tool result as `{"result": "<inner JSON as a string>"}`.
+    `outer` is the plain json.loads of the result text. Returns the inner JSON value iff `outer` is a dict with exactly the
+    one key "result" whose value is a string that itself parses as JSON; anything else (two keys, another key, a `result`
+    that is not a string, a string that is not JSON) is returned unchanged. No other shape is unwrapped."""
+    if isinstance(outer, dict) and len(outer) == 1 and isinstance(outer.get("result"), str):
+        try:
+            return json.loads(outer["result"], strict=False)
+        except (ValueError, RecursionError):
+            pass
+    return outer
+
+
 def parse_result(text):
-    """A tool result as a decoded JSON value, or None if it does not parse."""
+    """A tool result as a decoded JSON value (the known envelope unwrapped), or None if it does not parse. Every site that
+    reads a field of an ENGRAM tool result (S2 echo, S3 created ids and the returned nodes) goes through here."""
     try:
-        return deep_decode(json.loads(text, strict=False))
+        return deep_decode(unwrap_envelope(json.loads(text, strict=False)))
     except (ValueError, RecursionError):
         return None
 

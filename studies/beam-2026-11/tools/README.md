@@ -167,7 +167,7 @@ joined), in a turn after the compaction returned the token
 in that call's tool result, (b) the student's own query text echoed back never counts: for (a) every occurrence of every
 string of the call's own input (`payload_json` decoded) is stripped from the result first (a stored value equal to the
 query is stripped too, toward FAIL); for (c) and (d') only the top-level `query` field of an `engram_query` / `engram_surface` result is stripped (the
-one echo the server is known to produce); every other tool, a result that does not parse and a result without that field
+one echo the server is known to produce; an ENGRAM result recorded in Claude Code's envelope `{"result": "<inner JSON as a string>"}`, exactly one key whose value is a string that parses as JSON, is read as its inner object, here and for the created ids of (c'), and no other shape is unwrapped); every other tool, a result that does not parse and a result without that field
 is not stripped, so an `engram_list` contains-filter on the token that returns one stored copy is a return, and so is a
 query that is exactly the token whose result also holds a stored copy; a Grep, Bash or Read result is never stripped, (c)
 no read through the other channel returned the token anywhere in the session (for a folder control the other channel is
