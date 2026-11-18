@@ -1599,3 +1599,31 @@ files and of every file under `.claude/projects/` was taken before and after eac
 Control: each run also saved its store at its end, by a sqlite backup into the run's own directory. The same hash over
 those three saved stores gives the same three values, so each preserved home holds exactly the store its run left. The
 k = 1 value also equals the one logged on 2026-11-17. The same hashes are taken again after the last session.
+
+## P1 answering pilot: control 2 cannot run with the tools as built; the tools are brought to the pre-log (logged 2026-11-18, before any control 2 session)
+
+**The finding, a defect in the study lead's own launcher spec.** Control 2 is pre-logged (80731986, item 3) as the ENGRAM
+half only on the k = 1 copy: the ENGRAM fact and the nowhere fact, no folder plant, because the k = 1 run wrote nothing to
+the built-in folder. The tools cannot express that. The launcher refuses a partial plant set (any plant flag without all
+three), and `plant-control.py` requires all three facts and refuses a memory folder with no `MEMORY.md` index; the k = 1
+end state's built-in folder exists and is empty. The launcher spec, written by the study lead, required all three plant
+flags; both review layers checked the code against that spec, so neither could see that one pre-logged session had no
+way to run. It was found by walking the pre-log's steps against the tools' arguments before control 2 ran. No control 2
+session has run and no answer exists. The pre-log's text is unchanged.
+
+**Ruling (design owner).** The pre-registration governs and the tool is brought to it: `plant-control.py` gains an
+ENGRAM-only mode (no built-in plant, no write of any kind under the built-in folder, and a check that the folder is
+byte-identical after the write), and the launcher accepts exactly one partial set, ENGRAM fact plus nowhere fact; every
+other subset is still refused. Creating a `MEMORY.md` on the k = 1 copy to fit the tools was rejected because it would
+create the folder state the pre-log keeps apart; dropping control 2 was rejected because the k = 1 copy's ENGRAM channel
+would go unshown after the resume.
+
+**A second gap, found by a dry run.** The first dry run of control 1 stopped at the plan check (exit 3, before any student
+call; the protected homes' before and after hashes were equal) because `feed4.py` needs `BEAM_PARQUET` in the environment
+and the launcher did not require it. The same fix adds it to the launcher's required environment.
+
+**Which launcher ran which session.** Control 1 (K = 3 copy, all three channels) started 2026-11-18 17:54:34Z from the
+launcher at 0dc77c11, before this fix. Control 2 and every later session run from the fixed launcher, whose commit and
+script hashes are logged before control 2. The fix carries a test showing that the three-channel path plans the same
+actions before and after the change (the plant command and the plan file compared, not read), so control 1's result is
+not put in question by it. Nothing real runs before control 2 passes.
