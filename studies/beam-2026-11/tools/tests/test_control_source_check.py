@@ -639,12 +639,18 @@ def own_obs(claim, node="ob_0042"):
 
 
 def list_returning(*summaries):
+    """A list result of PRE-EXISTING nodes (auto ids ob_0, ob_1, ...: none of them is a node the student wrote)."""
     return call(ENG_LIST, {}, json.dumps({"results": [{"id": f"ob_{k}", "summary": s} for k, s in enumerate(summaries)]}))
+
+
+def list_items(*items):
+    """A list result of nodes with explicit ids: (id, summary) pairs."""
+    return call(ENG_LIST, {}, json.dumps({"results": [{"id": i, "summary": s} for i, s in items]}))
 
 
 # ---- (c') ENGRAM side: a folder control whose token the student wrote into ENGRAM AFTER its first folder read
 def test_c_prime_the_students_own_engram_write_after_its_first_folder_read_does_not_fail_the_folder_control(tmp_path):
-    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs(PROBE_Q), list_returning(PROBE_Q)]))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs(PROBE_Q), list_items(("ob_0042", PROBE_Q))]))
     assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
     notes = [ln for ln in r.stdout.splitlines() if ln.strip().startswith("note:")]
     assert len(notes) == 1 and "engram_add_observation" in notes[0] and "turn 3" in notes[0] and "ob_0042" in notes[0], r.stdout
@@ -659,24 +665,24 @@ def test_c_prime_mutant_a_preexisting_engram_item_holding_the_token_still_fails(
 def test_c_prime_an_engram_return_before_the_first_folder_read_still_fails_even_if_written_later(tmp_path):
     """An other-channel return BEFORE the first intended read is never exempted, even when the student writes the very same
     text afterwards."""
-    r = run_check(tmp_path, reach_run(fol=[list_returning(PROBE_Q)] + fol_default() + [own_obs(PROBE_Q), list_returning(PROBE_Q)]))
+    r = run_check(tmp_path, reach_run(fol=[list_returning(PROBE_Q)] + fol_default() + [own_obs(PROBE_Q), list_items(("ob_0042", PROBE_Q))]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
 def test_c_prime_a_write_before_the_first_folder_read_is_not_stripped(tmp_path):
-    r = run_check(tmp_path, reach_run(fol=[own_obs(PROBE_Q)] + fol_default() + [list_returning(PROBE_Q)]))
+    r = run_check(tmp_path, reach_run(fol=[own_obs(PROBE_Q)] + fol_default() + [list_items(("ob_0042", PROBE_Q))]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
 def test_c_prime_a_preexisting_item_beside_the_students_own_write_still_fails(tmp_path):
-    """The student's write is stripped; a different item that also holds the token (it was there before) survives."""
-    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs(PROBE_Q),
-                                                           list_returning(PROBE_Q, f"older note: {T_FOLDER} was filed last week")]))
+    """The student's node is excused by its id; a different node that also holds the token (it was there before) is not."""
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs(PROBE_Q), list_items(
+        ("ob_0042", PROBE_Q), ("ob_0007", f"older note: {T_FOLDER} was filed last week"))]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
 def test_c_prime_a_write_that_does_not_carry_the_token_exempts_nothing(tmp_path):
-    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs("a probe happened"), list_returning(f"x {T_FOLDER} y")]))
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs("a probe happened"), list_items(("ob_0099", f"x {T_FOLDER} y"))]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
@@ -686,13 +692,14 @@ def test_c_prime_a_read_before_the_write_is_not_exempted_by_it(tmp_path):
 
 
 def test_c_prime_every_engram_write_tool_counts_not_only_add_observation(tmp_path):
-    for name in ("mcp__plugin_engram_engram__engram_derive", "mcp__plugin_engram_engram__engram_add_conjecture",
-                 "mcp__plugin_engram_engram__engram_supersede"):
-        w = call(name, {"payload_json": json.dumps({"text": PROBE_Q})}, "{}")
-        r = run_check(tmp_path, reach_run(fol=fol_default() + [w, list_returning(PROBE_Q)]))
+    for name, key in (("mcp__plugin_engram_engram__engram_derive", "derivation_id"),
+                      ("mcp__plugin_engram_engram__engram_add_conjecture", "conjecture_id"),
+                      ("mcp__plugin_engram_engram__engram_supersede", "result_node_id")):
+        w = call(name, {"payload_json": json.dumps({"text": PROBE_Q})}, json.dumps({key: "ob_0042"}))
+        r = run_check(tmp_path, reach_run(fol=fol_default() + [w, list_items(("ob_0042", PROBE_Q))]))
         assert verdicts(r.stdout)["c-folder"] == "PASS", (name, r.stdout)
-    other = call("mcp__other__engram_add_observation", {"claim": PROBE_Q}, "{}")   # not the pinned server: not an ENGRAM write
-    r = run_check(tmp_path, reach_run(fol=fol_default() + [other, list_returning(PROBE_Q)]))
+    other = call("mcp__other__engram_add_observation", {"claim": PROBE_Q}, json.dumps({"id": "ob_0042"}))   # not the pinned server: not an ENGRAM write
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [other, list_items(("ob_0042", PROBE_Q))]))
     assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
 
 
@@ -711,11 +718,13 @@ def test_c_prime_the_students_own_write_into_the_folder_after_its_first_engram_r
     assert any("Write" in n and NOTE_FILE in n and "turn 2" in n for n in notes), r.stdout
 
 
-def test_c_prime_an_edit_new_string_into_the_folder_counts_too(tmp_path):
+def test_c_prime_an_edit_into_the_folder_never_excuses_a_return(tmp_path):
+    """Superseded by the round-2 fold: an Edit/MultiEdit counted like a Write. An Edit changes a file that may already have
+    held the token (we cannot know it did not), so it is NEVER excused."""
     w = call("Edit", {"file_path": NOTE_FILE, "old_string": "old", "new_string": f"probe: code {T_ENGRAM}"}, "updated")
     rd = call("Read", {"file_path": NOTE_FILE}, f"     4\tprobe: code {T_ENGRAM}\n")
     r = run_check(tmp_path, reach_run(eng=eng_default() + [w, rd]))
-    assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
 
 
 def test_c_prime_mutant_a_preexisting_folder_file_holding_the_engram_token_still_fails(tmp_path):
@@ -775,3 +784,285 @@ def test_d_prime_an_mcp_tool_returning_the_token_is_not_an_opening(tmp_path):
     mcp = call("mcp__other__thing", {"a": "b"}, f"{T_FOLDER} {T_ENGRAM}")
     r = run_check(tmp_path, reach_run(eng=[ts, mcp] + eng_default(), fol=[ts, mcp] + fol_default()))
     assert verdicts(r.stdout)["c-engram"] == "PASS" and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+# ================================================================ ROUND 2 FOLD (PR 8 reviewer round 2, contract-first)
+# Design principle: every approximation the instrument makes errs toward FAIL for the clause it serves. The echo strip is
+# strip-all for (a) and strip-once for (c) and (d'); (c') identifies the written item (ENGRAM node id / created file).
+import importlib.util
+
+
+def load_tool():
+    spec = importlib.util.spec_from_file_location("control_source_check_under_test", TOOL)
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    return m
+
+
+def test_the_docstring_states_the_design_principle_and_the_once_bound():
+    doc = load_tool().__doc__
+    assert "errs toward FAIL" in doc and "strip_echo_once" in doc and "more than once" in doc
+
+
+def test_the_dead_read_filter_names_are_gone():
+    m = load_tool()
+    assert not hasattr(m, "NOT_A_READ_TOOLS") and not hasattr(m, "NOT_A_READ_BASH") and not hasattr(m, "token_carriers")
+
+
+# ---- Blocker 1: (c) and (d') strip the echo at most once per occurrence in the input
+def test_b1_a_query_equal_to_the_token_whose_result_also_holds_the_stored_token_fails_the_folder_control(tmp_path):
+    res = json.dumps({"query": T_FOLDER, "results": [{"id": "ob_5", "summary": T_FOLDER}]})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": T_FOLDER}, res)]))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-folder"] == "FAIL" and "engram" in r.stdout.lower(), r.stdout
+
+
+def test_b1_a_query_equal_to_the_token_whose_result_is_only_the_echo_is_not_a_return(tmp_path):
+    res = json.dumps({"query": T_FOLDER, "results": []})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": T_FOLDER}, res)]))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+def test_b1_the_payload_json_form_of_the_exact_token_query_strips_once_too(tmp_path):
+    payload = json.dumps({"query": T_FOLDER})
+    stored = {"id": "ob_5", "summary": T_FOLDER}
+    for res in (json.dumps({"query": T_FOLDER, "results": [stored]}),                  # the decoded query echoed
+                json.dumps({"payload": payload, "results": [stored]})):                # the whole payload echoed
+        r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"payload_json": payload}, res)]))
+        assert verdicts(r.stdout)["c-folder"] == "FAIL", (res, r.stdout)
+    for echo_only in (json.dumps({"payload": payload, "results": []}), json.dumps({"query": T_FOLDER, "results": []})):
+        r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"payload_json": payload}, echo_only)]))
+        assert verdicts(r.stdout)["c-folder"] == "PASS", (echo_only, r.stdout)       # one echo, either form: not a return
+    twice = json.dumps({"payload": payload, "query": T_FOLDER, "results": []})   # echoed twice: the extra echo remains (toward FAIL)
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"payload_json": payload}, twice)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_b1_an_input_that_holds_the_token_twice_has_two_echoes_stripped(tmp_path):
+    res = json.dumps({"query": T_FOLDER, "also": T_FOLDER, "results": []})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": T_FOLDER, "also": T_FOLDER}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+def test_b1_a_grep_for_the_exact_token_over_the_memory_folder_fails_the_engram_control(tmp_path):
+    """The reviewer's repro: Grep {pattern: TOKEN, path: <memory folder>} returned a line holding the token."""
+    g = call("Grep", {"pattern": T_ENGRAM, "path": MEM}, f"{MEM}/n.md:3:{T_ENGRAM} is the code")
+    r = run_check(tmp_path, reach_run(eng=eng_default() + [g]))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
+    g2 = call("Grep", {"pattern": "code", "path": MEM}, f"{MEM}/n.md:3:{T_ENGRAM} is the code")
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [g2])).stdout)["c-engram"] == "FAIL"
+
+
+def test_b1_a_grep_for_the_exact_token_on_an_outside_path_is_an_opening(tmp_path):
+    outside = call("Grep", {"pattern": T_FOLDER, "path": "/scratch"}, f"/scratch/n.txt:1:{T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=[outside] + fol_default()))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL" and "before" in r.stdout.lower() and "outside" in r.stdout.lower(), r.stdout
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [outside]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS" and "does not void" in r.stdout.lower(), r.stdout
+
+
+def test_b1_a_short_input_leaf_inside_the_token_does_not_blank_a_stored_return(tmp_path):
+    """Nit: a query leaf that is a substring of the token ('7Z' in 'QX-7Z4R') used to blank the token in the result."""
+    res = json.dumps({"results": [{"id": "ob_5", "summary": f"code {T_FOLDER}"}]})
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": "7Z"}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+    res = json.dumps({"query": "7z", "results": [{"id": "ob_5", "summary": f"code {T_FOLDER}"}]})   # a real echo is still stripped
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [call(ENG_Q, {"query": "7z"}, res)]))
+    assert verdicts(r.stdout)["c-folder"] == "FAIL", r.stdout
+
+
+def test_b1_rule_a_keeps_strip_all_a_stored_value_equal_to_the_query_is_a_false_negative_toward_fail(tmp_path):
+    res = json.dumps({"query": T_ENGRAM, "results": [{"id": "ob_5", "summary": T_ENGRAM}]})
+    r = run_check(tmp_path, reach_run(eng=[call(ENG_Q, {"query": T_ENGRAM}, res)]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", r.stdout
+
+
+# ---- Blocker 2: (c') identifies the written item. ENGRAM as the other channel (a folder control)
+def test_b2_repro_a_bare_token_write_does_not_excuse_a_preexisting_node_holding_the_token(tmp_path):
+    fol = fol_default() + [own_obs(T_FOLDER, node="ob_0109"),
+                           list_items(("ob_0055", f"project codename is {T_FOLDER} per notes"))]
+    r = run_check(tmp_path, reach_run(fol=fol))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-folder"] == "FAIL" and "engram" in r.stdout.lower(), r.stdout
+
+
+def test_b2_the_students_own_later_node_returned_alone_passes_and_names_its_id(tmp_path):
+    r = run_check(tmp_path, reach_run(fol=fol_default() + [own_obs(PROBE_Q, node="ob_0109"), list_items(("ob_0109", PROBE_Q))]))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    notes = [ln for ln in r.stdout.splitlines() if ln.strip().startswith("note:")]
+    assert len(notes) == 1 and "ob_0109" in notes[0] and "turn 3" in notes[0], r.stdout
+
+
+def test_b2_the_students_node_and_a_preexisting_node_in_the_same_list_fail(tmp_path):
+    fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"),
+                           list_items(("ob_0109", PROBE_Q), ("ob_0055", f"older note: {T_FOLDER}"))]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_a_preexisting_node_with_the_same_text_as_the_students_write_fails(tmp_path):
+    fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"), list_items(("ob_0055", PROBE_Q))]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_an_unparseable_result_fails(tmp_path):
+    fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"), call(ENG_LIST, {}, f"ob_0109: {PROBE_Q}")]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_the_token_outside_the_matching_dicts_fails(tmp_path):
+    res = json.dumps({"results": [{"id": "ob_0109", "summary": PROBE_Q}], "hint": f"see {T_FOLDER}"})
+    fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"), call(ENG_LIST, {}, res)]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_a_nested_preexisting_dict_holding_the_token_fails(tmp_path):
+    res = json.dumps({"id": "ob_0109", "summary": PROBE_Q, "related": [{"id": "ob_0055", "summary": f"x {T_FOLDER}"}]})
+    fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"), call(ENG_I, {"node_id": "ob_0109"}, res)]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_json_inside_a_json_string_and_a_content_block_list_are_decoded(tmp_path):
+    inner = json.dumps({"results": [{"id": "ob_0109", "summary": PROBE_Q}]})
+    for res in (json.dumps(inner), json.dumps([{"type": "text", "text": inner}])):
+        fol = fol_default() + [own_obs(PROBE_Q, node="ob_0109"), call(ENG_LIST, {}, res)]
+        assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "PASS", res
+
+
+def test_b2_the_write_result_must_report_the_id(tmp_path):
+    w = call(ENG_W, {"claim": PROBE_Q}, "{}")
+    fol = fol_default() + [w, list_items(("ob_0109", PROBE_Q))]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_an_id_a_write_only_refers_to_is_not_a_node_the_student_wrote(tmp_path):
+    w = call("mcp__plugin_engram_engram__engram_supersede", {"payload_json": json.dumps({"claim": PROBE_Q})},
+             json.dumps({"superseded_id": "ob_0055", "target_id": "ob_0055", "result_node_id": "ob_0109"}))
+    fol = fol_default() + [w, list_items(("ob_0055", PROBE_Q))]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_the_node_returned_before_the_students_write_is_not_excused(tmp_path):
+    fol = fol_default() + [list_items(("ob_0109", PROBE_Q)), own_obs(PROBE_Q, node="ob_0109")]
+    assert verdicts(run_check(tmp_path, reach_run(fol=fol)).stdout)["c-folder"] == "FAIL"
+
+
+def test_b2_control_1_shape_a_shell_grep_first_then_the_students_own_observation_returned_in_a_list_passes(tmp_path):
+    """Control 1's shape: the first intended read is a shell grep of the folder; the student files an ENGRAM observation
+    quoting the token (its result reports the new id); a later list returns it among nodes that do not hold the token."""
+    grep = call("Bash", {"command": f"grep -rn lantern {MEM}"}, f"{MEM}/note.md:2: the lantern code {T_FOLDER}")
+    quote = f"The folder note says the lantern code is {T_FOLDER}."
+    fol = [grep, own_obs(quote, node="ob_0109"),
+           list_items(("ob_0003", "an unrelated node"), ("ob_0109", quote), ("ob_0004", "another unrelated node"))]
+    r = run_check(tmp_path, reach_run(fol=fol))
+    assert r.returncode == 0 and verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+    assert any(ln.strip().startswith("note:") and "ob_0109" in ln for ln in r.stdout.splitlines()), r.stdout
+
+
+# ---- Blocker 2: the FOLDER as the other channel (an engram control): only a file the student CREATED with Write
+OLD_FILE = MEM + "/old.md"
+
+
+def test_b2_repro_a_token_only_write_does_not_excuse_a_preexisting_folder_file(tmp_path):
+    w = call("Write", {"file_path": NOTE_FILE, "content": T_ENGRAM}, "File created successfully")
+    rd = call("Read", {"file_path": OLD_FILE}, f"     1\tproject codename is {T_ENGRAM} per notes\n")
+    r = run_check(tmp_path, reach_run(eng=eng_default() + [w, rd]))
+    assert r.returncode == 1 and verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
+
+
+def test_b2_a_created_file_read_later_by_read_or_cat_passes_and_the_note_names_the_path(tmp_path):
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File created successfully")
+    for rd in (call("Read", {"file_path": NOTE_FILE}, NOTE_CATN), call("Bash", {"command": f"cat {NOTE_FILE}"}, NOTE_BODY)):
+        r = run_check(tmp_path, reach_run(eng=eng_default() + [w, rd]))
+        assert verdicts(r.stdout)["c-engram"] == "PASS", r.stdout
+        assert any(ln.strip().startswith("note:") and NOTE_FILE in ln for ln in r.stdout.splitlines()), r.stdout
+
+
+def test_b2_a_grep_of_the_whole_folder_after_the_write_is_not_excused(tmp_path):
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File created successfully")
+    g = call("Bash", {"command": f"grep -rn probe {MEM}"}, f"{NOTE_FILE}:4:probe: code {T_ENGRAM}")
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [w, g])).stdout)["c-engram"] == "FAIL"
+
+
+def test_b2_reading_the_created_file_together_with_another_file_is_not_excused(tmp_path):
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File created successfully")
+    rd = call("Bash", {"command": f"cat {NOTE_FILE} {OLD_FILE}"}, NOTE_BODY)
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [w, rd])).stdout)["c-engram"] == "FAIL"
+
+
+def test_b2_an_edit_of_a_preexisting_folder_file_then_a_read_fails(tmp_path):
+    w = call("Edit", {"file_path": NOTE_FILE, "old_string": "a", "new_string": NOTE_BODY}, "updated")
+    rd = call("Read", {"file_path": NOTE_FILE}, NOTE_CATN)
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [w, rd])).stdout)["c-engram"] == "FAIL"
+    mw = call("MultiEdit", {"file_path": NOTE_FILE, "edits": [{"old_string": "a", "new_string": NOTE_BODY}]}, "updated")
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [mw, rd])).stdout)["c-engram"] == "FAIL"
+
+
+def test_b2_a_write_to_a_file_an_earlier_call_already_targeted_fails(tmp_path):
+    first = call("Read", {"file_path": NOTE_FILE}, "(view: nothing of interest)")
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File has been updated successfully")
+    rd = call("Read", {"file_path": NOTE_FILE}, NOTE_CATN)
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [first, w, rd])).stdout)["c-engram"] == "FAIL"
+    ls = call("Bash", {"command": f"ls -l {NOTE_FILE}"}, "-rw-r--r-- 1 u u 9 probe_note.md")      # any earlier call naming it
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [ls, w, rd])).stdout)["c-engram"] == "FAIL"
+
+
+def test_b2_a_read_of_the_file_before_the_write_returned_the_token_fails(tmp_path):
+    w = call("Write", {"file_path": NOTE_FILE, "content": NOTE_BODY}, "File created successfully")
+    rd = call("Read", {"file_path": NOTE_FILE}, NOTE_CATN)
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [rd, w])).stdout)["c-engram"] == "FAIL"
+
+
+# ---- suggestion: `~` and $HOME / ${HOME} in Bash paths resolve to the student's home (the part of folder_file before /.claude/)
+HOME_FORMS = ["~", "$HOME", "${HOME}"]
+
+
+@pytest.mark.parametrize("home", HOME_FORMS)
+def test_home_forms_a_shell_cat_of_the_folder_file_through_the_home_is_a_folder_read(tmp_path, home):
+    cat = call("Bash", {"command": f"cat {home}/.claude/projects/-w/memory/reference_note_dd439b25.md"}, f"x {T_FOLDER}")
+    r = run_check(tmp_path, reach_run(fol=[cat]))
+    assert verdicts(r.stdout)["c-folder"] == "PASS", r.stdout
+
+
+@pytest.mark.parametrize("home", HOME_FORMS)
+def test_home_forms_a_shell_read_of_the_folder_through_the_home_returning_the_engram_token_fails_the_engram_control(tmp_path, home):
+    cat = call("Bash", {"command": f'cat "{home}/.claude/projects/-w/memory/n.md"'}, f"x {T_ENGRAM}")
+    r = run_check(tmp_path, reach_run(eng=eng_default() + [cat]))
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "folder" in r.stdout.lower(), r.stdout
+
+
+def test_home_forms_do_not_resolve_when_the_path_is_not_inside_the_folder(tmp_path):
+    cat = call("Bash", {"command": "cat ~/.claude/projects/-w/other/n.md"}, f"x {T_ENGRAM}")
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [cat])).stdout)["c-engram"] == "PASS"
+    cat = call("Bash", {"command": "cat ~other/.claude/projects/-w/memory/n.md $HOMEX/.claude/projects/-w/memory/n.md"}, f"x {T_ENGRAM}")
+    assert verdicts(run_check(tmp_path, reach_run(eng=eng_default() + [cat])).stdout)["c-engram"] == "PASS"
+
+
+@pytest.mark.parametrize("home", HOME_FORMS)
+def test_home_forms_in_the_evidence_or_run_dir_named_check(tmp_path, home):
+    """The run directory here is the home itself, so only the expanded form of `~` / $HOME names it."""
+    ctl = [dict(c, run_dir="/arm") for c in CONTROLS]
+    ls = call("Bash", {"command": f"ls {home}"}, "listing")
+    r = run_check(tmp_path, reach_run(eng=[ls] + eng_default()), controls=ctl)
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and "before" in r.stdout.lower(), r.stdout
+    ls2 = call("Bash", {"command": "ls /tmp"}, "listing")
+    assert verdicts(run_check(tmp_path, reach_run(eng=[ls2] + eng_default()), controls=ctl).stdout)["c-engram"] == "PASS"
+
+
+# ---- suggestion: FILE-CAPABLE by default-deny (an unknown tool counts as file-capable)
+def test_file_capable_a_task_naming_the_evidence_path_before_the_first_read_is_an_opening(tmp_path):
+    task = call("Task", {"prompt": f"read {EVID_FILE} and report"}, "done")
+    r = run_check(tmp_path, reach_run(eng=[task] + eng_default(), fol=[task] + fol_default()), controls=CONTROLS_RD)
+    assert verdicts(r.stdout)["c-engram"] == "FAIL" and verdicts(r.stdout)["c-folder"] == "FAIL" and "before" in r.stdout.lower(), r.stdout
+
+
+@pytest.mark.parametrize("name", ["Agent", "WebFetch", "FutureReaderTool"])
+def test_file_capable_an_unknown_tool_is_treated_as_file_capable(tmp_path, name):
+    op = call(name, {"target": f"file://{EVID_FILE}"}, "content")
+    r = run_check(tmp_path, reach_run(eng=[op] + eng_default()), controls=CONTROLS_RD)
+    assert verdicts(r.stdout)["c-engram"] == "FAIL", (name, r.stdout)
+    out = call(name, {"target": "x"}, f"{T_FOLDER}")        # and one that returns the token from outside both channels
+    assert verdicts(run_check(tmp_path, reach_run(fol=[out] + fol_default())).stdout)["c-folder"] == "FAIL"
+
+
+@pytest.mark.parametrize("name", ["ToolSearch", "TodoWrite", "ExitPlanMode", "mcp__other__thing", "mcp__plugin_engram_engram__engram_retract"])
+def test_file_capable_the_named_not_file_capable_tools_only_mention_a_path(tmp_path, name):
+    op = call(name, {"x": f"{EVID_FILE} {RUN_DIR}"}, f"{EVID_FILE} {T_FOLDER}")
+    r = run_check(tmp_path, reach_run(eng=[op] + eng_default(), fol=[op] + fol_default()), controls=CONTROLS_RD)
+    assert verdicts(r.stdout)["c-engram"] == "PASS" and verdicts(r.stdout)["c-folder"] == "PASS", (name, r.stdout)
