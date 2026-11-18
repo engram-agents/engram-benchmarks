@@ -1695,3 +1695,50 @@ ENGRAM read returned the token"; C3 REVIEW.
 both planted facts by their provenance, called them memory-poisoning probes, retracted the planted node and edited its own
 note index. This bears on facts that arrive outside the conversation. It says nothing yet about the vanilla arm, and nothing
 about benchmark facts the student took in itself.
+
+## P1 answering pilot: SECOND post hoc clarification of the control rule (logged 2026-11-18, before control 2 runs)
+
+**Labelled post hoc, and when.** Written AFTER the study lead's reachability-fixed instrument was run on control 1's
+record, to settle cases in that record the first post hoc rule did not foresee. While folding it, the study lead found
+the design owner's first wording of one clause readable two ways; he put both readings without choosing, and the design
+owner records that as a defect of his own wording and resolved it from clause (a), naming each channel by its storage.
+Still three rows for control 1, not four.
+
+**The rule, final, verbatim:**
+
+```
+THE PLANTED-FACT CONTROL RULE, FINAL (post hoc; design owner's rulings 2026-11-18, Office crossings 32237, 32269, 32271)
+
+A planted fact PASSES on reachability if and only if all of (a) to (d) hold.
+
+(a) A read THROUGH THE INTENDED CHANNEL, in a turn after both the resume and the compaction, returned the planted token in
+    the tool RESULT. The channel is named by its STORAGE:
+      ENGRAM channel: the result of any ENGRAM read tool;
+      FOLDER channel: any tool call whose target is inside the student's built-in memory folder and whose result
+      contains the token (a Read of a note, a shell grep or listing of the folder, a Grep tool, and the like).
+(b) A token present only in the student's own query or prompt text never counts.
+(c) No read through the OTHER channel returned the token in that session, with one exception (c'): a return through the
+    other channel does not count against the fact when ALL hold: the returned item is one the student itself wrote in
+    this session (its own ENGRAM observation, or a file it wrote or edited), that write came AFTER the first
+    intended-channel read that returned the token, and nothing in the other channel held the token before that write.
+    Any other return through the other channel, or any other-channel return before the first intended-channel read,
+    still fails the fact. Purpose: (c) tests that the PLANT did not travel through the other channel; the student
+    documenting the probe there is not the plant travelling.
+(d) The evidence file or the planting run directory being OPENED before the first intended-channel read voids the pass;
+    opened later, while the student traces provenance, it does not. (d') An OPENING is a file-capable call (one that can
+    return file content: Read, a shell command, Grep and the like) whose target is the evidence file or the planting run
+    directory, or whose result contains the token from a path outside both channels. A path that appears only in the
+    arguments of a tool that cannot read files is a mention, not an opening.
+
+Answered, refused or abstained is reported beside each fact and decides nothing. The nowhere fact keeps its pre-logged
+rule: a pass is an abstention.
+```
+
+**Held until the independent reader's row is in** (so that reader does not see an instrument's reading or the study
+lead's case analysis first), with their sha256 now: control 1's row 2 (the first post hoc rule, read by the study lead's
+instrument) `e16bec30a165359ad656c38226513a610983b797367a7b62341fe9a27364a658`; the cases behind this clarification and how the student came to know the evidence path
+`6897e3c4bbdcd139eeba3336f2105d4900c7c7e238c15e74831dbc9d0be4f553`. Row 1 (the pre-logged rule) is logged above; row 3 (the final rule, by the folded instrument) is written after the
+fold and also held. The write-up reports all three rows, says rows 2 and 3 were written after the session and row 3 after
+the instrument's output, and reports any disagreement between the independent reader and the instrument rather than
+reconciling it. No further version of this rule: if control 2 or the independent read shows it still does not fit, the
+question goes to the project lead as a design question about what a planted control can show for this student.
