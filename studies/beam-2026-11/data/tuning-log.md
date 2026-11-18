@@ -1583,3 +1583,19 @@ no column here. Grading stays blind to k.
 K = 5 run left it (setup 8262a444). k = 1: as the k = 1 re-run left it (setup d18b5d26; store content hash 29cac9e66d1ad603...
 logged 2026-11-17, reproduced by the launcher's hash function from a temporary copy). Their hashes before any session are
 the next entry.
+
+## P1 answering pilot, step 1: the three preserved end states hashed (2026-11-18 17:52Z, before any session)
+
+Taken with the pinned launcher's own functions (`home_record`: the store content hash read from a temporary copy, then
+every built-in memory file), from a checkout of 0dc77c11. A size-and-modification-time snapshot of the store directory's
+files and of every file under `.claude/projects/` was taken before and after each read and was unchanged for all three.
+
+| end state | setup | store tables | store rows | store content hash | built-in memory files |
+|---|---|---|---|---|---|
+| K = 3 | 7b73fe7b | 21 | 1,024 | `1ef7610c012449719ab0e5253032842589cf47cebcc236010681d453b4c2b18c` | 2: `MEMORY.md` 7c2d3084..., `exam-personal-statement-conversation.md` bcd4bf84... |
+| K = 5 | 8262a444 | 21 | 778 | `912b004f6ec0d0f16f45e2d5648ac7dc700c4b23d8c01f8b5730bf9350cdacf1` | 2: `MEMORY.md` f2516e6e..., `exam-notes-session1.md` 13a229fc... |
+| k = 1 | d18b5d26 | 21 | 1,725 | `29cac9e66d1ad60328e83e5692bd05f7f84f79219b25290120479479afd254a8` | 0 |
+
+Control: each run also saved its store at its end, by a sqlite backup into the run's own directory. The same hash over
+those three saved stores gives the same three values, so each preserved home holds exactly the store its run left. The
+k = 1 value also equals the one logged on 2026-11-17. The same hashes are taken again after the last session.
