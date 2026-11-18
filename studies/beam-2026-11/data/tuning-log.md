@@ -2047,3 +2047,13 @@ hook in the question's turn; in control 2 also inline at session start) AND then
 under the 11-15 ruling, for control 1 C1 and control 2 C1. The folder fact (control 1 C2) has no automatic route: the
 plant's index line in MEMORY.md carries no fact text (checked at plant time), so its first contact is the student's own
 read.
+
+**Addendum, control 1's hook line (design owner, Office 32457).** For control 1, read the reader's line "the hook
+responses carry neither token" as: the inline session-start text carried neither token; the list was cut to the overflow
+file by the injection budget; the per-prompt recall hook delivered the node in the question's turn. Control 1 C1 and
+control 2 C1 are each the 11-15 ruling's "delivered AND a tool read" cell: PASS, hook-delivered. For the record of the
+finding: the surface marks the node as newer than the student's last checkpoint; neither student opened an overflow file;
+the folder fact had no automatic route because its index line carries no fact text. Why the budget ranked the sections
+differently in the two sessions is NOT read and is not to be inferred in the write-up. PR 8 (b2d4f710, approved,
+CI green) is HELD for the principal's merge word; the scored speed pilot does not need it and runs from the pinned
+launcher e62f51ac, tomorrow in GPU daylight, pre-run entry first.
