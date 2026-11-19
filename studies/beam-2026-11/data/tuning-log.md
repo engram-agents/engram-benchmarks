@@ -2569,3 +2569,24 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   2026-11-16T18:31:46Z (its commit) until that tip's time above. The approvals on PR 8 (at b2d4f710) and PR 11 (at e62f51ac)
   no longer name the heads; their reviewers are P1b readers and do not open the redaction diff while P1b is open; a seat
   outside P1b reads it instead.
+
+### CORRECTION to the public-repository entry above: the first sweep missed four lines
+
+- **What was wrong.** The entry above says the sweep found "one other file: `data/gate2-runA-analysis-output.txt`, 2 of 54
+  lines", and the report to the design owner (32745) said everything else was zero. Both are wrong. That sweep built its
+  set of 10-word windows from top-level string columns only and never from the nested conversation turns (the `chat`
+  column), so it compared the repository against the dataset's narratives, plans and questions, not against the
+  conversation itself. Found by the coder sub-agent building the re-runnable check to the study lead's own spec, which
+  says to walk every string leaf: it flagged four further lines in the same file at the redacted tips.
+- **Re-measured** with a full nested walk (every string leaf in every column; control: a window from the first
+  conversation's turns is detected), over every tracked file at all 22 refs (12 branches, 10 pull-request heads) and every
+  reachable blob (494). At the tips: only `data/gate2-runA-analysis-output.txt`, lines 37, 43, 46 and 47 (exchanges 21, 48,
+  78 and 87), on every tip that carries the file; nothing else at any tip. In history: two earlier versions of that file
+  and the P1 key-fact list (76 rows); nothing else.
+- **Done:** those four lines are redacted the same way (marker naming the exchange and the unredacted file's sha256
+  `738bf3b8…ed2c`): `study/beam-tuning-log-2` 79b186f 2026-11-19T17:02:17Z, `study/p1-answering-harness` acae6fb
+  17:02:19Z, `study/p1-session-launcher` d667bd9 17:02:21Z; `study/p1b-continue-reading` follows when its in-flight
+  round lands, time recorded then.
+- **P1b limits line, widened:** exchanges 48, 78 and 87 also lie inside P1b's range (46-135), with 132. Those three lines
+  were public on the four tips from 2026-11-16T18:31:46Z until each tip's second redaction commit (times above). The
+  writer's and second reader's conditions forbade opening any run A file throughout.
