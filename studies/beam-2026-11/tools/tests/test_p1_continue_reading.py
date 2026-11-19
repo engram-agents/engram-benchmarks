@@ -482,7 +482,7 @@ real, target, mode = os.environ["REAL_CP"], os.environ.get("FAKE_CP_TARGET"), os
 if not target or sys.argv[-1] != target:
     os.execv(real, [real] + sys.argv[1:])
 if mode == "fail":  # a copy that dies half way: a partial tree is left behind
-    os.makedirs(target); open(os.path.join(target, "partial"), "w").write("x"); sys.exit(1)
+    os.makedirs(target, exist_ok=True); open(os.path.join(target, "partial"), "w").write("x"); sys.exit(1)
 rc = subprocess.call([real] + sys.argv[1:])
 db = os.path.join(target, ".engram", "knowledge.db")
 if mode == "mutate":  # the copy finishes but its store is not the slot's
@@ -566,4 +566,178 @@ def test_r3_a_saved_store_that_cannot_be_hashed_is_exit_3_with_no_saved_path_and
 @pytest.mark.parametrize("suffix", ["", "/saved"])
 def test_r5_a_save_path_equal_to_or_inside_the_aside_path_is_refused_at_step_1(w, suffix):
     aside = f"{w.slot}.aside-t1-{STAMP}"
-    cr_refusal(w, over={"--save-end-state": aside + suffix}, expect="is equal to or inside the aside path")
+    cr_refusal(w, over={"--save-end-state": aside + suffix}, expect="the aside path")
+
+
+# ======================================================================================================= round 3 (R7-R10)
+def hook_script(w, name, body):
+    p = w.root / name; p.write_text("import os, shutil, sys\n" + body); return str(p)
+
+
+def root_ids(root):
+    """{(path, inode)} for everything under root, links not followed: a path that is new, or is the same name on a new inode
+    (the slot, which is moved aside and recreated), counts as created."""
+    out = set()
+    for dp, dns, fns in os.walk(str(root)):
+        for n in dns + fns:
+            full = os.path.join(dp, n); out.add((full, os.lstat(full).st_ino))
+    return out
+
+
+def minimal_roots(paths):
+    return {p for p in paths if not any(q != p and P1S.under(p, q) for q in paths)}
+
+
+# ---- R7: the save and hashes paths are disjoint from EVERY path the launcher creates, moves, writes into or protects
+def test_r7_a_save_path_equal_to_the_run_directory_is_refused_at_step_1_and_nothing_is_touched(w, ollama):
+    cr_refusal(w, over={"--save-end-state": str(w.runs / "p1-t1")}, ollama_url=ollama["url"], expect="run directory")
+
+
+def test_r7_a_label_that_makes_the_hashes_path_equal_the_run_directory_is_refused(w, ollama):
+    cr_refusal(w, over={"--label": "x.hashes.txt", "--save-end-state": str(w.runs / "p1-x")}, ollama_url=ollama["url"],
+               expect="run directory")
+
+
+def test_r7_a_save_path_inside_the_run_directory_is_refused_for_that_reason(w, ollama):
+    cr_refusal(w, over={"--save-end-state": str(w.runs / "p1-t1" / "saved")}, ollama_url=ollama["url"], expect="run directory")
+
+
+def test_r7_a_save_path_containing_the_run_directory_is_refused(w, ollama):
+    outer = w.root / "outer"  # BEAM_RUNS_DIR does not exist yet, so the run would create outer/runs/p1-t1 beneath the save path
+    cr_refusal(w, over={"--save-end-state": str(outer)}, ollama_url=ollama["url"], expect="run directory",
+               BEAM_RUNS_DIR=str(outer / "runs"))
+
+
+def test_r7_a_symlinked_ancestor_that_resolves_to_the_run_directory_is_refused(w, ollama):
+    link = w.root / "lnk"; link.symlink_to(w.runs)  # lnk/p1-t1 IS runs/p1-t1 once links are resolved
+    cr_refusal(w, over={"--save-end-state": str(link / "p1-t1")}, ollama_url=ollama["url"], expect="run directory")
+
+
+def test_r7_a_symlinked_ancestor_that_resolves_into_the_run_directory_is_refused(w, ollama):
+    link = w.root / "lnk"; link.symlink_to(w.runs / "p1-t1")  # dangling now: the run directory is made later
+    cr_refusal(w, over={"--save-end-state": str(link / "saved")}, ollama_url=ollama["url"], expect="run directory")
+
+
+def launcher_paths_for(w):
+    prot = [os.path.realpath(w.pres), os.path.realpath(w.pres2)]
+    return P1S.launcher_paths(str(w.slot), str(w.runs), "t1", STAMP, os.path.realpath(w.pres), prot), prot
+
+
+def test_r7_the_path_set_equals_what_main_really_creates_in_a_dry_run(w, ollama, tmp_path_factory):
+    """The binding cell: the function's CREATED set is exactly the roots of everything a dry run creates (the run directory,
+    the aside path, the slot recreated), and its PROTECTED set is the protected homes, byte-equal afterwards. A path main() starts
+    creating without the function being told, or a path the function lists that main() never makes, goes red here."""
+    paths, prot = launcher_paths_for(w)
+    created = {os.path.realpath(p) for role, p in paths if role in P1S.CREATED_ROLES}
+    protects = {os.path.realpath(p) for role, p in paths if role not in P1S.CREATED_ROLES}
+    assert protects == set(prot)
+    (w.root / "tmp").mkdir()
+    before, bm = root_ids(w.root), {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
+    elsewhere = tmp_path_factory.mktemp("elsewhere")  # the stub feeder's own argv log is test scaffolding, kept out of the walk
+    r = cr_run(w, extra=("--dry-run",), ollama_url=ollama["url"], STUB_ARGV=str(elsewhere / "argv.jsonl"), TMPDIR=str(w.root / "tmp"))
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    new = {p for p, _ in root_ids(w.root) - before}
+    assert {os.path.realpath(p) for p in minimal_roots(new)} == created
+    assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm
+
+
+def test_r7_the_function_lists_the_first_missing_ancestor_of_the_run_directory_when_the_runs_directory_is_absent(w):
+    paths = P1S.launcher_paths(str(w.slot), str(w.root / "no" / "runs"), "t1", STAMP, str(w.pres), [os.path.realpath(w.pres)])
+    assert os.path.realpath(w.root / "no") in {os.path.realpath(p) for role, p in paths if role in P1S.CREATED_ROLES}
+
+
+# ---- R8: every create under a caller-chosen path is exclusive, and removal touches only what this run created
+def plant_hook(w, name, body):
+    return hook_script(w, name, "save = os.environ['R8_SAVE']\n" + body)
+
+
+def test_r8_a_save_path_planted_after_step_1_is_exit_3_and_the_planted_path_is_byte_identical(w, ollama):
+    hook = plant_hook(w, "plant-save.py", "os.makedirs(os.path.join(save, 'mine'))\nopen(os.path.join(save, 'mine', 'f'), 'w').write('planted')\n")
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R8_SAVE=str(w.saved))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "appeared after step 1" in r.stdout and str(w.saved) in r.stdout
+    assert tree(w.saved) == {"mine": "dir", os.path.join("mine", "f"): hashlib.sha256(b"planted").hexdigest()}
+    assert not os.path.lexists(str(w.saved) + ".hashes.txt")  # nothing of this run's was left either
+    assert "step 9b save the end state: exit 3" in setup_lines(w)
+
+
+def test_r8_a_hashes_path_planted_after_step_1_is_exit_3_and_the_planted_file_is_byte_identical(w, ollama):
+    hook = plant_hook(w, "plant-hashes.py", "open(save + '.hashes.txt', 'w').write('planted')\n")
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R8_SAVE=str(w.saved))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "appeared after step 1" in r.stdout and str(w.saved) + ".hashes.txt" in r.stdout
+    assert open(str(w.saved) + ".hashes.txt").read() == "planted"
+    assert not os.path.lexists(str(w.saved)), "the save directory THIS run created is removed; the planted file is not"
+    assert f"saved end state removed: {w.saved}" in setup_lines(w)
+
+
+def test_r8_a_failure_after_a_successful_create_removes_exactly_the_created_paths(w, ollama):
+    (w.root / "saved-end.keep").write_text("a neighbour\n"); (w.root / "saved-end.hashes.txt.keep").write_text("another\n")
+    before = sorted(os.listdir(w.root))
+    r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "mutate"))
+    assert r.returncode == 3 and no_saved(w)
+    aside = f"{w.slot.name}.aside-t1-{STAMP}"
+    new = set(os.listdir(w.root)) - set(before)  # the aside, the fake cp's dir and the stubs' own marker files; nothing near the save path
+    assert aside in new and not [n for n in new if n.startswith("saved-end")]
+    assert set(before) <= set(os.listdir(w.root))
+    assert (w.root / "saved-end.keep").read_text() == "a neighbour\n" and (w.root / "saved-end.hashes.txt.keep").read_text() == "another\n"
+    assert f"saved end state removed: {w.saved}" in r.stdout
+
+
+def test_r8_remove_saved_removes_only_what_this_run_created(tmp_path):
+    save, hashes = tmp_path / "s", tmp_path / "s.hashes.txt"
+    save.mkdir(); (save / "f").write_text("x"); hashes.write_text("planted")
+    c = {"save": str(save), "hashes": str(hashes), "created": [str(save)]}
+    P1S.remove_saved(c)
+    assert not save.exists() and hashes.read_text() == "planted"
+    assert c["saved_removed"] == f"saved end state removed: {save}"
+    c2 = {"save": str(save), "hashes": str(hashes), "created": []}  # nothing created: nothing removed, no line
+    P1S.remove_saved(c2)
+    assert hashes.read_text() == "planted" and "saved_removed" not in c2
+
+
+def test_r8_the_hashes_file_is_created_exclusively_and_the_save_directory_with_os_mkdir():
+    import ast
+    src = open(os.path.join(TOOLS, "p1-session.py")).read()
+    assert "os.O_CREAT | os.O_EXCL" in src and "os.mkdir(" in src
+    for node in ast.walk(ast.parse(src)):  # no create under a caller-chosen path may tolerate an existing one
+        if isinstance(node, ast.keyword) and node.arg == "exist_ok":
+            raise AssertionError("exist_ok is used somewhere in the launcher")
+
+
+# ---- R9: a failure to prove the protected homes unchanged is not "PROTECTED CHANGED"
+def test_r9_a_run_directory_removed_mid_run_is_reported_on_its_own_line_and_never_as_protected_changed(w, ollama):
+    hook = hook_script(w, "rm-rundir.py", "shutil.rmtree(os.environ['R9_RUNDIR'])\n")
+    bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R9_RUNDIR=str(w.runs / "p1-t1"))
+    out = r.stdout + r.stderr
+    assert "PROTECTED CHANGED" not in out and "changed home" not in out
+    assert "AFTER-HASHES UNAVAILABLE" in out and "not a finding that anything changed" in out
+    assert r.returncode == 3, (r.returncode, out)
+    assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm and no_saved(w)
+
+
+def test_r9_an_after_hashes_file_that_cannot_be_written_is_the_same_own_line_in_continue_mode(w, ollama):
+    hook = hook_script(w, "block-after.py", "os.makedirs(os.path.join(os.environ['R9_RUNDIR'], 'after-hashes.txt'))\n")
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R9_RUNDIR=str(w.runs / "p1-t1"))
+    assert "PROTECTED CHANGED" not in r.stdout + r.stderr and "AFTER-HASHES UNAVAILABLE" in r.stdout + r.stderr
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "step 10 after-hashes: exit 3" in setup_lines(w)
+
+
+def test_r9_a_real_change_is_still_exit_5_even_when_the_proof_file_cannot_be_written(w, ollama):
+    hook = hook_script(w, "block-after.py", "os.makedirs(os.path.join(os.environ['R9_RUNDIR'], 'after-hashes.txt'))\n")
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R9_RUNDIR=str(w.runs / "p1-t1"),
+               STUB_ACTION="protected", STUB_TARGET=str(w.pres2))
+    assert r.returncode == 5 and f"changed home: {w.pres2}" in r.stdout and "PROTECTED CHANGED: 1 home(s)" in r.stdout
+
+
+# ---- R10: the saved copy is checked the way the next run will check it
+def test_r10_an_absolute_symlink_to_a_protected_home_in_the_slot_is_exit_3_and_no_saved_end_state_remains(w, ollama):
+    hook = hook_script(w, "plant-link.py", "os.symlink(os.environ['R10_TARGET'], os.path.join(sys.argv[1], 'evil-link'))\n")
+    bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
+    r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R10_TARGET=str(w.pres2))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "evil-link" in r.stdout and "next run" in r.stdout and no_saved(w)
+    assert "step 9b save the end state: exit 3" in setup_lines(w)
+    assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm

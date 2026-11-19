@@ -65,7 +65,9 @@ of asking questions, then saves the resulting home as a new preserved end state:
   conversation 9 through feed4.py --resume ID --start N --turns M --per-round K (feed4's --turns is an INCLUSIVE END INDEX).
   Step 1 also refuses (exit 2): K < 1; N < 2; M < N; (N - 1) % K != 0; (M - N + 1) % K != 0; the end state's store content
   hash (protected_store_hash) differs from --expect-store-sha256; --save-end-state, or PATH.hashes.txt, already exists, or
-  PATH lies inside a protected home or the slot, or its parent directory is missing; --expect-serving FILE differs from the
+  PATH, or PATH.hashes.txt, is equal to, inside or containing ANY path the launcher creates or protects (launcher_paths():
+  the run directory, or the first missing ancestor of it, the aside path, the slot, every protected home, the end state;
+  after resolving `..` and the symlinks of existing ancestors), or PATH's parent directory is missing; --expect-serving FILE differs from the
   recorded serving lines. Then it records the serving setup (GET <BEAM_OLLAMA_URL, else the default>/api/version, and
   /api/tags for the digest of feed4's default model) as three `serving:` lines in setup.txt; a server that does not answer, or
   does not list the model, is exit 3 with `SERVING RECORD FAILED` and nothing touched. Optional env: BEAM_OLLAMA_URL.
@@ -75,12 +77,18 @@ of asking questions, then saves the resulting home as a new preserved end state:
   Step 8 is feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --resume ID --start N --turns M --per-round K --env
   CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C (no --force-compact, no questions). Step 9's delivery check
   is reading-delivery-check.py (answer-delivery-check.py refuses reading turns by design). After a run with feed4 exit 0
-  and the delivery check passing, the slot is COPIED (cp -a, never moved) to --save-end-state, hashed the way the protected
-  homes are (store content hash from a temporary copy, memory files), and the hashes go to setup.txt and PATH.hashes.txt;
-  on any failure the saved end state is removed with a `saved end state removed:` line. The saved end state is not in the
-  before set; steps 10 and 11 are unchanged, so the originals (the end state included) are proved byte-equal as before.
-Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
-5 a protected home changed (overrides every other code).
+  and the delivery check passing, the slot's CONTENTS are COPIED (cp -a, never moved) into --save-end-state, a directory made
+  at that moment with os.mkdir (no exist_ok) beside a hashes file made with O_CREAT | O_EXCL: if either exists by then
+  (step 1 ran hours earlier) the run is exit 3 with a `STOP: <path> appeared after step 1` line and nothing of the caller's
+  is touched. The copy is checked the way the next run will check it (check_end_state_links on the saved copy), hashed the
+  way the protected homes are (store content hash from a temporary copy, memory files), and the hashes go to setup.txt and
+  PATH.hashes.txt; on any failure ONLY the paths this run created are removed, with a `saved end state removed:` line. The
+  saved end state is not in the before set; steps 10 and 11 run as before, so the originals (the end state included) are
+  proved byte-equal. In this mode a step-10 failure that is not a difference (the after-hashes cannot be computed or
+  written, for example the run directory was removed) prints `AFTER-HASHES UNAVAILABLE: <reason>` and is exit 3, never
+  `PROTECTED CHANGED`; the answering mode keeps its pinned behaviour (an unprovable pass counts as every home changed).
+Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check, feed4 or (continue-reading) the save or the
+after-hashes proof failed; 4 plant failed; 5 a protected home changed (overrides every other code).
 
 A protected home's store is never opened with sqlite: it is hashed from a byte copy of knowledge.db, -wal and -shm in a
 temporary directory (protected_store_hash), because even a read-only sqlite connection writes -shm read marks. The memory
@@ -233,6 +241,47 @@ def under(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+# The ONE place that says which paths this launcher creates, moves, writes into or protects for an invocation. Everything
+# a caller chooses (--save-end-state, and the PATH.hashes.txt beside it) must be disjoint from every one of them; the
+# naming rules of the run directory and the aside path live here too, so step 1 and the checks cannot drift apart. A test
+# binds this set to what a real dry run creates (a path main() starts creating without being listed here goes red).
+CREATED_ROLES = ("run directory", "aside path", "slot")
+
+
+def run_dir_path(runs, label):
+    return os.path.join(runs, f"p1-{label}")
+
+
+def aside_path(slot, label, stamp):
+    return f"{slot}.aside-{label}-{stamp}"
+
+
+def launcher_paths(slot, runs, label, stamp, end, prot):
+    """[(role, realpath)]: the paths created (CREATED_ROLES: the run directory, or the first missing ancestor of it when
+    BEAM_RUNS_DIR does not exist yet, since os.makedirs creates the whole chain; the aside path an existing slot is moved
+    to; the slot recreated by the copy) and the paths protected (every protected home, the end state among them), each
+    resolved with os.path.realpath. Anything the launcher writes under them (plan dumps, run output, transcripts,
+    setup.txt, plant evidence) is inside the run directory or the slot. The temporary directories of protected_store_hash
+    are random names made by tempfile.mkdtemp (exclusive by construction) and are not listed."""
+    top = os.path.abspath(run_dir_path(runs, label))
+    while not os.path.lexists(os.path.dirname(top)):
+        top = os.path.dirname(top)
+    out = [("run directory", os.path.realpath(top)), ("aside path", os.path.realpath(aside_path(slot, label, stamp))),
+           ("slot", os.path.realpath(slot))]
+    out += [("protected home", os.path.realpath(p)) for p in prot]
+    out.append(("end state", os.path.realpath(end)))
+    return out
+
+
+def refuse_overlap(what, path, paths):
+    """Refusal unless `path`, after resolving `..` and the symlinks of its existing ancestors, is disjoint from every
+    path in `paths`: not equal to, not inside, not containing any of them."""
+    real = os.path.realpath(path)
+    for role, p in paths:
+        if under(real, p) or under(p, real):
+            raise Refusal(f"{what} {path} is equal to, inside, or containing the {role} {p}")
+
+
 def slot_pids(slot):
     needles = {slot.rstrip(os.sep) + "/.engram/", os.path.realpath(slot).rstrip(os.sep) + "/.engram/"}
     r = subprocess.run(["ps", "-u", str(os.getuid()), "-ww", "-o", "pid=,command="], capture_output=True, text=True)
@@ -342,7 +391,7 @@ def serving_record(env):
     return [f"serving: ollama version {version}", f"serving: model {SERVING_MODEL}", f"serving: model digest {digest}"]
 
 
-def continue_step1(a, env, prot, end, slot_real, aside):
+def continue_step1(a, env, end, paths):
     """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
     also before anything is touched). Returns the fields the later steps need."""
     if a.per_round < 1:
@@ -365,14 +414,8 @@ def continue_step1(a, env, prot, end, slot_real, aside):
         raise Refusal(f"--save-end-state {save} already exists (a saved end state is never overwritten)")
     if os.path.lexists(hashes):
         raise Refusal(f"the hashes file {hashes} already exists (it is written beside --save-end-state and never overwritten)")
-    save_real = os.path.realpath(save)
-    for p in prot:
-        if under(save_real, p):
-            raise Refusal(f"--save-end-state {save} is inside the protected path {p}")
-    if under(save_real, slot_real) or under(slot_real, save_real):
-        raise Refusal(f"--save-end-state {save} is equal to, inside, or containing the slot {slot_real}")
-    if under(save_real, os.path.realpath(aside)):  # the aside path is where an existing slot is moved: the save must not land there
-        raise Refusal(f"--save-end-state {save} is equal to or inside the aside path {aside} (the existing slot is moved there)")
+    refuse_overlap("--save-end-state", save, paths)  # the save path and the hashes path against EVERY path the launcher makes or protects
+    refuse_overlap("the hashes file", hashes, paths)
     if not os.path.isdir(os.path.dirname(save)):
         raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
     expect_serving = None
@@ -427,7 +470,7 @@ def step1(a):
             raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to, inside, or containing the protected path {p}")
     if under(runs_real, slot_real):
         raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to or inside the slot {slot}")
-    rundir = os.path.join(env["BEAM_RUNS_DIR"], f"p1-{a.label}")
+    rundir = run_dir_path(env["BEAM_RUNS_DIR"], a.label)
     if os.path.lexists(rundir):
         raise Refusal(f"the run directory {rundir} exists (run directories are never reused)")
     if not os.path.isfile(os.path.join(end, ".engram", "knowledge.db")):
@@ -467,13 +510,13 @@ def step1(a):
         if not os.path.isfile(os.path.join(HERE, need)):
             raise Refusal(f"{need} is missing beside this script")
     stamp = env.get("P1_UTC_STAMP") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    aside = f"{slot}.aside-{a.label}-{stamp}"
+    aside = aside_path(slot, a.label, stamp)
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
     c = {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
-         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
+         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"], "created": []}
     if a.continue_reading:
-        c.update(continue_step1(a, env, prot, end, slot_real, aside))
+        c.update(continue_step1(a, env, end, launcher_paths(slot, env["BEAM_RUNS_DIR"], a.label, stamp, end, prot)))
     return c
 
 
@@ -512,49 +555,70 @@ def check_continue_plan(cont, full, a):
 
 
 def remove_saved(c):
-    """Remove a saved end state (and its hashes file) after any failure, saying so."""
+    """Remove what THIS run created at the save path and the hashes path (c["created"], recorded at the moment of each
+    exclusive create), saying so. A path this run did not create is never removed, whatever its name."""
     gone = False
-    for path in (c["save"], c["hashes"]):
+    for path in c.get("created", []):
         if os.path.lexists(path):
             shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
             gone = True
+    c["created"] = []
     if gone:
         c["saved_removed"] = f"saved end state removed: {c['save']}"
         print(c["saved_removed"])
 
 
 def save_end_state(a, c, steps):
-    """C6: copy (cp -a, never a move) the slot to --save-end-state, hash the copy the way the protected homes are hashed,
-    write the hashes to PATH.hashes.txt and keep the lines for setup.txt. Any failure removes what was created."""
+    """C6: copy (cp -a, never a move) the slot's contents to --save-end-state, hash the copy the way the protected homes are
+    hashed, write the hashes to PATH.hashes.txt and keep the lines for setup.txt. Both paths are created EXCLUSIVELY here
+    (os.mkdir without exist_ok; O_CREAT | O_EXCL), because step 1 ran hours earlier and a caller-chosen path may exist
+    now: if either does, exit 3 and nothing of the caller's is touched. Any later failure removes only what this run
+    created (c["created"])."""
+    step = "9b save the end state"
     left = slot_pids(c["slot"])  # quiescence: the stop step's grace period has passed; a live slot process could still write
     if left:
-        steps.append(("9b save the end state", 3))
+        steps.append((step, 3))
         print(f"STOP: slot process(es) {left} still running after the stop step's grace period; nothing saved")
         return 3
-    c["save_started"] = True
-    r = subprocess.run(["cp", "-a", "--", c["slot"], c["save"]])
-    if r.returncode:
-        steps.append(("9b save the end state", r.returncode)); print("STOP: copying the slot to --save-end-state failed")
-        remove_saved(c); return 3
+    hashes_file = None
+
+    def fail(code, msg):
+        steps.append((step, code)); print(msg)
+        if hashes_file is not None:
+            hashes_file.close()
+        remove_saved(c)
+        return 3
+
     try:
+        os.mkdir(c["save"]); c["created"].append(c["save"])
+        hashes_file = os.fdopen(os.open(c["hashes"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
+        c["created"].append(c["hashes"])
+    except FileExistsError as e:
+        return fail(3, f"STOP: {e.filename} appeared after step 1 (it exists now); this run never overwrites or removes a path "
+                       "it did not create; nothing saved")
+    except OSError as e:
+        return fail(3, f"STOP: cannot create the save path or its hashes file ({type(e).__name__}: {e}); nothing saved")
+    try:
+        r = subprocess.run(["cp", "-a", "--", os.path.join(c["slot"], "."), c["save"]])  # the slot's CONTENTS into the directory made above
+        if r.returncode:
+            return fail(r.returncode, "STOP: copying the slot to --save-end-state failed")
         marker = os.path.join(c["save"], ".disposable-copy")  # a preserved end state is not a disposable copy
         if os.path.lexists(marker):
             os.unlink(marker)
         want, got = protected_store_hash(c["slot"]), protected_store_hash(c["save"])
         if got[0] != want[0]:
-            steps.append(("9b save the end state", 3))
-            print(f"STOP: the saved copy's store differs from the slot's\n  slot:  sha256={want[0]} tables={want[1]} rows={want[2]}"
-                  f"\n  saved: sha256={got[0]} tables={got[1]} rows={got[2]}")
-            remove_saved(c); return 3
+            return fail(3, f"STOP: the saved copy's store differs from the slot's\n  slot:  sha256={want[0]} tables={want[1]} rows={want[2]}"
+                           f"\n  saved: sha256={got[0]} tables={got[1]} rows={got[2]}")
+        check_end_state_links(c["save"], c["protected"])  # the check the NEXT run's step 1 will make on this end state
         rec = home_record(c["save"])
-        with open(c["hashes"], "w") as f:
-            f.write(rec)
+        hashes_file.write(rec); hashes_file.close()
+    except Refusal as e:
+        return fail(3, f"STOP: the saved end state would be refused by the next run ({e})")
     except Exception as e:  # noqa: BLE001
-        steps.append(("9b save the end state", 3)); print(f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
-        remove_saved(c); return 3
+        return fail(3, f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
     c["saved_lines"] = [f"saved end state: {c['save']}", "saved end state: .disposable-copy marker removed (the slot keeps its own)"] + rec.splitlines()
     print("".join(l + "\n" for l in c["saved_lines"]), end="")
-    steps.append(("9b save the end state", 0))
+    steps.append((step, 0))
     return 0
 
 
@@ -758,23 +822,34 @@ def main(argv=None):
         rc = 3
     # Steps 10 and 11 on EVERY exit path after the run directory exists. Each guards its own failure so that a failure
     # in one never skips the other and never replaces exit 5.
-    changed = []
+    changed, unavailable = [], None
     try:
         after = records(c["protected"], tolerant=True)
+        changed = changed_homes(before, after)
         with open(os.path.join(c["rundir"], "after-hashes.txt"), "w") as f:
             f.write("".join(after[h] for h in c["protected"]))
-        changed = changed_homes(before, after)
         steps.append(("10 after-hashes", 5 if changed else 0))
     except BaseException as e:  # noqa: BLE001
-        print(f"ERROR: the after-hash step failed ({type(e).__name__}: {e}); treating the protected homes as changed",
-              file=sys.stderr)
-        changed = list(before); steps.append(("10 after-hashes", "failed"))
+        if a.continue_reading:
+            # A failure to compute or write the proof is not a difference in a protected home: it gets its own line and the
+            # launcher's own exit 3, and only a real difference found by the comparison is "PROTECTED CHANGED" (exit 5).
+            unavailable = f"{type(e).__name__}: {e}"
+            steps.append(("10 after-hashes", 5 if changed else 3))
+        else:  # the answering mode stays byte-for-byte as pinned: an unprovable pass is treated as every home changed
+            print(f"ERROR: the after-hash step failed ({type(e).__name__}: {e}); treating the protected homes as changed",
+                  file=sys.stderr)
+            changed = list(before); steps.append(("10 after-hashes", "failed"))
+    if unavailable is not None:
+        print(f"AFTER-HASHES UNAVAILABLE: {unavailable}; the protected homes could not be re-checked "
+              "(this is not a finding that anything changed)")
+        if not changed and rc in (0, 1):
+            rc = 3
     if changed:
         for h in changed:
             print(f"changed home: {h}")
         print(f"PROTECTED CHANGED: {len(changed)} home(s)")
         rc = 5
-    if rc and a.continue_reading and c.get("save_started"):  # a saved end state exists only after a fully good run
+    if rc and a.continue_reading and c["created"]:  # a saved end state exists only after a fully good run; only what this run created is removed
         try:
             remove_saved(c)
         except BaseException as e:  # noqa: BLE001
