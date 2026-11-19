@@ -135,6 +135,23 @@ Declarations are recorded as given.
 The tools exist: `tools/p1_answers.py`, `tools/p1_grade.py`, `tools/p1_score.py` (contract-tested, mutation-checked),
 plus the new reading-continuation mode in section 1.
 
+- **A8. Timetable and cut-off rule (design owner, Office crossing 32804, fixed before any reading round).** The card is
+  used in daylight only. Lei's recorded words, as read by the design owner: 2026-10-27, "The machine has to go off around
+  9 pm latest because it is bright and loud in the night and Leona is sleeping in the room"; 2026-11-16, "plan for the EOD
+  around 8:30". The design owner's own bound, stricter and labelled as his: no GPU work of this study runs past 8:00 PM
+  New York; a different hour from Lei replaces it. **Option A, each reading unbroken** (a split would add a second cold
+  start and a second session-start injection to both arms). (1) The K = 3 reading starts on 2026-11-19 as soon as the
+  card rule holds. (2) The k = 1 reading runs on its own day and starts only if it can start at or before 9:00 AM New
+  York (its 10.6-hour upper bound must end by 8:00 PM); a later start moves it to the next day. (3) The two answering
+  sessions run on the day after the k = 1 reading, both the same day, in the order the P1 rule sets. **Cut-off rule, by
+  the clock only:** a reading that has not completed exchange 135 by 7:45 PM New York is stopped; that run is NOT used
+  for R or for answering; its per-exchange wall times up to the stop are reported beside the result; the reading is
+  done again unbroken on a later day, and the redo counts whatever its speed. The rule never depends on anything about
+  answers. At each start: the A7 serving lines (C5) and the GPU broker status are recorded; at each end the broker status
+  again. Limits line, in the design owner's words: P1 itself recorded no serving lines, so A7 rests on 'no record match
+  for P1, file dates unchanged' (model file last modified 2026-11-14, server binary 2026-08-28, both before P1's reading
+  runs began on 2026-11-16).
+
 ## 7. Cost (requirement 6)
 
 Each figure from a named measurement; GPU-hours, single card, one job at a time.
