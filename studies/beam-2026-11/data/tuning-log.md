@@ -2113,3 +2113,26 @@ of the results of turns 14 to 27 were seen while the session ran. Grading is by 
 move a grade; it is reported because it departs from that entry's wording. Progress checks after it read counts only.
 
 Session 2 (k = 1) started 2026-11-19T14:30:48Z from the same checkout.
+
+## P1 answering pilot: the answer of a turn that ends on a tool call, a POST HOC conformance fix (design owner, ruled blind; logged 2026-11-19, before any grade)
+
+The design owner ruled on the question in the entry above (Office crossing 32566), without reading the four turns; the
+study lead has not read them either. `feed4.py` at the pinned commit records a turn's answer as `result or _last_text`:
+the harness's final text, and where that is absent the turn's last text block. `[no output]` is the harness's placeholder
+for "no final text"; being a non-empty string, it kept the fallback from firing. The instrument fell short of its own
+rule, so this is a conformance fix, not a new answer definition. Terms:
+1. **The case is defined by mechanism:** the turn's final assistant message ends on a tool call with no text after it. For
+   such a turn the answer is the last text block of the turn. A turn with no text block at all is a missing answer,
+   incorrect, as registered. The string route (`[no output]`) is checked as well, and any turn where the two definitions
+   disagree is logged.
+2. The same rule applies to both sessions and every turn, applied by a script from the session record with k removed. The
+   ids it selects in each session are listed in this log before the judge runs.
+3. **Primary: this reading. Sensitivity line:** the score with these turns counted incorrect. Both numbers are reported.
+4. Joining all of a turn's text blocks is rejected. Per session, the count of such turns with more than one text block is
+   reported as a count, their text not read before the grade.
+5. The count of tool-call-ending turns per session is reported as a descriptive result, with no test.
+6. The feeder fix (the placeholder treated as absent) goes in its own commit after this pilot's sessions end, contract
+   first, with a cell for the tool-call-ending turn. Session 2 runs on the pinned launcher unchanged.
+
+**The disclosure above, completed.** Of the four ids, only F14 (turn 26) falls in turns 14 to 27; its progress line showed
+the placeholder `[no output]` and nothing else. From here to the pilot's end, progress is read as counts only.
