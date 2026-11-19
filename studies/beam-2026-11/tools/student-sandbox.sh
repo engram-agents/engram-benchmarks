@@ -10,7 +10,11 @@
 #   SANDBOX_BINARY        the pinned Claude Code binary (absolute path)
 #   SANDBOX_BINARY_SHA256 its full sha256 (64 hex); refuse on mismatch
 #   SANDBOX_MODEL_HOST / SANDBOX_MODEL_PORT   the model endpoint as the host sees it
-#   SANDBOX_LOG           optional file (outside the box) for launch lines and per-connection counts/timings
+#   SANDBOX_RO_BINDS / SANDBOX_RW_BINDS   optional colon-separated absolute directories bound read-only / read-write at
+#                         their own paths (the tools directory; the proctor directory); SANDBOX_RW_ROOT (required with
+#                         SANDBOX_RW_BINDS) is the directory every RW entry must lie inside. Refused when an entry is
+#                         "/" or contains a protected path (home, /home, the slot's parent, BEAM_PARQUET...)
+#   SANDBOX_LOG          optional file (outside the box) for launch lines and per-connection counts/timings
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
 set -u
@@ -54,9 +58,65 @@ print(p); print(hashlib.sha256(open(p, "rb").read()).hexdigest())' "$SANDBOX_BIN
 want=${SANDBOX_BINARY_SHA256,,}
 [ "$BIN_SUM" = "$want" ] || refuse "SANDBOX_BINARY_SHA256 mismatch: the binary's sha256 is not the pinned one"
 SLOT=$(cd -P -- "$SANDBOX_SLOT" && pwd -P)
-BIN_DIR=${BIN_REAL%/*}
-[ -n "$BIN_DIR" ] || refuse "SANDBOX_BINARY is at the filesystem root"
-case "$SLOT/" in "$BIN_DIR/"*) refuse "SANDBOX_BINARY directory contains the slot" ;; esac
+# (Round 2, F1: only the binary FILE is bound, so its directory's other entries are never visible. The old
+# "binary directory contains the slot" refusal existed because the whole directory was bound read-only over the
+# read-write slot; with a single file bound it has no meaning and is gone.)
+
+# ---- F2: extra binds, validated here (same refuse-before-anything rule) ------------------------------------
+# SANDBOX_RO_BINDS / SANDBOX_RW_BINDS: colon-separated absolute directories, bound at their own (resolved) paths.
+# An entry is refused when it is "/", or equal to or an ancestor of a protected path, and an RW entry must lie
+# inside SANDBOX_RW_ROOT. "Protected" = the invoking user's home, /home, the shared agents directory under /home, the slot's parent,
+# BEAM_PARQUET when set, and (beyond the contract) /tmp, /var/tmp and /run, so that binding a scratch directory
+# cannot expose the bridge socket directory or another run's files.
+RO_LIST=(); RW_LIST=(); RW_ROOT_REAL=""
+CANON=""
+canon_entry() {   # $1 variable name, $2 one entry; sets CANON to its resolved path, or refuses
+  local e=$2
+  [ -n "$e" ] || refuse "$1 has an empty entry"
+  [[ $e == /* ]] || refuse "$1 entry is not an absolute path: $e"
+  [ -d "$e" ] || refuse "$1 entry is not an existing directory: $e"
+  CANON=$(realpath -e -- "$e" 2>/dev/null) && [ -n "$CANON" ] || refuse "$1 entry cannot be resolved: $e"
+}
+split_entries() {  # $1 variable name, $2 list; fills ENTRIES
+  ENTRIES=()
+  [[ $2 == :* || $2 == *: || $2 == *::* ]] && refuse "$1 has an empty entry"
+  IFS=: read -r -a ENTRIES <<< "$2"
+}
+if [ -n "${SANDBOX_RO_BINDS:-}${SANDBOX_RW_BINDS:-}" ]; then
+  UHOME=$("$PY" -I -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null) \
+    && [ -n "$UHOME" ] || refuse "cannot determine the invoking user's home directory"
+  PROT=(/home /home/"agents-shared" /tmp /var/tmp /run "$UHOME" "${SLOT%/*}")
+  [ -n "${BEAM_PARQUET:-}" ] && PROT+=("$BEAM_PARQUET")
+  for i in "${!PROT[@]}"; do PROT[$i]=$(realpath -m -- "${PROT[$i]}") || refuse "cannot resolve a protected path"; done
+  check_entry() {   # $1 variable name, $2 one entry; sets CANON after the root / protected-path checks
+    canon_entry "$1" "$2"
+    [ "$CANON" != / ] || refuse "$1 entry $2 is the filesystem root, a protected path"
+    local p
+    for p in "${PROT[@]}"; do
+      case "$p/" in "$CANON"/*) refuse "$1 entry $2 is or contains a protected path ($p)" ;; esac
+    done
+  }
+  if [ -n "${SANDBOX_RO_BINDS:-}" ]; then
+    split_entries SANDBOX_RO_BINDS "$SANDBOX_RO_BINDS"
+    for e in "${ENTRIES[@]}"; do check_entry SANDBOX_RO_BINDS "$e"; RO_LIST+=("$CANON"); done
+  fi
+  if [ -n "${SANDBOX_RW_BINDS:-}" ]; then
+    [ -n "${SANDBOX_RW_ROOT:-}" ] || refuse "SANDBOX_RW_ROOT is required when SANDBOX_RW_BINDS is set"
+    canon_entry SANDBOX_RW_ROOT "$SANDBOX_RW_ROOT"
+    RW_ROOT_REAL=$CANON
+    [ "$RW_ROOT_REAL" != / ] || refuse "SANDBOX_RW_ROOT is the filesystem root"
+    split_entries SANDBOX_RW_BINDS "$SANDBOX_RW_BINDS"
+    for e in "${ENTRIES[@]}"; do
+      check_entry SANDBOX_RW_BINDS "$e"
+      case "$CANON/" in "$RW_ROOT_REAL"/*) ;; *) refuse "SANDBOX_RW_BINDS entry $e is not inside SANDBOX_RW_ROOT" ;; esac
+      RW_LIST+=("$CANON")
+    done
+  fi
+fi
+EXTRA_BINDS=()
+for d in "${RO_LIST[@]}"; do EXTRA_BINDS+=(--ro-bind "$d" "$d"); done
+for d in "${RW_LIST[@]}"; do EXTRA_BINDS+=(--bind "$d" "$d"); done
+RO_LOG=$(IFS=:; echo "${RO_LIST[*]}"); RW_LOG=$(IFS=:; echo "${RW_LIST[*]}")
 
 # ---- the environment the caller passed, exactly (minus SANDBOX_*) -----------------------------------------
 # /proc/$$/environ is the block bash was started with, before bash adds PWD/SHLVL/_ of its own.
@@ -93,10 +153,11 @@ if [ ! -S "$SOCK" ]; then
 fi
 disown "$FPID" 2>/dev/null
 
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
-# (read-only), then the slot (read-write) and the binary's directory (read-only) at their own paths.
+# (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
+# paths. bwrap creates the missing parent directories inside the tmpfs for the file bind.
 BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc
     --clearenv "${ENVARGS[@]}"
     --proc /proc --dev /dev
@@ -105,7 +166,8 @@ BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unsha
     --ro-bind-try /etc /etc --ro-bind-try /opt /opt
     --tmpfs /home --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run
     --bind "$SLOT" "$SLOT"
-    --ro-bind "$BIN_DIR" "$BIN_DIR"
+    --ro-bind "$BIN_REAL" "$BIN_REAL"
+    "${EXTRA_BINDS[@]}"
     --ro-bind "$SOCK" /run/sandbox-bridge.sock
     --ro-bind "$FWD" /run/sandbox-forward.py)
 exec "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" -- "${CMD[@]}"

@@ -370,9 +370,10 @@ def test_s2_slot_under_vartmp_is_writable_and_binary_dir_visible(cfg):
 
 
 @needs_box
-def test_s2_binary_dir_is_read_only(cfg):
-    r = cfg.run(exec_='touch "$1/x" 2>/dev/null && echo WROTE; echo done', args=[cfg.bindir])
+def test_s2_binary_file_is_read_only(cfg):
+    r = cfg.run(exec_='(: > "$1") 2>/dev/null && echo WROTE; echo done', args=[cfg.binary])
     assert r.stdout.split() == ["done"], r.stdout
+    assert open(cfg.binary).read().startswith("#!/bin/sh"), "the host binary changed"
 
 
 @needs_box
@@ -692,3 +693,218 @@ def test_s8_latency_compare_reports_median_and_max(cfg, stubs):
         assert set(rows[k]) >= {"median_ms", "max_ms"}, r.stdout
         float(rows[k]["median_ms"]); float(rows[k]["max_ms"])
     assert rows["direct"]["n"] == "5" and rows["bridge"]["n"] == "5"
+
+
+# ---------------------------------------------------------------- F1: the binary FILE is bound, not its directory
+
+@needs_box
+def test_f1_sibling_of_the_binary_is_not_visible(cfg):
+    sib = os.path.join(cfg.bindir, "sibling-secret")
+    open(sib, "w").write("planted sibling, not benchmark data\n")
+    r = cfg.run(exec_='test -x "$1" && echo BIN; test -e "$2" && echo SIBLING; ls -A "$3"; echo done',
+                args=[cfg.binary, sib, cfg.bindir])
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["BIN", "stubclaude", "done"], r.stdout
+
+
+@needs_box
+def test_f1_stub_binary_still_runs_with_its_sibling_hidden(cfg):
+    open(os.path.join(cfg.bindir, "sibling-secret"), "w").write("x")
+    r = cfg.run(args=("--version",), test=False)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "stub-claude --version"
+
+
+@needs_box
+def test_f1_binary_given_by_symlink_is_bound_at_its_real_path(cfg, tmp_path):
+    link = str(tmp_path / "link-to-claude")
+    os.symlink(cfg.binary, link)
+    c = Cfg.__new__(Cfg)
+    c.__dict__.update(cfg.__dict__)
+    c.binary = link
+    r = c.run(args=("--version",), test=False)
+    assert r.returncode == 0 and r.stdout.strip() == "stub-claude --version", r.stderr
+
+
+# ---------------------------------------------------------------- F2: explicit, validated extra binds
+
+@pytest.fixture
+def extra(tmp_path):
+    """tools (RO) with a sibling secret, and a run output directory holding the proctor directory (RW)."""
+    class X:
+        pass
+    x = X()
+    x.base = str(tmp_path / "extra")
+    x.tools = os.path.join(x.base, "tools")
+    x.secret = os.path.join(x.base, "secret")
+    x.runout = str(tmp_path / "runout")
+    x.proctor = os.path.join(x.runout, "proctor")
+    for d in (x.tools, x.secret, x.proctor):
+        os.makedirs(d)
+    open(os.path.join(x.secret, "key"), "w").write("planted, not a real key\n")
+    make_exe(os.path.join(x.tools, "ask-proctor"),
+             '#!/bin/sh\necho "question: $*" > "$PROCTOR_DIR/q.txt" && echo asked\n')
+    return x
+
+
+SHARED = os.path.join("/home", "agents-shared")  # joined so that no host path literal sits in the file
+
+
+def user_home():
+    import pwd
+    return os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def test_f2_refusals_entry_shapes(cfg, fake_bwrap, extra):
+    f = os.path.join(extra.base, "afile")
+    open(f, "w").close()
+    nosuch = os.path.join(extra.base, "no-such")
+    for val in ("relative/dir", nosuch, f, extra.tools + ":" + nosuch,
+                extra.tools + ":", ":" + extra.tools, extra.tools + "::" + extra.secret):
+        assert_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", SANDBOX_RO_BINDS=val)
+
+
+def _protected_refused(cfg, fake_bwrap, var, val, **kw):
+    fdir, out = fake_bwrap
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log, **{var: val}, **kw)
+    assert r.returncode == 2, (val, r.returncode, r.stderr)
+    lines = [l for l in r.stderr.splitlines() if l.strip()]
+    assert len(lines) == 1 and var in lines[0] and "protected" in lines[0], r.stderr
+    assert not os.path.exists(out) and os.listdir(cfg.tmpd) == [] and not os.path.exists(cfg.log)
+
+
+def test_f2_refuses_the_filesystem_root(cfg, fake_bwrap):
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "/")
+
+
+def test_f2_refuses_the_invoking_users_home_and_its_ancestors(cfg, fake_bwrap):
+    h = user_home()
+    assert os.path.isdir(h)
+    for e in {h, os.path.dirname(h)}:
+        if e != "/":
+            _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", e)
+
+
+def test_f2_refuses_home_and_agents_shared(cfg, fake_bwrap):
+    if not os.path.isdir(SHARED):
+        pytest.skip("no shared agents directory under /home on this host: the entry would be refused as nonexistent, not as protected")
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "/home")
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", SHARED)
+
+
+def test_f2_refuses_the_slots_parent_and_its_ancestors(cfg, fake_bwrap):
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", cfg.root)
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", os.path.dirname(cfg.root))
+
+
+def test_f2_refuses_the_dataset_directory_and_its_ancestors(cfg, fake_bwrap, tmp_path):
+    d = tmp_path / "data" / "inner"
+    d.mkdir(parents=True)
+    p = str(d / "standin.parquet")
+    open(p, "w").close()
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", str(d), BEAM_PARQUET=p)
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", str(d.parent), BEAM_PARQUET=p)
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", str(d), BEAM_PARQUET=p, SANDBOX_RW_ROOT=str(d.parent))
+
+
+def test_f2_refuses_the_scratch_directories(cfg, fake_bwrap):
+    for e in ("/tmp", "/var/tmp"):
+        _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", e)
+
+
+def test_f2_rw_refusals(cfg, fake_bwrap, extra):
+    f = os.path.join(extra.base, "afile")
+    open(f, "w").close()
+    # RW binds need a root, and the root must be a real directory
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", SANDBOX_RW_BINDS=extra.proctor)
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", SANDBOX_RW_BINDS=extra.proctor,
+                   SANDBOX_RW_ROOT=os.path.join(extra.base, "no-such"))
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", SANDBOX_RW_BINDS=extra.proctor, SANDBOX_RW_ROOT=f)
+    # an RW entry outside the root, including a sibling that merely shares the root's name as a prefix
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", SANDBOX_RW_BINDS=extra.secret, SANDBOX_RW_ROOT=extra.runout)
+    prefixed = extra.runout + "-sibling"
+    os.makedirs(prefixed)
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", SANDBOX_RW_BINDS=prefixed, SANDBOX_RW_ROOT=extra.runout)
+    # a ".." path that resolves outside the root
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", SANDBOX_RW_BINDS=extra.proctor + "/../../extra/secret",
+                   SANDBOX_RW_ROOT=extra.runout)
+    # a symlink inside the root pointing outside it
+    os.symlink(extra.secret, os.path.join(extra.runout, "escape"))
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", SANDBOX_RW_BINDS=os.path.join(extra.runout, "escape"),
+                   SANDBOX_RW_ROOT=extra.runout)
+    # entry shape
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", SANDBOX_RW_BINDS=os.path.join(extra.runout, "no-such"),
+                   SANDBOX_RW_ROOT=extra.runout)
+
+
+def test_f2_refuses_an_rw_entry_that_is_the_home(cfg, fake_bwrap):
+    _protected_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", user_home(), SANDBOX_RW_ROOT=os.path.dirname(user_home()))
+
+
+@needs_box
+def test_f2_ro_bind_is_visible_not_writable_and_its_sibling_is_not(cfg, extra):
+    r = cfg.run(exec_='test -x "$1/ask-proctor" && echo TOOL; (touch "$1/x") 2>/dev/null && echo WROTE; '
+                      '(: > "$1/ask-proctor") 2>/dev/null && echo CLOBBERED; test -e "$2" && echo SECRET; '
+                      'test -e "$3/key" && echo KEY; ls -A "$4"; echo done',
+                args=[extra.tools, extra.base + "/secret", extra.secret, extra.base], SANDBOX_RO_BINDS=extra.tools)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["TOOL", "tools", "done"], r.stdout
+    assert not os.path.exists(os.path.join(extra.tools, "x"))
+
+
+@needs_box
+def test_f2_rw_bind_is_writable_and_lands_on_the_host(cfg, extra):
+    r = cfg.run(exec_='echo from-inside > "$1/note" && echo ok', args=[extra.proctor],
+                SANDBOX_RW_BINDS=extra.proctor, SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
+    assert open(os.path.join(extra.proctor, "note")).read() == "from-inside\n"
+
+
+@needs_box
+def test_f2_both_variables_and_two_entries(cfg, extra):
+    second = os.path.join(extra.runout, "second")
+    os.makedirs(second)
+    r = cfg.run(exec_='test -x "$1/ask-proctor" && touch "$2/a" "$3/b" && echo ok', args=[extra.tools, extra.proctor, second],
+                SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor + ":" + second, SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
+    assert os.path.exists(os.path.join(extra.proctor, "a")) and os.path.exists(os.path.join(second, "b"))
+
+
+@needs_box
+def test_f2_ask_proctor_works_from_inside(cfg, extra):
+    r = cfg.run(exec_='ask-proctor what is this; echo "$PROCTOR_DIR"', PATH=extra.tools + ":/usr/bin:/bin",
+                PROCTOR_DIR=extra.proctor, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor,
+                SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split("\n")[:2] == ["asked", extra.proctor]
+    assert open(os.path.join(extra.proctor, "q.txt")).read() == "question: what is this\n"
+
+
+@needs_box
+def test_f2_dataset_stand_in_stays_invisible_when_its_parents_sibling_is_bound(cfg):
+    home = user_home()
+    if not (home.startswith("/home/") and os.access(home, os.W_OK)):
+        pytest.skip("the invoking user's home is not a writable directory under /home here")
+    d = tempfile.mkdtemp(dir=home, prefix="sandbox-standin-")
+    sib = tempfile.mkdtemp(dir=home, prefix="sandbox-bound-sibling-")
+    try:
+        p = os.path.join(d, "standin.parquet")
+        open(p, "wb").write(b"synthetic stand-in, not benchmark data\n")
+        open(os.path.join(sib, "marker"), "w").close()
+        r = cfg.run(exec_='test -e "$1/marker" && echo SIBLING-BOUND; test -e "$2" && echo STANDIN-VISIBLE; '
+                          'test -e "$3" && echo STANDIN-DIR-VISIBLE; echo done', args=[sib, p, d],
+                    BEAM_PARQUET=p, SANDBOX_RO_BINDS=sib)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.split() == ["SIBLING-BOUND", "done"], r.stdout
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(sib, ignore_errors=True)
+
+
+@needs_box
+def test_f2_launch_line_logs_every_extra_bind(cfg, extra):
+    r = cfg.run(exec_="true", SANDBOX_LOG=cfg.log, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor,
+                SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 0, r.stderr
+    line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]
+    assert "ro_binds=" + extra.tools in line and "rw_binds=" + extra.proctor in line, line
