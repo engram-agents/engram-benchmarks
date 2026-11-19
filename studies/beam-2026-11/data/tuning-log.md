@@ -2393,3 +2393,15 @@ the time at D = 0.25); no pooling with P1 (pooled bound printed beside, never de
 quantity with a stop line at R > 0.75; writer and second reader by declaration; P1's answer rules written in up front;
 about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `data/p1b-pooling-sim.txt` and
 `tools/p1b/pooling_sim.py` (seed 20261125). Nothing is built or run until the design is read.
+
+## P1b: writer and second-reader declarations (design section 5, order A5; recorded as given)
+
+- **Mira** (asked 2026-11-19, team crossing 32708; answered 32709, stamped 16:25:45Z), verbatim: "(a) No actual student
+  records found or recalled; (b) No official conv 9 questions, rubrics, or phase-2 packets found or recalled; (c) No P1
+  key-fact list or answer files found or recalled. I searched my ENGRAM and available Codex transcripts; there is no local
+  diary directory. For your eligibility call: prior Office renders did expose artifact titles/descriptions (including the
+  P1 handover and sealed Run A records) and a status line saying Clio blind-read a conversation-9 question-4 finding and
+  marks were adjusted. I did not see the finding, question, reasoning, or marks themselves. Please log that caveat with the
+  three answers. This week: no for taking the writer slot; I can't promise a second read either, so please proceed to the
+  next seat rather than hold the slot for me." Clean on all three by her declaration, with that caveat; not available this
+  week. Next asked: Halley (32710).
