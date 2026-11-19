@@ -9,9 +9,13 @@ MISSING if it has none. Every other question turn is answered by the result the 
 (recorded result == '[no output]') is computed beside the mechanism; turns where they disagree are listed, never
 resolved silently. Answer text goes only to <out.json>; stdout carries ids and counts.
 """
-import json, os, sys
+import json, os, re, sys
 
 PLACEHOLDER = "[no output]"
+# Ruling 2 (Office 32574): a final text that is exactly the placeholder after stripping whitespace is an empty reply
+# (missing, incorrect). A NEAR VARIANT is a final text whose whole stripped content is "no output" in any case, with
+# optional surrounding brackets/punctuation, but is not exact; it is listed for the design owner, not decided here.
+NEAR = re.compile(r"^[\W_]*no\s+output[\W_]*$", re.IGNORECASE)
 
 
 def split_turns(events):
@@ -40,8 +44,9 @@ def extract(events, rows):
     turns = split_turns(events)
     if len(turns) != len(rows):
         raise ValueError(f"turn count mismatch: {len(turns)} result-delimited turns in the event stream, {len(rows)} rows in turns.jsonl")
-    answers, dis = {}, []
-    counts = {"question_turns": 0, "tool_ending": 0, "tool_ending_multi_text": 0, "missing": 0, "disagreements": 0}
+    answers, dis, near = {}, [], []
+    counts = {"question_turns": 0, "tool_ending": 0, "tool_ending_multi_text": 0, "missing": 0, "disagreements": 0,
+              "placeholder": 0, "near_variant": 0}
     for row, tev in zip(rows, turns):
         if row.get("kind") != "question":
             continue
@@ -68,11 +73,23 @@ def extract(events, rows):
             if not (recorded or "").strip():
                 ans, route = None, "missing"
                 counts["missing"] += 1
+        # Ruling 2: judge the turn's final text block (the answer's own text) against the placeholder.
+        sens = None
+        final_text = texts[-1] if texts else None
+        if route != "missing" and final_text is not None:
+            if final_text.strip() == PLACEHOLDER:
+                ans, route = None, "placeholder_missing"
+                counts["missing"] += 1; counts["placeholder"] += 1
+                sens = texts[-2] if len(texts) > 1 else None
+            elif NEAR.fullmatch(final_text.strip()):
+                ans, route = None, "near_variant"
+                counts["near_variant"] += 1; near.append(qid)
         if tool_ending != string_route:
             dis.append({"id": qid, "tool_ending": tool_ending, "string_route": string_route})
-        answers[qid] = {"answer": ans, "route": route, "tool_ending": tool_ending, "string_route": string_route}
+        answers[qid] = {"answer": ans, "route": route, "tool_ending": tool_ending, "string_route": string_route,
+                        "sensitivity_answer": sens}
     counts["disagreements"] = len(dis)
-    return {"answers": answers, "counts": counts, "disagreements": dis}
+    return {"answers": answers, "counts": counts, "disagreements": dis, "near_variants": near}
 
 
 def main(argv):
@@ -85,8 +102,10 @@ def main(argv):
         json.dump(res, f, indent=1, sort_keys=True)
     print("counts", json.dumps(res["counts"], sort_keys=True))
     print("tool_ending ids", sorted(k for k, v in res["answers"].items() if v["tool_ending"]))
-    print("missing ids", sorted(k for k, v in res["answers"].items() if v["route"] == "missing"))
+    print("missing ids", sorted(k for k, v in res["answers"].items() if v["route"] in ("missing", "placeholder_missing")))
     print("disagreements", json.dumps(res["disagreements"]))
+    print("placeholder ids", sorted(k for k, v in res["answers"].items() if v["route"] == "placeholder_missing"))
+    print("near_variant ids", res["near_variants"])
     return 0
 
 

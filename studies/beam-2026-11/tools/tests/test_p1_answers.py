@@ -40,7 +40,7 @@ def run(turns):
 
 def test_normal_turn_answer_is_recorded_result():
     out = run([("compact", None, [], ""), ("question", "F1", [a_think(), a_text("Paris.")], "Paris.")])
-    assert out["answers"] == {"F1": {"answer": "Paris.", "route": "recorded", "tool_ending": False, "string_route": False}}
+    assert out["answers"] == {"F1": {"answer": "Paris.", "route": "recorded", "tool_ending": False, "string_route": False, "sensitivity_answer": None}}
     assert out["counts"]["tool_ending"] == 0 and out["disagreements"] == []
 
 def test_tool_ending_with_placeholder_takes_last_text_block():
@@ -62,9 +62,45 @@ def test_tool_ending_with_no_text_is_missing():
 
 def test_string_route_without_mechanism_is_a_logged_disagreement():
     # The student itself typed the brackets as its final text: not tool-ending, but the string matches.
+    # Ruling 2 (Office 32574): such a reply is empty in substance -> missing; the disagreement stays listed.
     out = run([("question", "F4", [a_text(PH)], PH)])
-    assert out["answers"]["F4"]["route"] == "recorded" and out["answers"]["F4"]["answer"] == PH
+    assert out["answers"]["F4"]["route"] == "placeholder_missing" and out["answers"]["F4"]["answer"] is None
     assert out["disagreements"] == [{"id": "F4", "tool_ending": False, "string_route": True}]
+
+# ---- Ruling 2 (Kepler, Office 32574, 2026-11-19) ----
+
+def test_placeholder_final_text_is_missing_with_sensitivity_answer():
+    evs = [a_text("draft one", "m1"), a_tool("m1"), u_res(), a_text("real answer", "m2"), a_think("m3"), a_text(PH, "m3")]
+    out = run([("question", "F14", evs, PH)])
+    a = out["answers"]["F14"]
+    assert a["answer"] is None and a["route"] == "placeholder_missing"
+    assert a["sensitivity_answer"] == "real answer"
+    assert out["counts"]["missing"] == 1 and out["counts"]["placeholder"] == 1
+
+def test_placeholder_after_whitespace_strip():
+    out = run([("question", "F15", [a_text("x"), a_text("  [no output]\n")], "  [no output]\n")])
+    assert out["answers"]["F15"]["route"] == "placeholder_missing" and out["answers"]["F15"]["sensitivity_answer"] == "x"
+
+def test_placeholder_without_earlier_text_has_no_sensitivity_answer():
+    out = run([("question", "F16", [a_text(PH)], PH)])
+    assert out["answers"]["F16"]["answer"] is None and out["answers"]["F16"]["sensitivity_answer"] is None
+
+def test_near_variant_is_listed_and_not_decided():
+    out = run([("question", "F17", [a_text("earlier"), a_text("No output.")], "No output.")])
+    a = out["answers"]["F17"]
+    assert a["route"] == "near_variant" and a["answer"] is None
+    assert out["near_variants"] == ["F17"] and out["counts"]["near_variant"] == 1
+    assert out["counts"]["missing"] == 0
+
+def test_answer_mentioning_no_output_in_a_sentence_is_an_answer():
+    t = "The script gave no output, so the meeting moved to 4 PM."
+    out = run([("question", "F18", [a_text(t)], t)])
+    assert out["answers"]["F18"]["route"] == "recorded" and out["answers"]["F18"]["answer"] == t
+    assert out["near_variants"] == []
+
+def test_normal_turn_has_no_sensitivity_answer_field_value():
+    out = run([("question", "F19", [a_text("Paris.")], "Paris.")])
+    assert out["answers"]["F19"].get("sensitivity_answer") is None
 
 def test_mechanism_without_string_route_is_a_logged_disagreement_answered_by_mechanism():
     out = run([("question", "F5", [a_text("said this"), a_tool(), u_res()], "something else")])
@@ -105,3 +141,13 @@ def test_cli_never_prints_answer_text(tmp_path):
     assert secret not in p.stdout and secret not in p.stderr
     data = json.loads(out.read_text())
     assert data["answers"]["F1"]["answer"] == secret and "counts" in data
+
+def test_cli_missing_ids_line_includes_placeholder_turns(tmp_path):
+    ev, rows = build([("question", "F1", [a_text("earlier"), a_text(PH)], PH), ("question", "F2", [a_tool(), u_res()], PH),
+                      ("question", "F3", [a_text("ok")], "ok")])
+    d = tmp_path / "run"; d.mkdir()
+    (d / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in ev))
+    (d / "turns.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    p = subprocess.run([sys.executable, os.path.join(HERE, "p1_answers.py"), str(d), str(tmp_path / "a.json")], capture_output=True, text=True)
+    line = [l for l in p.stdout.splitlines() if l.startswith("missing ids")][0]
+    assert "'F1'" in line and "'F2'" in line and "'F3'" not in line

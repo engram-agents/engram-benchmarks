@@ -2160,3 +2160,36 @@ stay green. On session 1 it prints: 84 question turns, 0 tool-ending, 0 missing,
 `tool_ending: false, string_route: true`). Its answers file stays unread until grading.
 
 The question goes back to the design owner. Session 2 is still running and is read as counts only.
+
+## P1 answering pilot: SECOND ruling on the four `[no output]` turns (design owner, blind; logged 2026-11-19, before any grade)
+
+The design owner ruled again on the corrected facts (Office crossing 32574), without reading the turns; he checked that the
+literal `[no output]` occurs in no tracked file at e62f51ac, a search that does not cover what the harness or a tool result
+showed the student at run time. **The primary reading reverses, because the fact changed:** in the first ruling the
+placeholder was believed to be the harness's; the stream shows the student wrote it as its final text, and the registered
+definition of an answer is the turn's final text, applied as written. Terms:
+1. **Primary.** A question turn whose final text block is exactly `[no output]` after stripping whitespace is an empty reply
+   in substance: a missing answer, INCORRECT, no judge call. In session 1 that is A08, F14, F17 and F37; A08 included (an
+   abstention has to be stated; the clause has no exception by item type). The same rule applies to session 2. A near
+   variant is listed and goes to the design owner before grading; the script does not decide it.
+2. **Sensitivity line.** For those turns, the last text block before the placeholder goes to the judge like any answer, k
+   removed; the score with those grades is the second number. **Which of the two readings flatters which session is not
+   known to the design owner or to the study lead.**
+3. Joining all of a turn's text blocks stays rejected.
+4. The first ruling stands only for a real tool-ending turn; there are none in session 1; its test cells are kept. Its term 6
+   (a feeder change) is **withdrawn**: the feeder did what it was written to do.
+5. **Descriptive, after grading and not before:** the number of question turns per session that end in the placeholder; and
+   for these four, from metadata and tool-result blocks only, whether the same string occurs in any tool result of that turn
+   or earlier in the session. A finding about the student, n stated.
+6. The log keeps both rulings, the false premise and its correction; nothing above is overwritten.
+
+**The script after this ruling** (`tools/p1_answers.py`, sha256 `079462be...`; tests `tools/tests/test_p1_answers.py`,
+sha256 `b3a0ecc3...`, 18 cells, written before each change). New for this ruling: the placeholder rule (route
+`placeholder_missing`, with the earlier block kept as `sensitivity_answer`), the near-variant list, and a fix to the printed
+list of missing ids (it had left out placeholder turns; the answers file was unchanged by that fix). Three plausible-wrong
+mutants of the new terms (sensitivity taken from the placeholder itself, no whitespace strip, an unanchored near-variant
+match) are each caught by their own cells, the rest green. **The study lead's definition of a near variant, for the design
+owner to accept or change:** a final text whose whole stripped content is "no output" in any letter case with optional
+surrounding brackets or punctuation (`[\W_]*no\s+output[\W_]*`, matched in full), but not the exact placeholder. A reply that
+only mentions "no output" inside a sentence is an answer. On session 1: 84 question turns, 4 placeholder (missing), 0 near
+variants, 0 tool-ending; answers file sha256 `d5d5dcdd...`, unread.
