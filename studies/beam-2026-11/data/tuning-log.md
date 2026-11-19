@@ -2317,3 +2317,43 @@ the mean over the 14 guard exchanges of the within-exchange difference, and prin
 **Printed, deciding nothing:** reading (c) and the sensitivity score through the same rule; the per-session 0/0.5/1 counts;
 the abstention items apart; the paired table, D (discordant share) and Newcombe's question-level lower bound; and the line
 without F37 and F48.
+
+## P1 answering speed pilot, k = 3 against k = 1: RESULT (logged 2026-11-19)
+
+**Outcome: INCONCLUSIVE.** Under the registered rule (P1 rule entry part e, the 11-16 correction, and the four rulings of
+2026-11-19), reading (a), on the full pre-logged list:
+
+| | value | test | |
+|---|---|---|---|
+| accuracy, K = 3 | 80.0% (60 of 75) | | |
+| accuracy, k = 1 | 82.7% (62 of 75) | validity floor 50% | holds |
+| mean over 38 exchanges of the within-exchange difference (K = 3 minus k = 1) | -3.5 points | | |
+| cluster bootstrap, 4th / 96th percentile (B = 1,000, seed 20261123) | [-15.4, +8.3] points | lower >= -10 for ACCEPTED; upper < 0 for WORSE | **lower fails**; upper is above 0 |
+| last-position guard, 26 questions in 14 exchanges | +3.6 points | >= -20 | holds |
+
+Only the overall lower bound fails, so it is INCONCLUSIVE, not WORSE. **k = 1 stays.** By the rule, the next step is a
+larger instrument (more exchanges read at each k), designed and logged before it runs; the same questions are never asked
+again to look for a different answer.
+
+**Reported beside it, deciding nothing:**
+- **The judge gave no 0.5 to any of the 168 items** (138 ones, 30 zeros), so reading (c), the raw score, equals reading (a)
+  in every number above.
+- **Missing answers:** 4 of 84 at K = 3 (A08, F14, F17, F37: the exact placeholder) and 3 of 84 at k = 1 (A04, F35, F43:
+  the "no output" class), each scored 0. Neither session passes the "more than 5 missing" re-ask threshold.
+- **Sensitivity score** (each missing answer replaced by the grade of its earlier text block): K = 3 81.3%, k = 1 85.3%;
+  mean difference -2.6 points, bounds [-13.2, +7.9], guard +3.6 -> INCONCLUSIVE.
+- **Paired table** (reading (a), 75 questions): both correct 54, K = 3 only 6, k = 1 only 8, neither 7; **D (discordant
+  share) 0.187**; Newcombe's question-level lower bound -11.0 points. The question-level guard difference is +3.8 points.
+- **Without F37 and F48** (the wrapper sensitivity read, never the verdict): mean -0.9 points, bounds [-12.0, +10.2], guard
+  +3.6 -> INCONCLUSIVE.
+- **Abstention items, apart:** K = 3 6 of 9, k = 1 7 of 9.
+- **Speed,** as measured in the reading runs (not re-measured here): K = 3 86.5 s and k = 1 259.4 s per exchange. The speed
+  bar is met, but no k is recommended, since the answer test did not accept.
+- **The note floor** is reported, not deciding: K = 3's 2.31 notes per exchange against the 2.39 floor.
+- The per-fact channel table and the end states' channel difference (k = 1 made no write to the built-in folder, K = 3 did)
+  remain to be reported with this result. They describe the end states and cannot change the outcome.
+
+**Instrument and checks.** The key opened was `key.json` sha256 `a5268876...` (committed here as
+`data/p1-answering-grading-key.json`), the raw scores `a6459353...` (held by the design owner's seat as well); the scorer
+output is `data/p1-answering-score-output.txt`. An independent recomputation from the key and the raw scores, sharing no
+code with the scorer, reproduced the two accuracies, the 38-exchange mean, both bootstrap bounds and the guard exactly.
