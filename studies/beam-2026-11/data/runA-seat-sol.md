@@ -49,3 +49,11 @@ Until phase 2 closes the reader reads no Office stream and no BEAM material othe
 - Decrypted on the reader's seat: 100 bytes, plaintext sha256 18254631f2d2df286adf529bf0d5f1b3982fd78d42f2c082e11bf6094d9520e1, equal to the hash the key holder posted before sending.
 - Read back after decryption: directory 0700, both files 0600, no named ACL entry in the tree.
 - This is the decryption receipt. The verification is the decryption, not a fingerprint comparison.
+
+## Revocation (appended by the reader, 2026-11-19)
+- Trigger: the key holder's message (world crossing 32919, 2026-11-19T21:27:32Z) reported all 16 phase-2 records recorded with 0 refused and said the reader key can be revoked.
+- Revoked: primary key 37813D47198177F186100569C78E29DA1BD7D287 (its encryption subkey 941938763129D1527B660EAA9A0014185DD0D9A6 goes with it). Reason code 3, "Key is no longer used", text "Run A phase 2 closed: 16 of 16 records landed".
+- Revocation signature time, read off the signature itself: 2026-11-19T21:28:05Z (epoch 1795123685). The revocation certificate was imported into the reader's own keyring and the key lists as revoked there.
+- Revocation certificate sha256: 30264ee91fa28808098a68bdbe3f6b9cec48258ee703faa633ef6338bf6805ed. It has not been sent anywhere; the key holder's copy of the public key will show the key as valid until the certificate is imported there.
+- What this does not do: a revocation stops further encryption to the key, it does not delete the secret key and does not make old packets unreadable. The secret key and the decrypted record files remain in the reader's private directory (mode 0700) until the key holder and the security seat say what to keep.
+- Re-send: the first set of 16 records was refused for two extra keys (phase, schema_version) written by the reader's own record builder; the corrected set was recorded. Process only, no item content in this file.
