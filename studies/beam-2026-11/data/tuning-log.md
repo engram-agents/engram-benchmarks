@@ -2087,3 +2087,29 @@ pre-run entry of 2026-11-18: the question-seeing judge, answers from both sessio
 the judge settings and the gold lines logged before the first grade. Abstention items are graded and reported apart.
 
 **The rule, the note floor, the stop rules and the bounds** are the pre-log's (commit 80731986), unchanged.
+
+## P1 answering pilot, session 1 (K = 3): the session's facts (logged 2026-11-19, before any grading and before the answers are read)
+
+**Run.** 2026-11-19T13:19:33Z to 14:30:32Z (`setup.txt`), launcher e62f51ac (fresh checkout, entry above), plant mode none,
+on a disposable copy of the K = 3 end state, 84 questions in the file's order. Every launcher step exited 0 (refusals,
+before-hashes, stop slot processes, aside, copy and fidelity check, plant (none), plan check, student run, delivery check,
+after-hashes; final exit 0). The three preserved end states hash the same before and after (`before-hashes.txt` and
+`after-hashes.txt`, 1,080 bytes each, byte-equal). `answer-delivery-check.py`: PASS. The turn log (`run/turns.jsonl`)
+holds 85 turns: the plan's compaction turn, then 84 question turns, one per question id, in the question file's order. No
+turn ended with an error, an end of stream or a timeout. The session's event stream holds 3 `compact_boundary` events, one
+of them the plan's compaction. Wall time per question turn: mean 49.2 s, longest 187.7 s, sum 4,131.8 s.
+
+**Four turns recorded `[no output]` as their result: A08, F14, F17, F37** (turns 11, 26, 32, 35). In each, the student
+wrote text (2 to 3 text blocks, 325 to 1,078 characters) and then ended the turn on a tool call, so the session's result
+field is Claude Code's literal `[no output]`, and the feeder keeps that string (its last-text fallback applies only to an
+empty result). The pre-log's rule says a missing answer (an error, a timeout, an empty reply) counts as incorrect; it does
+not say whether a turn whose final message carries no text, but which wrote text earlier, has an answer. **This is put to
+the design owner before any grading**, for both sessions alike and without either side's text being read. None of the four
+turns' text has been read. A08 is an abstention item; F37 is one of the two items in the with-and-without sensitivity line.
+
+**A disclosure.** The pre-run entry says each session's facts are logged before any answer is read. The feeder's progress
+line ends with the last 160 characters of each turn's result, and a progress check at 13:41Z read those lines, so the ends
+of the results of turns 14 to 27 were seen while the session ran. Grading is by the judge with k removed, so this read cannot
+move a grade; it is reported because it departs from that entry's wording. Progress checks after it read counts only.
+
+Session 2 (k = 1) started 2026-11-19T14:30:48Z from the same checkout.
