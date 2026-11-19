@@ -455,17 +455,29 @@ def test_s3_backgrounded_children_do_not_survive_the_wrapper(cfg):
     assert wait_gone(".%s" % mark), "a backgrounded process survived the wrapper's exit: %r" % procs_with(".%s" % mark)
 
 
+def _sleeper_running(marker):
+    for q in procs_with(marker):
+        try:
+            argv = open("/proc/%d/cmdline" % q, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        if os.path.basename(argv[0]) == b"sleep":
+            return True
+    return False
+
+
 @needs_box
 def test_s3_die_with_parent_when_wrapper_is_killed(cfg):
     mark = "8%d" % (int(time.time() * 1000) % 10**9)
     p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_='sleep 400.%s' % mark),
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        end = time.time() + 10
-        while time.time() < end and not any(b"sleep" in open("/proc/%d/cmdline" % q, "rb").read()
-                                           for q in procs_with(".%s" % mark) if os.path.exists("/proc/%d/cmdline" % q)):
+        # the probe has started only when the REAL sleep process exists: the bwrap process's own command line also
+        # carries the marker, and killing the wrapper while bwrap is still setting up proves nothing
+        end = time.time() + 15
+        while time.time() < end and not _sleeper_running(".%s" % mark):
             time.sleep(0.05)
-        assert procs_with(".%s" % mark), "probe never started"
+        assert _sleeper_running(".%s" % mark), "probe never started"
         p.kill()
         p.wait()
         assert wait_gone(".%s" % mark), "boxed processes outlived the killed wrapper: %r" % procs_with(".%s" % mark)
