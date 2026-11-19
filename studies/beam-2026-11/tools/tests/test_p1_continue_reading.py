@@ -16,7 +16,7 @@ K_DEFAULT = dict(start="4", through="9", per_round="3")  # exchanges 4..9 = 2 ro
 MODEL = "qwen3.8:27b-128k"  # feed4's default --model; a cell below reads feed4.py to keep this equal
 
 STUB_FEED4_CR = r'''
-import json, os, sys
+import json, os, subprocess, sys
 a = sys.argv[1:]
 def arg(n): return a[a.index(n) + 1]
 with open(os.environ["STUB_ARGV"], "a") as f:
@@ -67,6 +67,16 @@ if act == "protected":
     import sqlite3
     c = sqlite3.connect(os.environ["STUB_TARGET"] + "/.engram/knowledge.db")
     c.execute("insert into nodes values ('stub', 'a stub row')"); c.commit(); c.close()
+if act == "survivor":  # a process that ignores SIGTERM and whose command line holds <slot>/.engram/ outlives the stop steps
+    import time  # the child writes the pid file only AFTER it ignores SIGTERM, so the launcher's stop step cannot beat it
+    subprocess.Popen([sys.executable, "-c", "import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                      "open(sys.argv[2], 'w').write(str(os.getpid())); time.sleep(60)",
+                      a[a.index("--arm-home") + 1] + "/.engram/survivor", os.environ["STUB_PIDFILE"]], start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # not the test's pipes
+    for _ in range(100):
+        if os.path.exists(os.environ["STUB_PIDFILE"]) and open(os.environ["STUB_PIDFILE"]).read():
+            break
+        time.sleep(0.05)
 sys.exit(int(os.environ.get("STUB_RC", "0")))
 '''
 
@@ -74,8 +84,9 @@ sys.exit(int(os.environ.get("STUB_RC", "0")))
 # ------------------------------------------------------------------------------------------- a stub model server
 @pytest.fixture
 def ollama():
-    state = {"version": "0.9.9", "models": [{"name": MODEL, "digest": "sha256:abc123def456"},
-                                            {"name": "other:1b", "digest": "sha256:ffff"}], "hits": []}
+    # the NON-matching entry comes first, so a digest taken from models[0] is wrong and the C5 cell sees it
+    state = {"version": "0.9.9", "models": [{"name": "other:1b", "digest": "sha256:ffff"},
+                                            {"name": MODEL, "digest": "sha256:abc123def456"}], "hits": []}
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -404,7 +415,8 @@ def test_c6_a_good_run_saves_a_copy_of_the_slot_and_hashes_it(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert w.saved.is_dir() and w.slot.is_dir(), "the slot must still exist: the save is a copy, never a move"
-    assert tree(w.saved) == tree(w.slot)
+    slot_tree = tree(w.slot); assert slot_tree.pop(".disposable-copy") is not None  # the one intended difference (R2)
+    assert tree(w.saved) == slot_tree
     sha_saved = P1S.protected_store_hash(str(w.saved))[0]
     hashes = open(str(w.saved) + ".hashes.txt").read()
     assert hashes == P1S.home_record(str(w.saved)) and f"sha256={sha_saved}" in hashes
@@ -461,3 +473,97 @@ def test_c8_a_reading_run_that_dropped_a_round_is_exit_1_from_the_reading_delive
 def test_c8_the_question_delivery_check_is_unchanged_and_still_refuses_reading_turns():
     src = open(os.path.join(TOOLS, "answer-delivery-check.py")).read()
     assert "no reading turns" in src and 'r.get("kind") in ("exchange", "setup")' in src
+
+
+# ======================================================================================================= round 2 (R1-R6)
+FAKE_CP = """#!{py}
+import os, subprocess, sys
+real, target, mode = os.environ["REAL_CP"], os.environ.get("FAKE_CP_TARGET"), os.environ.get("FAKE_CP_MODE")
+if not target or sys.argv[-1] != target:
+    os.execv(real, [real] + sys.argv[1:])
+if mode == "fail":  # a copy that dies half way: a partial tree is left behind
+    os.makedirs(target); open(os.path.join(target, "partial"), "w").write("x"); sys.exit(1)
+rc = subprocess.call([real] + sys.argv[1:])
+db = os.path.join(target, ".engram", "knowledge.db")
+if mode == "mutate":  # the copy finishes but its store is not the slot's
+    import sqlite3
+    c = sqlite3.connect(db); c.execute("insert into nodes values ('copy', 'not in the slot')"); c.commit(); c.close()
+elif mode == "corrupt":  # the copy finishes but its store cannot be read
+    open(db, "wb").write(b"not a database")
+sys.exit(rc)
+"""
+
+
+def fake_cp_env(w, mode):
+    d = w.root / "fakebin"; d.mkdir(exist_ok=True)
+    f = d / "cp"; f.write_text(FAKE_CP.format(py=sys.executable)); f.chmod(0o755)
+    return dict(PATH=f"{d}:{os.environ['PATH']}", REAL_CP=shutil.which("cp"), FAKE_CP_TARGET=str(w.saved), FAKE_CP_MODE=mode)
+
+
+def no_saved(w):
+    return not os.path.lexists(str(w.saved)) and not os.path.lexists(str(w.saved) + ".hashes.txt")
+
+
+# ---- R1: quiescence before the save, and the saved copy's store hash against the slot's
+def test_r1_a_live_slot_process_at_save_time_refuses_the_save_naming_the_pids_and_creates_nothing(w, ollama):
+    pidfile = w.root / "survivor.pid"
+    try:
+        r = cr_run(w, ollama_url=ollama["url"], STUB_ACTION="survivor", STUB_PIDFILE=str(pidfile))
+        pid = int(pidfile.read_text())
+        assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+        assert "STOP:" in r.stdout and str(pid) in r.stdout and "still running" in r.stdout
+        assert no_saved(w)
+        assert "step 9b save the end state: exit 3" in setup_lines(w)
+    finally:
+        if pidfile.exists():
+            try:
+                os.kill(int(pidfile.read_text()), 9)
+            except OSError:
+                pass
+
+
+def test_r1_a_saved_copy_whose_store_hash_differs_from_the_slots_is_removed_with_a_line_exit_3(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "mutate"))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "differs from the slot" in r.stdout and no_saved(w)
+    assert f"saved end state removed: {w.saved}" in r.stdout and f"saved end state removed: {w.saved}" in setup_lines(w)
+    assert "step 9b save the end state: exit 3" in setup_lines(w)
+
+
+# ---- R2: a preserved end state carries no disposable marker
+def test_r2_the_saved_end_state_has_no_marker_the_slot_keeps_its_own_and_setup_says_so(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert not os.path.lexists(w.saved / ".disposable-copy") and os.path.isfile(w.slot / ".disposable-copy")
+    assert any(".disposable-copy" in l and "removed" in l for l in setup_lines(w))
+
+
+def test_r2_plant_control_refuses_the_saved_end_state_on_its_missing_marker(w, ollama):
+    from test_plant_control import run_tool
+    assert cr_run(w, ollama_url=ollama["url"]).returncode == 0
+    r = run_tool(w.saved, w.root / "ev")  # the real tool, no P1_PROTECTED: a marker refusal comes first and writes nothing
+    assert r.returncode == 2 and ".disposable-copy marker" in r.stderr, (r.returncode, r.stderr)
+
+
+# ---- R3: the save-failure branches
+def test_r3_a_failing_copy_is_exit_3_leaves_no_saved_path_and_says_it_removed_the_partial_one(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "fail"))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "copying the slot to --save-end-state failed" in r.stdout and no_saved(w)
+    assert f"saved end state removed: {w.saved}" in setup_lines(w)
+    assert "step 9b save the end state: exit 1" in setup_lines(w)  # a copy failure records cp's own exit code, like step 5
+
+
+def test_r3_a_saved_store_that_cannot_be_hashed_is_exit_3_with_no_saved_path_and_a_removal_line(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "corrupt"))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "hashing the saved end state failed" in r.stdout and no_saved(w)
+    assert f"saved end state removed: {w.saved}" in setup_lines(w)
+    assert "step 9b save the end state: exit 3" in setup_lines(w)
+
+
+# ---- R5: the save path against the aside path
+@pytest.mark.parametrize("suffix", ["", "/saved"])
+def test_r5_a_save_path_equal_to_or_inside_the_aside_path_is_refused_at_step_1(w, suffix):
+    aside = f"{w.slot}.aside-t1-{STAMP}"
+    cr_refusal(w, over={"--save-end-state": aside + suffix}, expect="is equal to or inside the aside path")

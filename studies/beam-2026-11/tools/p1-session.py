@@ -342,7 +342,7 @@ def serving_record(env):
     return [f"serving: ollama version {version}", f"serving: model {SERVING_MODEL}", f"serving: model digest {digest}"]
 
 
-def continue_step1(a, env, prot, end, slot_real):
+def continue_step1(a, env, prot, end, slot_real, aside):
     """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
     also before anything is touched). Returns the fields the later steps need."""
     if a.per_round < 1:
@@ -371,6 +371,8 @@ def continue_step1(a, env, prot, end, slot_real):
             raise Refusal(f"--save-end-state {save} is inside the protected path {p}")
     if under(save_real, slot_real) or under(slot_real, save_real):
         raise Refusal(f"--save-end-state {save} is equal to, inside, or containing the slot {slot_real}")
+    if under(save_real, os.path.realpath(aside)):  # the aside path is where an existing slot is moved: the save must not land there
+        raise Refusal(f"--save-end-state {save} is equal to or inside the aside path {aside} (the existing slot is moved there)")
     if not os.path.isdir(os.path.dirname(save)):
         raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
     expect_serving = None
@@ -471,7 +473,7 @@ def step1(a):
     c = {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
          "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
     if a.continue_reading:
-        c.update(continue_step1(a, env, prot, end, slot_real))
+        c.update(continue_step1(a, env, prot, end, slot_real, aside))
     return c
 
 
@@ -524,19 +526,33 @@ def remove_saved(c):
 def save_end_state(a, c, steps):
     """C6: copy (cp -a, never a move) the slot to --save-end-state, hash the copy the way the protected homes are hashed,
     write the hashes to PATH.hashes.txt and keep the lines for setup.txt. Any failure removes what was created."""
+    left = slot_pids(c["slot"])  # quiescence: the stop step's grace period has passed; a live slot process could still write
+    if left:
+        steps.append(("9b save the end state", 3))
+        print(f"STOP: slot process(es) {left} still running after the stop step's grace period; nothing saved")
+        return 3
     c["save_started"] = True
     r = subprocess.run(["cp", "-a", "--", c["slot"], c["save"]])
     if r.returncode:
         steps.append(("9b save the end state", r.returncode)); print("STOP: copying the slot to --save-end-state failed")
         remove_saved(c); return 3
     try:
+        marker = os.path.join(c["save"], ".disposable-copy")  # a preserved end state is not a disposable copy
+        if os.path.lexists(marker):
+            os.unlink(marker)
+        want, got = protected_store_hash(c["slot"]), protected_store_hash(c["save"])
+        if got[0] != want[0]:
+            steps.append(("9b save the end state", 3))
+            print(f"STOP: the saved copy's store differs from the slot's\n  slot:  sha256={want[0]} tables={want[1]} rows={want[2]}"
+                  f"\n  saved: sha256={got[0]} tables={got[1]} rows={got[2]}")
+            remove_saved(c); return 3
         rec = home_record(c["save"])
         with open(c["hashes"], "w") as f:
             f.write(rec)
     except Exception as e:  # noqa: BLE001
         steps.append(("9b save the end state", 3)); print(f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
         remove_saved(c); return 3
-    c["saved_lines"] = [f"saved end state: {c['save']}"] + rec.splitlines()
+    c["saved_lines"] = [f"saved end state: {c['save']}", "saved end state: .disposable-copy marker removed (the slot keeps its own)"] + rec.splitlines()
     print("".join(l + "\n" for l in c["saved_lines"]), end="")
     steps.append(("9b save the end state", 0))
     return 0
