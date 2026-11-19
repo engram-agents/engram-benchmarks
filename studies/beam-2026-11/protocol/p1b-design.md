@@ -171,6 +171,21 @@ plus the new reading-continuation mode in section 1.
     `setup.txt`, all 30 reading rounds in `turns.jsonl`, the saved end state and its hashes). If Lei forfeits while the
     reading is running, the session is stopped by sending the wrapper's stop signal (TERM) to its process group. The time
     of the stop and the rounds done are then reported as the cut-off rule requires.
+- **A9. The student's Claude Code is pinned for the k = 1 reading (design owner, Office crossing 33021, 2026-11-19;
+  written before the first k = 1 round).** *What the setup file said:* the components file of setup `171fb069`, which
+  both P1b readings run under, records Claude Code 2.1.327. *What actually ran,* read from each session's own
+  transcript records (tuning log, entry "DEVIATION found", commit `89267b5f`): P1's readings 2.1.325; P1's controls
+  2.1.327; P1's two answering sessions 2.1.328; P1b's K = 3 reading 2.1.328. The student's `claude` resolved through
+  the study lead's own seat, which updated itself; the feeder's run-time check covers only its own files. *The pin and
+  why:* the k = 1 reading runs on an exact copy of the 2.1.328 binary kept outside the seat's update path (sha256
+  `a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8`), so R compares the K = 3 and k = 1 readings on
+  one harness version. *Refuse on mismatch:* a launcher change could not be built and read by a colleague before
+  9:00 AM New York, so the design owner's alternative applies: the hash is verified at launch by the run script, which
+  puts the pinned copy first on the search path, records the command and its output, and refuses to start if the
+  `claude` it will run hashes differently. The record is written to its own file at launch and appended to the run's
+  `setup.txt` after the run, because the launcher creates and writes `setup.txt` while it runs. *Limit carried to
+  P1's report:* P1's version spread (readings 2.1.325, controls 2.1.327, answering 2.1.328) is stated there as a
+  limit, not smoothed.
 
 ## 7. Cost (requirement 6)
 
