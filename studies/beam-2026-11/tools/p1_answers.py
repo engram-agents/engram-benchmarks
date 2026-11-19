@@ -20,6 +20,11 @@ PLACEHOLDER = "[no output]"
 NEAR = re.compile(r"[\W_]*(no\s+output|no\s+content|no\s+response|no\s+answer|none|null|empty|n\s*/\s*a)[\W_]*",
                   re.IGNORECASE)
 NO_ALNUM = "no letters or digits"
+# Ruling 3 (design owner, Office 32673, wording settled 32674): the near-variant class "no output", as this script
+# defines it (whole stripped text "no output" in any letter case with optional surrounding brackets or punctuation), is
+# the placeholder's class: a missing answer, incorrect, no judge call, any item type; its earlier block is the
+# sensitivity answer. Every other near-variant class stays undecided here until ruled.
+RULED_MISSING_CLASSES = {"no output"}
 
 
 def near_class(stripped):
@@ -59,7 +64,7 @@ def extract(events, rows):
         raise ValueError(f"turn count mismatch: {len(turns)} result-delimited turns in the event stream, {len(rows)} rows in turns.jsonl")
     answers, dis, near = {}, [], []
     counts = {"question_turns": 0, "tool_ending": 0, "tool_ending_multi_text": 0, "missing": 0, "disagreements": 0,
-              "placeholder": 0, "near_variant": 0}
+              "placeholder": 0, "near_variant": 0, "ruled_missing": 0}
     for row, tev in zip(rows, turns):
         if row.get("kind") != "question":
             continue
@@ -95,9 +100,17 @@ def extract(events, rows):
                 counts["missing"] += 1; counts["placeholder"] += 1
                 sens = texts[-2] if len(texts) > 1 else None
             elif near_class(final_text.strip()) is not None:
-                ans, route = None, "near_variant"
+                cls = near_class(final_text.strip())
+                entry = {"id": qid, "class": cls, "length": len(final_text.strip())}
                 counts["near_variant"] += 1
-                near.append({"id": qid, "class": near_class(final_text.strip()), "length": len(final_text.strip())})
+                if cls in RULED_MISSING_CLASSES:
+                    ans, route = None, "ruled_missing"
+                    counts["missing"] += 1; counts["ruled_missing"] += 1
+                    sens = texts[-2] if len(texts) > 1 else None
+                    entry["ruled"] = "missing"
+                else:
+                    ans, route = None, "near_variant"
+                near.append(entry)
         if tool_ending != string_route:
             dis.append({"id": qid, "tool_ending": tool_ending, "string_route": string_route})
         answers[qid] = {"answer": ans, "route": route, "tool_ending": tool_ending, "string_route": string_route,
@@ -116,7 +129,7 @@ def main(argv):
         json.dump(res, f, indent=1, sort_keys=True)
     print("counts", json.dumps(res["counts"], sort_keys=True))
     print("tool_ending ids", sorted(k for k, v in res["answers"].items() if v["tool_ending"]))
-    print("missing ids", sorted(k for k, v in res["answers"].items() if v["route"] in ("missing", "placeholder_missing")))
+    print("missing ids", sorted(k for k, v in res["answers"].items() if v["route"] in ("missing", "placeholder_missing", "ruled_missing")))
     print("disagreements", json.dumps(res["disagreements"]))
     print("placeholder ids", sorted(k for k, v in res["answers"].items() if v["route"] == "placeholder_missing"))
     print("near_variants (id, class, length)", json.dumps(res["near_variants"]))

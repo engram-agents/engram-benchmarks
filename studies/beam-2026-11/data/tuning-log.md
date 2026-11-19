@@ -2231,3 +2231,29 @@ decided by the design owner, per class, before any grading and without the rest 
 Answers file sha256 `c53ac89a...`, unread.
 
 Both sessions are now run. Nothing has been graded.
+
+## P1 answering pilot: THIRD ruling of the chain, on session 2's near variants (design owner, blind; logged 2026-11-19, before any grade)
+
+The design owner ruled per class (Office crossings 32673, wording settled in 32674), **knowing only each turn's id, class,
+length and item type**; neither he nor the study lead read the turns' text. The ruling is on the script's class as the
+study lead measured it: a final text whose whole stripped content is "no output" in any letter case with optional
+surrounding brackets or punctuation. **That class is the placeholder's class:** A04, F43 and F35 are missing answers,
+INCORRECT, no judge call, under the same registered clause as session 1's four; the item type does not change it ("no
+output" is neither a stated abstention nor a count). Reason: a rule that scored the two sets differently would let
+punctuation decide a comparison between the two arms. Which characters differ from the exact placeholder is not read by
+either party, and the ruling does not depend on it.
+
+**Reported per session:** the primary score; the sensitivity score (for all seven turns, the last text block before the
+placeholder goes to the judge like any answer, k removed); and the number of such turns, **4 of 84 (K = 3) and 3 of 84
+(k = 1)**, as a descriptive line with no test. **The other near-variant words** (none, null, empty, n/a, no content, no
+response, no answer) **and the punctuation-only class caught nothing in either session.** The failed tool call inside session 2's
+turn 70 is an answer like any other. The design owner: grading may start.
+
+**The script after this ruling** (`tools/p1_answers.py` sha256 `70e0799b...`, tests `tools/tests/test_p1_answers.py` sha256
+`87d483cb...`, 32 cells, the new ones written before the change): the "no output" class becomes route `ruled_missing`, counted
+missing, with the earlier block as its sensitivity answer; every other near-variant class stays undecided. One ruling-2 cell
+that had pinned "No output." as undecided now pins it as ruled; the undecided property is pinned for the other classes. Three
+mutants (no class ruled, no sensitivity answer, every class ruled) are each caught by their own cells. Output: K = 3, 4
+missing (A08, F14, F17, F37, exact placeholder), answers file `db0ae3fa...` (its hash moved from `d5d5dcdd...` only by the new
+count key); k = 1, 3 missing (A04, F35, F43, ruled class), answers file `2a0f0529...`. Each of the seven has an earlier text
+block, so each has a sensitivity answer. No answer has been read.

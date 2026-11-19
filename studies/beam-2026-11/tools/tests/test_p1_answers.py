@@ -86,11 +86,14 @@ def test_placeholder_without_earlier_text_has_no_sensitivity_answer():
     assert out["answers"]["F16"]["answer"] is None and out["answers"]["F16"]["sensitivity_answer"] is None
 
 def test_near_variant_is_listed_and_not_decided():
+    # Ruling 2 listed this class undecided; ruling 3 (Office 32673/32674) decided "no output" -> missing. The listing
+    # (id, class, length) stays; the "undecided" property is pinned for the other classes in
+    # test_unruled_near_variant_classes_stay_undecided.
     out = run([("question", "F17", [a_text("earlier"), a_text("No output.")], "No output.")])
     a = out["answers"]["F17"]
-    assert a["route"] == "near_variant" and a["answer"] is None
-    assert out["near_variants"] == [{"id": "F17", "class": "no output", "length": 10}]
-    assert out["counts"]["near_variant"] == 1 and out["counts"]["missing"] == 0
+    assert a["route"] == "ruled_missing" and a["answer"] is None and a["sensitivity_answer"] == "earlier"
+    assert out["near_variants"] == [{"id": "F17", "class": "no output", "length": 10, "ruled": "missing"}]
+    assert out["counts"]["near_variant"] == 1 and out["counts"]["missing"] == 1
 
 # Kepler 32578: the widening, one cell per added word, one for the punctuation-only case.
 import pytest
@@ -177,3 +180,27 @@ def test_cli_missing_ids_line_includes_placeholder_turns(tmp_path):
     p = subprocess.run([sys.executable, os.path.join(HERE, "p1_answers.py"), str(d), str(tmp_path / "a.json")], capture_output=True, text=True)
     line = [l for l in p.stdout.splitlines() if l.startswith("missing ids")][0]
     assert "'F1'" in line and "'F2'" in line and "'F3'" not in line
+
+# ---- Ruling 3 (Kepler, Office 32673, 2026-11-19): the 'no output' class is the placeholder's class ----
+
+def test_ruled_no_output_class_is_missing_with_sensitivity_answer():
+    out = run([("question", "F43", [a_text("earlier answer"), a_tool(), u_res(), a_text("[No output]")], "[No output]")])
+    a = out["answers"]["F43"]
+    assert a["route"] == "ruled_missing" and a["answer"] is None and a["sensitivity_answer"] == "earlier answer"
+    assert out["counts"]["missing"] == 1 and out["counts"]["ruled_missing"] == 1
+    assert out["near_variants"] == [{"id": "F43", "class": "no output", "length": 11, "ruled": "missing"}]
+
+def test_ruled_class_on_an_abstention_item_is_still_missing():
+    out = run([("question", "A04", [a_text("a"), a_text("No output.")], "No output.")])
+    assert out["answers"]["A04"]["route"] == "ruled_missing"
+
+def test_unruled_near_variant_classes_stay_undecided():
+    for t in ("None", "N/A", " ... "):
+        out = run([("question", "F30", [a_text("x"), a_text(t)], t)])
+        assert out["answers"]["F30"]["route"] == "near_variant" and out["answers"]["F30"]["answer"] is None
+        assert "ruled" not in out["near_variants"][0]
+        assert out["counts"]["ruled_missing"] == 0
+
+def test_exact_placeholder_still_its_own_route():
+    out = run([("question", "F31", [a_text("y"), a_text(PH)], PH)])
+    assert out["answers"]["F31"]["route"] == "placeholder_missing" and out["counts"]["ruled_missing"] == 0
