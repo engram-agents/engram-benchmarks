@@ -118,3 +118,97 @@ setup id by content, with the import walk (every study-local module the feed scr
 `coverage.py`: the pilots' note-coverage attribution, its controls, and the per-run measures. `gate-input-evidence.py`:
 shows, byte for byte, that a run's student received the messages its own `feed.py` builds. Each file's docstring has
 its usage; the tuning log has their outputs.
+
+## Answering harness (P1): `--question-file`, `answer-delivery-check.py`, `plant-control.py`, `control-source-check.py`
+
+`feed4.py --question-file F` delivers a frozen list (a JSON list of `{"id", "question"}`) in file order, once each, after
+the optional `/compact`, one message per item (`PROCTOR + " " + QUESTION_PREFIX + question`). An answering run is
+`--resume SESSION --turns 0 --force-compact --question-file F`; `--dump-plan` shows exactly `[compact, q1..qN]`. It is
+refused (exit 2, before any student process or model unload) without `--resume`, with `--setup-only`,
+`--first-session`, `--questions` or `--ask`, with duplicate ids, an empty
+question, an empty list, or a file that is not a list of such objects. Each question's turn record carries
+`"kind": "question"` and its `"id"`. Without the flag the plan and the turn records are unchanged.
+
+`answer-delivery-check.py --turns RUN/turns.jsonl --questions F --session SESSION`: PASS (exit 0) only if every turn
+carries the resumed session id, exactly one compact turn precedes the first question, every id of F appears once in file
+order, and there are no other question turns and no reading turns. Each failure is printed; exit 1 on any.
+
+`plant-control.py --home COPY --builtin-fact T --engram-fact T --absent-fact T --evidence-dir DIR`: the two-channel
+control, for a **disposable copy** of an arm home only (refuses without `COPY/.disposable-copy`, under `P1_PROTECTED`,
+with an evidence dir inside `COPY/work`, or with a fact shorter than 6 characters). The built-in fact goes in as one
+markdown file in the arm's memory folder; the ENGRAM fact through `engram_observation._add_observation_impl` (what the
+`engram_add_observation` tool calls), imported in-process from the copy's own plugin, with its evidence file in DIR. It
+also lists the note in the folder's `MEMORY.md` by one neutral appended line in the format of an existing line (exit 2 if
+there is no `MEMORY.md`; `--question TEXT` exits 2 if that line holds a content word of the question); the observation is
+embedded by default through the copy's own embedder (`--no-embeddings` opts out; exit 2 if the model cannot load). It
+then checks read-back, that no fact is in any transcript, cross-absence between the two channels, that the absent fact
+is nowhere, and the per-table row counts before and after. Run it with the python of the copy's ENGRAM venv. Exit codes: 0 all checks pass, 1 a check failed, 2 refused, **3 a `P1_PROTECTED` entry changed during the run** (a snapshot of every protected entry is compared with a re-walk on every exit path after the pre-write scan; each changed path is printed, then `PROTECTED CHANGED: n path(s)`; this overrides 0, 1 and 2, and a clean run prints `protected unchanged: ...`). It reports a write, it cannot undo one.
+
+`plant-control.py` **ENGRAM-only mode** (P1 control 2 on an end state whose built-in folder is empty): `--builtin-fact` is
+optional. Without it the tool plants the ENGRAM fact only and prints `mode: engram-only (no built-in plant)` before any
+write (`mode: both channels` otherwise). It writes nothing under any built-in memory folder; a missing `MEMORY.md` or
+memory folder is not a refusal; `--question` is refused (exit 2, it only qualifies the index line). A new check,
+`memory folders unchanged`, proves the set of memory folders found is the same after the write (a newly created folder
+FAILS) and that every entry of every memory folder is the same: files and directories, with type, mode and, for a file,
+sha256 (a new empty directory or a chmod FAILS; zero folders is reported as `0 folders, unchanged`; exit 1 on FAIL). The checks that need the built-in fact print `SKIP (no built-in plant)`, never PASS, and do
+not change the exit code; all other checks and the exit-3 post-condition run as in the two-channel mode, which is
+unchanged when `--builtin-fact` is given.
+
+`control-source-check.py --events E --turns T --controls C`: for the three control questions (one per channel), decides
+each planted fact on REACHABILITY, not on the answer (the final rule, design owner's rulings of 2026-11-18). **Design
+principle: every approximation errs toward FAIL for the clause it serves; the module docstring applies it as a class rule:
+it ENUMERATES the seven exemption sites S1 to S7 (every place something is decided NOT to count), and for each names what
+it exempts, the positive known-shape evidence it requires, and that an unknown or off-shape input COUNTS (cells
+`test_r3_s1_*` to `test_r3_s7_*`).** An engram/folder fact PASSES iff (a) a read
+through its intended channel, named by STORAGE (a pinned ENGRAM read tool; or any call whose target is inside the memory
+folder, the folder of the control's `folder_file`: a Read, a Grep/Glob `path`, a Bash command naming a path inside it,
+`~` / `$HOME` / `${HOME}` resolved to the home taken from `folder_file`, quote-split words such as `"$HOME"/.claude/...`
+joined), in a turn after the compaction returned the token
+in that call's tool result, (b) the student's own query text echoed back never counts: for (a) every occurrence of every
+string of the call's own input (`payload_json` decoded) is stripped from the result first (a stored value equal to the
+query is stripped too, toward FAIL); for (c) and (d') only the top-level `query` field of an `engram_query` / `engram_surface` result is stripped (the
+one echo the server is known to produce; an ENGRAM result recorded in Claude Code's envelope `{"result": "<inner JSON as a string>"}`, exactly one key whose value is a string that parses as JSON, is read as its inner object, here and for the created ids of (c'), and no other shape is unwrapped); every other tool, a result that does not parse and a result without that field
+is not stripped, so an `engram_list` contains-filter on the token that returns one stored copy is a return, and so is a
+query that is exactly the token whose result also holds a stored copy; a Grep, Bash or Read result is never stripped, (c)
+no read through the other channel returned the token anywhere in the session (for a folder control the other channel is
+every tool of the pinned ENGRAM server except its known writes, the `readOnlyHint=false` ones, so `engram_history` and
+`engram_diagnose` count and an unknown tool counts), except (c') a returned item the tool can IDENTIFY as one the student wrote after its first
+intended read: for the ENGRAM channel the result is parsed and every dict holding the token must carry the id of a node the
+student's own creating tool reported created after that read, under that tool's own key and with status "created"
+(`engram_add_observation` `observation_id`, the batch's `results[].observation_id`, `engram_derive` `derivation_id`,
+`engram_add_conjecture` `conjecture_id`, `engram_ask` `question_id`, `engram_add_definition` `definition_id`; the keys are
+cited to the plugin source in the code), with no token outside those dicts; `engram_supersede`, `engram_contradict`,
+`engram_retract` and every other tool create no excusing id, and no bare `id` or generic key is read; for the
+folder channel the read must be of a file the student itself created with a Write (absolute path, result "created
+successfully") after that read, no earlier call having named it (an Edit/MultiEdit of a file is never excused, a grep of the whole folder is not excused); a `note:` names the
+node ids or the file; a pre-existing item, an unparseable result or any other return FAILs, and (d) the evidence file or
+the run directory (the optional per-control `run_dir`) was not opened before that first read (opened after it is noted,
+not void); an opening is a FILE-CAPABLE call, by default-deny: every call except `ToolSearch`, `TodoWrite`,
+`ExitPlanMode`, `EnterPlanMode`, `AskUserQuestion` and any tool of the pinned ENGRAM server (so `Task`, `Agent`,
+`WebFetch`, a tool of another MCP server and unknown tools count) that names them or that returns the token from a path outside both channels, while a path in an MCP tool's
+arguments is only a mention. Path of origin (S8): a call whose target is outside the folder (a grep of its parent) is not a
+folder read; when its result prints the path each token occurrence came from (Bash or Grep, `path:line:text`; a Read is
+its own `file_path`), an in-folder path makes it neither a folder read nor an opening (a note), a path outside both
+channels makes it an opening, and no printed path (none, a relative path, a context line, any other tool) is read as an
+opening, which errs toward FAIL ("a call outside the folder returned the token (no path of origin printed; ...)"). One
+such occurrence in a mixed result opens. So an engram control is not failed under (c) by a parent grep that returns the
+token from an in-folder path (its target is not in the folder). The answer is printed beside the verdict and decides nothing: a refusal that quotes the token
+passes only if a channel read returned it. Other tool kinds are listed and neither pass nor fail. Stated bound (S7): a folder target the checker cannot resolve (a
+relative path, a glob, a variable other than HOME, a subshell path, a Grep with no `path`) is not seen, and a `Task` or
+`Agent` subagent that reads the memory folder returns the token with no folder target in this stream, so for the engram
+control it is a note at most. It never decides abstention for the `none` control.
+
+Two control sets are accepted, exactly (design owner's ruling on control 2, narrow form). (i) `{engram, folder, none}`, one
+each, read as above (`memory_dir` is refused there). (ii) `{engram, none}`, one each, where the engram control carries
+`memory_dir`: the absolute path of the student's built-in memory folder, with a `/.claude/` segment (the home is the part
+before it); it need not exist on disk. The folder channel is then that directory: the folder directories, the home for
+`~` / `$HOME` and S8's in-folder test all come from `memory_dir` instead of a `folder_file`, and there is no folder token
+(the none control's token check runs over the engram token only). Every other set is refused, exit 1, with a message naming
+the set received: a single control, `{folder, none}`, `{engram, folder}`, an empty list, a duplicated channel, (ii) without
+`memory_dir` or with a relative one, one with no `/.claude/` segment or not a string, and `memory_dir` on a three-channel
+set or on any control but the engram one. Cells: `test_two_control_*`, `test_s8_guard_*`, and
+`test_equivalence_*`, which runs the e95a7217 version of the script and the new one on synthetic three-channel runs and
+asserts byte-equal stdout and equal exit codes (it skips where that unpushed commit is absent from the clone).
+
+Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
+cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.
