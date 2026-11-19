@@ -47,13 +47,19 @@ fi
 [ -f "$FWD" ] || refuse "sandbox-forward.py not found next to the wrapper"
 BWRAP=$(command -v bwrap) || refuse "bwrap not found on PATH"
 
-# Resolve symlinks (the box must see the real file's directory) and hash that file. A hash mismatch is A9's
-# "refuse on mismatch" in launcher form.
-{ IFS= read -r BIN_REAL && IFS= read -r BIN_SUM; } < <("$PY" -I -c '
-import hashlib, os, sys
-p = os.path.realpath(sys.argv[1])
-print(p); print(hashlib.sha256(open(p, "rb").read()).hexdigest())' "$SANDBOX_BINARY" 2>/dev/null) \
-  || refuse "SANDBOX_BINARY could not be read"
+# (R3) Open the binary ONCE. The sha256 is taken from that open file and THAT descriptor is what bwrap binds
+# (--ro-bind-fd), so the file hashed is the file bound: replacing the path after this point changes nothing. The
+# path the descriptor resolves to is where the box sees it. A hash mismatch is A9's "refuse on mismatch" in
+# launcher form.
+exec {BINFD}< "$SANDBOX_BINARY" || refuse "SANDBOX_BINARY could not be read"
+BIN_REAL=$(readlink -f -- "/proc/$$/fd/$BINFD" 2>/dev/null)
+[ -n "$BIN_REAL" ] && [ -f "$BIN_REAL" ] || refuse "SANDBOX_BINARY could not be resolved"
+BIN_SUM=$("$PY" -I -c '
+import hashlib, sys
+h = hashlib.sha256()
+for chunk in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
+    h.update(chunk)
+print(h.hexdigest())' <&"$BINFD" 2>/dev/null) || refuse "SANDBOX_BINARY could not be read"
 [ -n "${BIN_SUM:-}" ] || refuse "SANDBOX_BINARY could not be read"
 want=${SANDBOX_BINARY_SHA256,,}
 [ "$BIN_SUM" = "$want" ] || refuse "SANDBOX_BINARY_SHA256 mismatch: the binary's sha256 is not the pinned one"
@@ -161,7 +167,7 @@ SOCK="$SOCKDIR/bridge.sock"
 FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone.
-"$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 &
+"$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- &
 FPID=$!
 for ((i = 0; i < 250; i++)); do [ -S "$SOCK" ] && break; sleep 0.02; done
 if [ ! -S "$SOCK" ]; then
@@ -183,8 +189,8 @@ BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unsha
     --ro-bind-try /etc /etc --ro-bind-try /opt /opt
     --tmpfs /home --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run
     --bind "$SLOT" "$SLOT"
-    --ro-bind "$BIN_REAL" "$BIN_REAL"
     "${EXTRA_BINDS[@]}"
     --ro-bind "$SOCK" /run/sandbox-bridge.sock
-    --ro-bind "$FWD" /run/sandbox-forward.py)
+    --ro-bind "$FWD" /run/sandbox-forward.py
+    --ro-bind-fd "$BINFD" "$BIN_REAL")   # LAST, so nothing mounted before it can shadow the pinned binary
 exec "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" -- "${CMD[@]}"

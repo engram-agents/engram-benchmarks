@@ -1062,3 +1062,94 @@ def test_f2_launch_line_logs_every_extra_bind(cfg, extra):
     assert r.returncode == 0, r.stderr
     line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]
     assert "ro_binds=" + extra.tools in line and "rw_binds=" + extra.proctor in line, line
+
+
+# ---------------------------------------------------------------- R3: the binary cannot be shadowed; the file hashed is the file bound
+
+@pytest.fixture
+def fake_bwrap_fd(tmp_path):
+    """A bwrap stand-in that records its argv and, for the binary's --ro-bind-fd, the sha256 of what that fd holds
+    AFTER the host path has been replaced by a different file (rename, so the open fd keeps the old inode)."""
+    d = tmp_path / "fakebin-fd"
+    d.mkdir()
+    out = str(tmp_path / "bwrap-fd-called")
+    make_exe(str(d / "bwrap"),
+             '#!/bin/sh\necho "$$ $*" > "$FAKE_BWRAP_OUT"\nfd=; dest=\n'
+             'while [ $# -gt 0 ]; do if [ "$1" = --ro-bind-fd ]; then fd=$2; dest=$3; fi; shift; done\n'
+             'if [ -n "$FAKE_REPLACE" ]; then printf "swapped\\n" > "$FAKE_REPLACE.new" && mv "$FAKE_REPLACE.new" "$FAKE_REPLACE"; fi\n'
+             'if [ -n "$fd" ]; then echo "FDSHA=$(sha256sum < /dev/fd/$fd | cut -d" " -f1) FDDEST=$dest" >> "$FAKE_BWRAP_OUT"; fi\n'
+             'exit 99\n')
+    return str(d), out
+
+
+def test_r3_binary_is_bound_by_the_fd_that_was_hashed(cfg, fake_bwrap_fd):
+    fdir, out = fake_bwrap_fd
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, FAKE_REPLACE=cfg.binary)
+    assert r.returncode == 99, r.stderr
+    text = open(out).read()
+    argv, _, tail = text.partition("\n")
+    assert "--ro-bind-fd" in argv.split(), argv
+    f = dict(kv.split("=", 1) for kv in tail.split())
+    assert f.get("FDSHA") == cfg.sha, "the fd bound is not the file that was hashed: %r" % tail
+    assert f.get("FDDEST") == os.path.realpath(cfg.binary)
+    assert open(cfg.binary).read() == "swapped\n"  # the host path really was replaced: the fd is the only link to the hashed file
+    toks = argv.split()
+    path_binds = [toks[i + 1] for i, t in enumerate(toks) if t == "--ro-bind"]
+    assert os.path.realpath(cfg.binary) not in path_binds, "the binary is also bound by path"
+
+
+def test_r3_binary_bind_is_the_last_mount(cfg, fake_bwrap_fd, extra):
+    fdir, out = fake_bwrap_fd
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_RO_BINDS=extra.tools,
+                SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor, SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 99, r.stderr
+    toks = open(out).read().partition("\n")[0].split()
+    mounts = [i for i, t in enumerate(toks) if t in ("--bind", "--ro-bind", "--ro-bind-fd", "--bind-fd", "--tmpfs", "--ro-bind-try",
+                                                     "--ro-bind-data", "--proc", "--dev", "--dir", "--symlink")]
+    assert toks[mounts[-1]] == "--ro-bind-fd", "something is mounted after the binary: %r" % toks[mounts[-1]]
+
+
+def _binary_in(cfg, tmp_path):
+    rwroot = tmp_path / "rwroot"
+    d = rwroot / "d"
+    d.mkdir(parents=True)
+    fc2 = str(d / "fc2")
+    shutil.copy(cfg.binary, fc2)
+    os.chmod(fc2, 0o755)
+    c = Cfg.__new__(Cfg)
+    c.__dict__.update(cfg.__dict__)
+    c.binary = fc2
+    return c, rwroot, d
+
+
+def test_r3_binary_inside_an_rw_entry_or_the_slot_is_refused(cfg, fake_bwrap, tmp_path):
+    c, rwroot, d = _binary_in(cfg, tmp_path)
+    # the review's measured case: the binary inside an RW entry (refused at the root that contains it, or at the entry)
+    _refused(c, fake_bwrap, "SANDBOX_RW_", "binary", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=str(rwroot))
+    _refused(c, fake_bwrap, "SANDBOX_RW_", "binary", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=str(d))
+    # and a slot that contains it
+    _refused(c, fake_bwrap, "SANDBOX_SLOT", "binary", SANDBOX_SLOT=str(d))
+    # control: the same layout with the binary elsewhere is accepted
+    _accepted(cfg, fake_bwrap, SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=str(rwroot))
+
+
+@needs_box
+def test_r3_a_box_write_to_the_binary_path_fails_even_if_it_sits_in_a_writable_bind(cfg, tmp_path):
+    """The refusals above make this layout unreachable; the test-only knob lifts them so the ORDER of the mounts is
+    tested on its own: the binary bind comes last, so it wins over an RW bind that contains it."""
+    c, rwroot, d = _binary_in(cfg, tmp_path)
+    fc2 = c.binary
+    before = open(fc2).read()
+    r = c.run(exec_='(echo POISON >> "$1") 2>/dev/null && echo WROTE; (: > "$1") 2>/dev/null && echo TRUNCATED; touch "$2/sibling" && echo SIBLING-OK; echo done',
+              args=[fc2, str(d)], SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=str(rwroot),
+              SANDBOX_TEST_ALLOW_BINARY_IN_RW="1")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["SIBLING-OK", "done"], r.stdout   # the RW bind works; the binary inside it does not
+    assert open(fc2).read() == before, "the pinned binary changed on the host"
+
+
+@needs_box
+def test_r3_no_leaked_descriptors_inside(cfg):
+    r = cfg.run(exec_="ls /proc/self/fd")
+    assert r.returncode == 0, r.stderr
+    assert set(r.stdout.split()) <= {"0", "1", "2", "3"}, "the box inherited extra descriptors: %r" % r.stdout.split()
