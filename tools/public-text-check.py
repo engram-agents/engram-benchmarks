@@ -6,7 +6,7 @@ usage: tools/public-text-check.py --dataset PATH [--expect-sha256 HEX] [--datase
        tools/public-text-check.py --rows-only [--history <rev-range>]   (row detector only)
 
 Two detectors, keyed to the class of text and not to known members:
-  verbatim      a text shares a window of 10 consecutive normalised words (lower-case, runs of
+  verbatim      a text shares a window of 8 consecutive normalised words (lower-case, runs of
                 [a-z0-9']) with ANY string value in ANY column of ANY row of a dataset given with
                 --dataset (parquet). Nested values (lists, structs, JSON strings) are walked and every
                 string leaf counts. The windows are built from the data at run time; nothing in this
@@ -42,8 +42,21 @@ says `verbatim detector NOT RUN` on stderr.
 Exit codes: 0 clean; 1 findings; 2 usage error, not a git repo, bad range, I/O error, or nothing to scan
 (an empty scan is never a pass); 3 control failure or dataset problem.
 
-Exempt by path: tools/public-text-check-fixtures/ and the acknowledged-history list (it holds shas and
-paths, never text). Nothing is exempt by content; the `privacy-scan: allow` marker does NOT exempt a line here.
+Exempt by path: tools/public-text-check-fixtures/ and the two list files below (they hold shas, paths and
+hashes, never text). The `privacy-scan: allow` marker does NOT exempt a line here.
+
+Exempt windows (both modes). tools/public-text-check-exempt-windows.txt lists, one per line,
+    <sha256 of the normalised window> -- <reason> -- approved: <seat and reference>
+(blank lines and lines starting with # are comments). The normalised window is the 8 lower-cased [a-z0-9']
+words joined by single spaces. A verbatim window whose sha256 is listed is not a hit; every OTHER window on
+the same line still counts. The exemption is by content hash, never by path. A malformed entry (no reason, no
+approved field, a hash that is not 64 hex digits) is exit 2; an entry that matched nothing in the scan is a NOTE
+on stderr. A hash is computed only for a window that hits. Adding an entry needs a second seat's read.
+`--print-hit-hashes` (a local helper for preparing entries) prints `<path>:<line>: <sha256>` for each verbatim
+hit, and never the text; it is the only output that shows a window's hash.
+
+Every run prints its bound on stderr: the window, the exemptions and acknowledgements in force, and the
+negative control that justified the window (NEGATIVE_CONTROL).
 
 Acknowledged history (history mode ONLY). Findings that are known and kept by decision are listed in
 tools/public-text-check-acknowledged.txt, one per line:
@@ -64,12 +77,16 @@ import subprocess
 import sys
 import tempfile
 
-WINDOW = 10          # consecutive normalised words that make a verbatim hit
+WINDOW = 8           # consecutive normalised words that make a verbatim hit
 CONTROL_WORDS = 12   # words in the positive-control probe
 WORD_RE = re.compile(r"[a-z0-9']+")
 KEYFACT_RE = re.compile(r"^[AF][0-9]+ \| ex[0-9]+ \|.*\|\|")
 EXEMPT_PREFIX = "tools/public-text-check-fixtures/"
 ACK_PATH = "tools/public-text-check-acknowledged.txt"
+EXEMPT_PATH = "tools/public-text-check-exempt-windows.txt"
+# Where and when the window was measured against this repository's own text; a constant, not a computation.
+NEGATIVE_CONTROL = ("negative control: this repository's own prose and code, measured on study/beam-tuning-log-2 "
+                    "at bc0aca7, 2026-11-19: 2 windows at 8 words (both exempt), 0 at 9")
 SHA40_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 CONTROL_CLASSES = ("top-level", "nested", "question")
 HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -81,7 +98,7 @@ class UsageError(Exception):
 
 
 class AckError(Exception):
-    """A malformed acknowledged-history entry; the exit code is 2."""
+    """A malformed entry in one of the two list files; the exit code is 2."""
 
 
 class DatasetError(Exception):
@@ -91,6 +108,12 @@ class DatasetError(Exception):
 class _Parser(argparse.ArgumentParser):
     def error(self, message):
         raise UsageError(message)
+
+
+# Run state for the exempt-window list; main() resets it. Module-level so detect_verbatim keeps its signature.
+EXEMPT = {}          # sha256 of a normalised window -> reason
+EXEMPT_USED = set()  # the listed hashes that a scan actually met
+HIT_HASHES = []      # (line, sha256) for each verbatim hit, drained by the --print-hit-hashes helper
 
 
 def norm_words(text):
@@ -108,9 +131,22 @@ def detect_verbatim(items, windows):
             lines.append(lineno)
     hits = set()
     for i in range(len(words) - WINDOW + 1):
-        if hash(" ".join(words[i:i + WINDOW])) in windows:
-            hits.add(lines[i])
+        window = " ".join(words[i:i + WINDOW])
+        if hash(window) not in windows:
+            continue
+        digest = hashlib.sha256(window.encode("utf-8")).hexdigest()  # only for a window that hits
+        if digest in EXEMPT:
+            EXEMPT_USED.add(digest)
+            continue
+        hits.add(lines[i])
+        HIT_HASHES.append((lines[i], digest))
     return sorted(hits)
+
+
+def drain_hit_hashes():
+    out = sorted(set(HIT_HASHES))
+    del HIT_HASHES[:]
+    return out
 
 
 def detect_keyfact(items):
@@ -205,7 +241,36 @@ def label_safe(s):
 
 
 def is_exempt(path):
-    return path.startswith(EXEMPT_PREFIX) or path == ACK_PATH
+    return path.startswith(EXEMPT_PREFIX) or path in (ACK_PATH, EXEMPT_PATH)
+
+
+def load_exempt(top):
+    """{sha256: reason} from the exempt-window list. Raise AckError (exit 2) on a bad entry."""
+    full = os.path.join(top, EXEMPT_PATH)
+    if not os.path.exists(full):
+        return {}
+    try:
+        with open(full, "rb") as fh:
+            text = fh.read().decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        raise AckError(f"exempt windows list: cannot read {EXEMPT_PATH} as UTF-8")
+    entries = {}
+    for n, raw in enumerate(text.split("\n"), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [x.strip() for x in line.split(" -- ")]
+        if not HEX64_RE.match(parts[0]):
+            raise AckError(f"exempt windows list: line {n}: the hash must be 64 hex digits")
+        if len(parts) < 2 or not parts[1]:
+            raise AckError(f"exempt windows list: line {n}: no reason "
+                           "(expected '<sha256> -- <reason> -- approved: <seat and reference>')")
+        approved = parts[-1]
+        if len(parts) < 3 or not approved.startswith("approved:") or not approved[len("approved:"):].strip():
+            raise AckError(f"exempt windows list: line {n}: no approved field "
+                           "(expected '<sha256> -- <reason> -- approved: <seat and reference>')")
+        entries[parts[0].lower()] = " -- ".join(parts[1:-1])
+    return entries
 
 
 def load_ack(top):
@@ -300,7 +365,9 @@ def scan_files(top, windows, state):
         full = os.path.join(top, path)
         if os.path.isdir(full):  # a submodule entry: no file content here
             continue
+        drain_hit_hashes()
         status, found = scan_file(full, windows)
+        hashes = drain_hit_hashes() if state["print_hashes"] else []
         if status == "unreadable":
             print(f"public-text-check: cannot read tracked file: {label_safe(path)}", file=sys.stderr)
             state["io_error"] = True
@@ -312,6 +379,8 @@ def scan_files(top, windows, state):
         for n, name in found:
             print(f"{label_safe(path)}:{n}: {name}")
             state["findings"] += 1
+        for n, digest in hashes:
+            print(f"{label_safe(path)}:{n}: {digest}")
 
 
 def added_lines(top, sha, short, state):
@@ -364,7 +433,9 @@ def scan_history(top, shas, windows, state, ack):
                 state["skipped"] += 1
                 continue
             items = to_items(zip((n for n, _ in numbered), text.split("\n")))
+            drain_hit_hashes()
             found = findings_for(items, windows)
+            hashes = drain_hit_hashes() if state["print_hashes"] else []
             if found and (sha.lower(), path) in ack:
                 matched.add((sha.lower(), path))
                 print(f"acknowledged: {short}:{label_safe(path)} ({len(found)} lines)")
@@ -373,6 +444,8 @@ def scan_history(top, shas, windows, state, ack):
             for n, name in found:
                 print(f"{short}:{label_safe(path)}:added:{n}: {name}")
                 state["findings"] += 1
+            for n, digest in hashes:
+                print(f"{short}:{label_safe(path)}:added:{n}: {digest}")
     for sha, path in ack:
         if (sha, path) not in matched:
             print(f"public-text-check: NOTE: acknowledged entry matched no finding in this range: "
@@ -387,6 +460,7 @@ def parse(argv):
     p.add_argument("--expect-sha256", action="append", default=[], dest="expect")
     p.add_argument("--rows-only", action="store_true")
     p.add_argument("--history", default=None)
+    p.add_argument("--print-hit-hashes", action="store_true", dest="print_hashes")
     args = p.parse_args(argv)
     if args.history is not None and (not args.history or args.history.startswith("-")):
         raise UsageError("--history needs a revision range")
@@ -404,6 +478,9 @@ def parse(argv):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
+    EXEMPT.clear()
+    EXEMPT_USED.clear()
+    del HIT_HASHES[:]
     try:
         args = parse(argv)
     except UsageError as e:
@@ -470,7 +547,16 @@ def main(argv=None):
         except AckError as e:
             print(f"public-text-check: {e}", file=sys.stderr)
             return 2
-    state = {"scanned": 0, "skipped": 0, "findings": 0, "acknowledged": 0, "io_error": False}
+    try:
+        exempt = load_exempt(top)
+    except AckError as e:
+        print(f"public-text-check: {e}", file=sys.stderr)
+        return 2
+    EXEMPT.update(exempt)  # after the controls: a control is never exempt
+    print(f"public-text-check: window {WINDOW} words; exemptions {len(exempt)} (by content hash); "
+          f"acknowledged history {len(ack)}; {NEGATIVE_CONTROL}", file=sys.stderr)
+    state = {"scanned": 0, "skipped": 0, "findings": 0, "acknowledged": 0, "io_error": False,
+             "print_hashes": args.print_hashes}
     if args.history is None:
         scan_files(top, windows, state)
         what = "files"
@@ -478,6 +564,11 @@ def main(argv=None):
         scan_history(top, shas, windows, state, ack)
         what = "commits"
     sys.stdout.flush()
+    if windows is not None:
+        for digest in exempt:
+            if digest not in EXEMPT_USED:
+                print(f"public-text-check: NOTE: exempt-window entry matched nothing in this scan: {digest[:12]}",
+                      file=sys.stderr)
     print(f"skipped {state['skipped']} non-UTF-8 files", file=sys.stderr)
     if state["io_error"]:
         return 2

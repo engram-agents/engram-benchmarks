@@ -56,6 +56,9 @@ while a study using that conversation is open; commit the file's sha256 and hold
 `tools/public-text-check.py` enforces this on every pull request and push (CI) and is run locally before every push to
 a public branch, in file mode and over the commits being pushed (`--history <range>`), with the pinned dataset.
 Exception: none; the check never prints what it matched.
+A run of 8 words shared with the dataset counts as a hit; the few windows listed by hash in
+`tools/public-text-check-exempt-windows.txt` (each with a reason and an approver, added only after a second seat's read)
+are the only windows it lets through.
 
 ## Licence
 

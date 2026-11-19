@@ -31,6 +31,7 @@ S5 = "an unhurried ferryman taught the lighthouse owls to whistle the old harbou
 S6 = "two weary lamplighters compared the colour of every evening they had politely ignored last autumn"
 S7 = "the cheerful archivist wondered which forgotten staircase led down to the humming copper cellar"
 FILL = "qqq zzz www"
+W = 8  # the window, in words
 
 
 def words(s):
@@ -183,21 +184,21 @@ def test_p1a_normalisation_case_and_punctuation(tool, monkeypatch, capsys, tmp_p
     assert (rc, out.splitlines()) == (1, ["a.md:1: verbatim"])
 
 
-def test_p1a_window_edge_nine_words_no_hit(tool, monkeypatch, capsys, tmp_path, dataset):
-    nine = window(S1, 2, 9)
-    r = repo_with(tmp_path, {"a.md": f"{FILL} {nine} {FILL}\n"})
+def test_p1a_window_edge_seven_words_no_hit(tool, monkeypatch, capsys, tmp_path, dataset):
+    seven = window(S1, 2, W - 1)
+    r = repo_with(tmp_path, {"a.md": f"{FILL} {seven} {FILL}\n"})
     rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
     assert (rc, out) == (0, "")
 
 
-def test_p1a_window_edge_ten_words_hit(tool, monkeypatch, capsys, tmp_path, dataset):
-    r = repo_with(tmp_path, {"a.md": f"{FILL} {window(S1, 2, 10)} {FILL}\n"})
+def test_p1a_window_edge_eight_words_hit(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": f"{FILL} {window(S1, 2, W)} {FILL}\n"})
     rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
     assert (rc, out.splitlines()) == (1, ["a.md:1: verbatim"])
 
 
 def test_p1a_window_crosses_a_line_wrap_reports_first_line(tool, monkeypatch, capsys, tmp_path, dataset):
-    w = words(S1)[3:13]
+    w = words(S1)[3:3 + W]
     r = repo_with(tmp_path, {"a.md": " ".join(w[:4]) + "\n" + " ".join(w[4:]) + "\n"})
     rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
     assert rc == 1
@@ -252,8 +253,8 @@ def test_p2_output_never_contains_dataset_text(tool, monkeypatch, capsys, tmp_pa
     seen = " ".join(words(out + "\n" + err))
     for s in (S1, S2, S3, S4, S5):
         ws = words(s)
-        for i in range(len(ws) - 9):
-            assert " ".join(ws[i:i + 10]) not in seen
+        for i in range(len(ws) - W + 1):
+            assert " ".join(ws[i:i + W]) not in seen
     assert not re.search(r"\b(quixotic|marmot|glassblower|thunderclouds)\b", out + err)
 
 
@@ -264,7 +265,7 @@ def test_p2_history_output_shape_and_no_leak(tool, monkeypatch, capsys, tmp_path
     sha = commit(r)
     rc, out, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset), "--history", f"{base}..HEAD")
     assert (rc, out.splitlines()) == (1, [f"{sha[:12]}:n.md:added:2: verbatim"])
-    assert window(S1, 0, 10) not in " ".join(words(out + err))
+    assert window(S1, 0, W) not in " ".join(words(out + err))
 
 
 # ---------------------------------------------------------------- P3 modes
@@ -742,3 +743,186 @@ def test_p10_the_shipped_list_is_well_formed(tool, monkeypatch, capsys):
         pytest.skip("no shipped list here")
     rc, _, err = run(tool, monkeypatch, capsys, top.stdout.strip(), "--rows-only", "--history", "HEAD~1..HEAD")
     assert "acknowledged list" not in err
+
+
+# ---------------------------------------------------------------- P12 exemption by content hash, P13 the stated bound
+
+EX = "tools/public-text-check-exempt-windows.txt"
+APPROVED = "approved: test seat (ref 1)"
+BOUND = ("window 8 words; exemptions {n} (by content hash); acknowledged history {m}; negative control: this "
+         "repository's own prose and code, measured on study/beam-tuning-log-2 at bc0aca7, 2026-11-19: "
+         "2 windows at 8 words (both exempt), 0 at 9")
+
+
+def wsha(text):
+    return hashlib.sha256(" ".join(words(text)).encode()).hexdigest()
+
+
+def ex_line(text, reason="a measured false positive", approved=APPROVED):
+    return f"{wsha(text)} -- {reason} -- {approved}"
+
+
+def write_ex(r, *lines):
+    put(r, EX, "\n".join(lines) + "\n")
+
+
+def test_p11_the_window_is_eight_words(tool):
+    assert tool.WINDOW == 8
+
+
+def test_p12_a_listed_window_is_not_a_hit_in_file_mode(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": f"{FILL} {window(S1, 2, W)} {FILL}\n"})
+    write_ex(r, "# comment", "", ex_line(window(S1, 2, W)))
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out) == (0, "")
+
+
+def test_p12_a_listed_window_is_not_a_hit_in_history_mode(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    base = git(r, "rev-parse", "HEAD")
+    put(r, "b.md", f"{FILL} {window(S1, 2, W)} {FILL}\n")
+    commit(r)
+    write_ex(r, ex_line(window(S1, 2, W)))
+    rc, out, _ = hist(tool, monkeypatch, capsys, r, dataset, base)
+    assert (rc, out) == (0, "")
+
+
+def test_p12_the_exemption_is_by_content_not_by_whole_line(tool, monkeypatch, capsys, tmp_path, dataset):
+    # a second, unlisted window on the same line still counts
+    r = repo_with(tmp_path, {"a.md": f"{window(S1, 0, W)} {FILL} {window(S2, 0, W)}\n"})
+    write_ex(r, ex_line(window(S1, 0, W)))
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out.splitlines()) == (1, ["a.md:1: verbatim"])
+    write_ex(r, ex_line(window(S1, 0, W)), ex_line(window(S2, 0, W)))
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out) == (0, "")
+
+
+def test_p12_the_exemption_is_by_content_not_by_file(tool, monkeypatch, capsys, tmp_path, dataset):
+    # a listed window in a file does not exempt the rest of that file, nor the same window... only that window
+    r = repo_with(tmp_path, {"a.md": f"{window(S1, 0, W)}\n{CLEAN}{window(S2, 0, W)}\n"})
+    write_ex(r, ex_line(window(S1, 0, W)))
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out.splitlines()) == (1, ["a.md:3: verbatim"])
+
+
+def test_p12_an_unlisted_hash_exempts_nothing(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": f"{window(S1, 0, W)}\n"})
+    write_ex(r, f"{'0' * 64} -- some reason -- {APPROVED}")
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out.splitlines()) == (1, ["a.md:1: verbatim"])
+
+
+@pytest.mark.parametrize("what,line", [
+    ("no reason", "{h}"),
+    ("no approved field", "{h} -- a reason"),
+    ("empty approved", "{h} -- a reason -- approved:"),
+    ("approved without the label", "{h} -- a reason -- somebody"),
+    ("empty reason", "{h} --  -- approved: x"),
+    ("short hash", "{short} -- a reason -- approved: x"),
+    ("non-hex hash", "{nonhex} -- a reason -- approved: x"),
+])
+def test_p12_refusals_exit_2(tool, monkeypatch, capsys, tmp_path, dataset, what, line):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    h = wsha(window(S1, 0, W))
+    write_ex(r, line.format(h=h, short=h[:40], nonhex="g" * 64))
+    rc, out, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert rc == 2, what
+    assert out == "" and "exempt windows list: line 1" in err
+
+
+def test_p12_a_refusal_applies_in_history_mode_too(tool, monkeypatch, capsys, tmp_path, dataset):
+    r, base, _ = leak_repo(tmp_path)
+    write_ex(r, "not a valid entry")
+    rc, _, err = hist(tool, monkeypatch, capsys, r, dataset, base)
+    assert rc == 2 and "exempt windows list" in err
+
+
+def test_p12_an_entry_that_matched_nothing_is_a_note(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    write_ex(r, ex_line(window(S1, 0, W)))
+    rc, out, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out) == (0, "")
+    assert f"NOTE: exempt-window entry matched nothing in this scan: {wsha(window(S1, 0, W))[:12]}" in err
+
+
+def test_p12_a_used_entry_makes_no_note(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": f"{window(S1, 0, W)}\n"})
+    write_ex(r, ex_line(window(S1, 0, W)))
+    _, _, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert "NOTE" not in err
+
+
+def test_p12_the_list_file_is_exempt_by_path(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    write_ex(r, f"# {window(S1, 0, W)}")
+    commit(r, "adds the list")
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert (rc, out) == (0, "")
+
+
+def test_p12_controls_run_before_the_list_is_read(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    write_ex(r, "garbage")
+    monkeypatch.setattr(tool, "detect_verbatim", lambda *a, **k: [])
+    rc, _, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert rc == 3 and "CONTROL FAILED: top-level" in err
+
+
+def test_p12_print_hit_hashes_prints_hashes_never_text(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": f"{FILL} {window(S1, 0, W)} {FILL}\nplain\n{window(S2, 1, W)}\n"})
+    rc, out, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset), "--print-hit-hashes")
+    assert rc == 1
+    lines = out.splitlines()
+    assert f"a.md:1: {wsha(window(S1, 0, W))}" in lines
+    assert f"a.md:3: {wsha(window(S2, 1, W))}" in lines
+    assert not re.search(r"\b(quixotic|marmot|glassblower)\b", out + err)
+    # a normal run prints no hash at all
+    rc, out, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert not re.search(r"[0-9a-f]{64}", out + err)
+
+
+def test_p12_print_hit_hashes_skips_exempt_windows_and_works_in_history(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    base = git(r, "rev-parse", "HEAD")
+    put(r, "b.md", f"{window(S1, 0, W)}\n{window(S2, 0, W)}\n")
+    sha = commit(r)
+    write_ex(r, ex_line(window(S1, 0, W)))
+    rc, out, _ = run(tool, monkeypatch, capsys, r, *ds_args(dataset), "--history", f"{base}..HEAD", "--print-hit-hashes")
+    assert rc == 1
+    assert f"{sha[:12]}:b.md:added:2: {wsha(window(S2, 0, W))}" in out.splitlines()
+    assert wsha(window(S1, 0, W)) not in out
+
+
+def test_p12_the_shipped_exempt_list_is_well_formed(tool, monkeypatch, capsys):
+    top = subprocess.run(["git", "-C", str(HERE), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if top.returncode != 0 or not (Path(top.stdout.strip()) / EX).exists():
+        pytest.skip("no shipped list here")
+    _, _, err = run(tool, monkeypatch, capsys, top.stdout.strip(), "--rows-only")
+    assert "exempt windows list" not in err
+    header = (Path(top.stdout.strip()) / EX).read_text()
+    assert "second seat" in header.lower()
+
+
+def test_p13_every_run_states_its_bound(tool, monkeypatch, capsys, tmp_path, dataset):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    rc, _, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert rc == 0
+    assert "public-text-check: " + BOUND.format(n=0, m=0) in err.splitlines()
+
+
+def test_p13_counts_are_the_lists_in_force(tool, monkeypatch, capsys, tmp_path, dataset):
+    r, base, leak = leak_repo(tmp_path)
+    write_ex(r, ex_line(window(S3, 0, W)), ex_line(window(S4, 0, W)))
+    write_ack(r, f"{leak} leak.md -- known and kept by decision")
+    _, _, err = hist(tool, monkeypatch, capsys, r, dataset, base)
+    assert "public-text-check: " + BOUND.format(n=2, m=1) in err.splitlines()
+    # file mode never reads the acknowledged list
+    _, _, err = run(tool, monkeypatch, capsys, r, *ds_args(dataset))
+    assert "public-text-check: " + BOUND.format(n=2, m=0) in err.splitlines()
+
+
+def test_p13_rows_only_states_its_bound_too(tool, monkeypatch, capsys, tmp_path):
+    r = repo_with(tmp_path, {"a.md": CLEAN})
+    _, _, err = run(tool, monkeypatch, capsys, r, "--rows-only")
+    assert "public-text-check: " + BOUND.format(n=0, m=0) in err.splitlines()
