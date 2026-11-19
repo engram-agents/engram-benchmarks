@@ -186,6 +186,30 @@ plus the new reading-continuation mode in section 1.
   `setup.txt` after the run, because the launcher creates and writes `setup.txt` while it runs. *Limit carried to
   P1's report:* P1's version spread (readings 2.1.325, controls 2.1.327, answering 2.1.328) is stated there as a
   limit, not smoothed.
+- **A10. Student custody: both P1b readings run exposed; nothing after them does (design owner, Office crossing 33042;
+  security judgments by Zephyr, Office crossings 33024 and 33035; 2026-11-19).** *The exposure:* the student of either
+  arm runs as the study lead's OS user, with a shell and bypassed permissions, so it can read anything that user can,
+  including the study lead's private files, the private key lists and the dataset with every gold answer, and it can
+  reach services on the host's loopback. *What the records show:* over all 65 student transcripts on the host, no tool
+  call named a path outside the student's own home except the evidence files the planted-fact controls handed it, and
+  no search was rooted at or above the student's home; a value-blind scan for secret formats found nothing (its
+  positive control fired). Outside the K = 3 reading's lineage, two other runs crossed a boundary with no data of
+  consequence: one wrote its own scratch files under the shared temporary directory, and three calls (one practice
+  run, one entry-gate run) fetched the title of another host service's dashboard on loopback. *Bound, carried with every number from
+  either reading:* the student ran as the owner's user with a shell and bypassed permissions; its tool inputs were
+  scanned with no path outside its home except by-design controls; a path-free discovery would not have appeared in
+  that scan. *Rules:* (1) the k = 1 reading runs in the same setup as the K = 3 reading (no wrapper, on
+  the pinned binary of A9), because R is a speed measurement only if the two readings differ in K alone; it is the
+  last run under this allowance. (2) Nothing after the k = 1 reading runs without the student wrapper (a process,
+  filesystem and network boundary around the student only, never around the feeder), pilots included, and only after
+  the security seat has read the wrapper. (3) The value-blind secret scan, with its positive control, runs over the
+  k = 1 reading's transcripts the moment the reading ends, before any number from it is used; any path outside the
+  student's home that is not a planted control, any search rooted at or above it, or any secret-format hit means the
+  run is discarded, not bounded. (4) The wrapper's own cost (added latency on the model path per exchange, any tool the
+  student loses) is measured on a pilot before the registered setup is frozen. (5) A sealed key or answer list sits
+  behind a user or host boundary, never behind a file mode on a user the student shares: a mode bit is not a seal when
+  the owner's processes run the exam. *Our-side control from 2026-11-20:* each morning, the value-blind scan over every
+  student transcript written since the last scan, one line to the design owner.
 
 ## 7. Cost (requirement 6)
 
