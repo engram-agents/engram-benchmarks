@@ -2643,3 +2643,20 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   Serving lines (C5, A7) are recorded by the launcher at step 1; the dry run of the same command one minute earlier
   recorded server 0.33.2, model `qwen3.8:27b-128k`, digest `7a97d654…`. **Cut-off (A8, 3c33eb4f):** the run is wrapped
   in a clock timeout that stops it at 7:45 PM New York (2026-11-20T00:45:00Z) if exchange 135 is not done by then.
+
+### P1 answering pilot: descriptive counts owed beside the result (design owner's ruling 32574), measured 2026-11-19
+
+Measured from record types and fields only; no answer text was read for this.
+- **Placeholder-ending turns per session** (already in the facts entries, gathered here): K = 3 session 4 turns whose final
+  text is exactly `[no output]` (A08, F14, F17, F37); k = 1 session 0 such turns, and 3 turns in the 'no output' near-variant
+  class (A04, F35, F43), ruled the same class (32673/32674).
+- **Where the literal string `[no output]` first appears in the session records.**
+  - K = 3, whole session transcript (the resumed session, from its reading phase on 2026-11-16 through the answering session):
+    8 lines contain it, all in the student's own output (5 assistant text blocks, 2 thinking blocks, 1 request record of an
+    assistant turn). First at 2026-11-19T13:28:33Z, nine minutes into the answering session, in an assistant text block.
+    The run's event stream agrees (11 lines: 5 text, 4 result fields, 2 thinking; first in a text block).
+  - No user message, tool result or saved tool-result file in either session contains the string. k = 1: the exact string
+    occurs nowhere in its records.
+  - **Reading:** in what the transcripts record, the student was never shown the string before writing it; it first
+    produced it itself. **Bound:** the transcripts record what the harness stored, not every rendering the model saw (for
+    example how the harness presents an empty tool result to the model); this rules out the recorded channels only.
