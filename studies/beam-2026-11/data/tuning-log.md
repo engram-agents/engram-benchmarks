@@ -2485,3 +2485,23 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   F101: as given 1, one-character mutant 0, other speaker 0. Descriptive: all 150 spans are USER text (min length 4,
   median 28 characters). P1 had the same shape by question wording: 75 of its 84 questions ask about the user's own words
   and 3 about the assistant's (P1b counting items: 132 of 150 and 2), so the two lists test the same kind of fact.
+
+### P1b second read (step 3) and the final list — written before the final-count re-simulation finished
+
+- **Zephyr's step 3** (wake 32733, stamped 16:41:47Z): `p1b-second-read.md` sha256 `e97680df…48ef`, 168 rows, 168
+  distinct ids (re-hashed and tallied by the study lead). Spans 150/150 PASS under the confirmed parse rule; AGREE 162,
+  DISAGREE 6, FLAG (depends on exchanges 1-45) 0; abstention 18/18 AGREE. Derived items: each carries one span at its
+  anchor; Zephyr confirmed the second source of all eight BY HAND (all inside 46-135); no machine check covers those second
+  sources (a limit, recorded).
+- **Drops by the written rule (a disagreement drops, never mended): F114, F156, F191, F210, F231, F249.** Zephyr's
+  observation, recorded as theirs: four of the six rule-shaped items (instruction_following / preference_following) are
+  among the drops, and their golds state a requirement on the response, which a reader answering from the text cannot
+  produce; so the split may measure the gold's shape, not the reader. Two rule-shaped items stay (F113, F212, AGREE).
+- **Study lead's ruling on Zephyr's judgement call (F159, F250, contradiction items marked AGREE with a side named):
+  KEEP.** Reason: each item tests whether the reader finds the contradiction; Zephyr surfaced both sides blind and had
+  logged both as contradictions before seeing the gold. Ruled before the re-simulation output existed; the counts it would
+  move (144 vs 142) are named here so the ruling can be checked against the numbers rather than after them.
+- **FINAL LIST: 144 counting items over 74 exchanges (5 x 4 + 13 x 3 + 29 x 2 + 27 x 1) plus 18 abstention items.**
+  Guard exchanges (multiples of 3): 42 counting items in 25 exchanges. Rule-shaped items kept: 2 (reported with and
+  without). Re-simulation: `tools/p1-answering-power-clustered.py --trials 4000 --boot 1000 --seed 20261124 --p 0.8
+  --margin 0.10 --lo-pct 4 --hi-pct 96 --counts <the layout above>`; output to follow in its own entry.
