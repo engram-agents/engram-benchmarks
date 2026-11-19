@@ -12,6 +12,9 @@ socket, and nothing else crosses:
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
   homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
+  account-file passwd|group --home H   wrapper helper: the synthetic /etc/passwd or /etc/group of the box (root and the
+          invoking uid/gid only; the invoker's home is H).
+  etc-scan   wrapper helper: the readable regular files under /etc that name a home or another account, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID [--log FILE]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
@@ -166,6 +169,61 @@ def run_homes(a):
     return 0
 
 
+ETC_SYNTHETIC = ("passwd", "group", "machine-id", "hostname")   # replaced by synthetic content, never masked here
+ETC_SCAN_CAP = 64 << 20   # a file larger than this is masked unread: fail closed on content we did not look at
+
+
+def run_account_file(a):
+    import grp, pwd
+    me = pwd.getpwuid(os.getuid())
+    try:
+        gname = grp.getgrgid(os.getgid()).gr_name
+    except KeyError:
+        gname = me.pw_name
+    shell = me.pw_shell if me.pw_shell.startswith("/") else "/bin/sh"
+    if a.kind == "passwd":
+        rows = ["root:x:0:0:root:/:/bin/sh"]
+        if os.getuid() != 0:
+            rows.append("%s:x:%d:%d::%s:%s" % (me.pw_name, os.getuid(), os.getgid(), a.home, shell))
+    else:
+        rows = ["root:x:0:"]
+        if os.getgid() != 0:
+            rows.append("%s:x:%d:" % (gname, os.getgid()))
+    sys.stdout.write("\n".join(rows) + "\n")
+    return 0
+
+
+def run_etc_scan(a):
+    """Class rule, from the host at launch: a readable regular file under /etc (symlinks never followed) whose content
+    contains the string /home/ or any account name other than root and the invoker as a whole colon/comma-delimited
+    token (the shape of passwd, group, subuid, subgid and their backups). Prints the paths, NUL-separated."""
+    import pwd, re
+    me = pwd.getpwuid(os.getuid()).pw_name
+    others = sorted({u.pw_name for u in pwd.getpwall()} - {"root", me})
+    rx = None
+    if others:
+        rx = re.compile(rb"(?:^|[:,])(?:" + b"|".join(re.escape(n.encode()) for n in others) + rb")(?=[:,\n]|$)", re.M)
+    skip = {os.path.realpath("/etc/" + n) for n in ETC_SYNTHETIC}
+    out = []
+    for dirpath, dirnames, filenames in os.walk("/etc"):
+        for f in filenames:
+            p = os.path.join(dirpath, f)
+            if os.path.islink(p) or not os.path.isfile(p) or not os.access(p, os.R_OK) or os.path.realpath(p) in skip:
+                continue
+            try:
+                if os.path.getsize(p) > ETC_SCAN_CAP:
+                    out.append(p)
+                    continue
+                with open(p, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                continue
+            if b"/home/" in data or (rx is not None and rx.search(data)):
+                out.append(p)
+    sys.stdout.write("".join(p + "\0" for p in sorted(out)))
+    return 0
+
+
 def one_request(host, port):
     t0 = time.perf_counter()
     s = socket.create_connection((host, port), timeout=10)
@@ -222,6 +280,9 @@ def main(argv):
     i.add_argument("--unset", action="append", default=[])
     i.add_argument("cmd", nargs="*")
     sub.add_parser("homes")
+    af = sub.add_parser("account-file")
+    af.add_argument("kind", choices=("passwd", "group")); af.add_argument("--home", required=True)
+    sub.add_parser("etc-scan")
     la = sub.add_parser("latency")
     la.add_argument("--host", required=True); la.add_argument("--port", type=int, required=True)
     la.add_argument("-n", type=int, default=50)
@@ -229,7 +290,8 @@ def main(argv):
     lc.add_argument("--wrapper", required=True); lc.add_argument("-n", type=int, default=50)
     a = ap.parse_args(argv)
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
-            "latency-compare": run_latency_compare, "homes": run_homes}[a.mode](a)
+            "latency-compare": run_latency_compare, "homes": run_homes,
+            "account-file": run_account_file, "etc-scan": run_etc_scan}[a.mode](a)
 
 
 if __name__ == "__main__":

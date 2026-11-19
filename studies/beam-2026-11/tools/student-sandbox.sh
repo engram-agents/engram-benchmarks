@@ -141,6 +141,36 @@ for d in "${RO_LIST[@]}"; do EXTRA_BINDS+=(--ro-bind "$d" "$d"); done
 for d in "${RW_LIST[@]}"; do EXTRA_BINDS+=(--bind "$d" "$d"); done
 RO_LOG=$(IFS=:; echo "${RO_LIST[*]}"); RW_LOG=$(IFS=:; echo "${RW_LIST[*]}")
 
+# ---- R4: /etc stays (read-only: removing it risks breaking the harness in ways the tests may not see), minus what
+# names other people. Overlaid read-only, all generated at launch:
+#   /etc/passwd, /etc/group   synthetic: root and the invoking uid/gid only, the invoker's home is the slot
+#   /etc/machine-id           a fixed zero id;   /etc/hostname   "sandbox" (and the box has its own UTS namespace)
+#   every other readable regular file under /etc that contains "/home/" or another account's name: an empty file
+# bwrap cannot create files in the read-only /etc, so an overlay applies only where the host file exists.
+ETCARGS=()
+overlay_data() {   # $1 destination, $2 content
+  local d fd
+  d=$(realpath -e -- "$1" 2>/dev/null) || return 0
+  case $d in /etc/*) ;; *) return 0 ;; esac
+  [ -f "$d" ] || return 0
+  exec {fd}<<< "$2"
+  ETCARGS+=(--ro-bind-data "$fd" "$d")
+}
+PASSWD_TXT=$("$PY" -I "$FWD" account-file passwd --home "$SLOT" 2>/dev/null) || refuse "cannot read the invoking account"
+GROUP_TXT=$("$PY" -I "$FWD" account-file group --home "$SLOT" 2>/dev/null) || refuse "cannot read the invoking account"
+overlay_data /etc/passwd "$PASSWD_TXT"
+overlay_data /etc/group "$GROUP_TXT"
+overlay_data /etc/machine-id "00000000000000000000000000000000"
+overlay_data /etc/hostname "sandbox"
+mapfile -d '' -t MASKS < <("$PY" -I "$FWD" etc-scan 2>/dev/null; printf 'END\0')
+[ "${#MASKS[@]}" -gt 0 ] && [ "${MASKS[-1]}" = END ] || refuse "cannot scan /etc"
+unset 'MASKS[-1]'
+ETC_MASKED=${#MASKS[@]}
+# One descriptor per mask: bwrap reads and closes each --ro-bind-data descriptor, and binding /dev/null instead gives
+# a device file that the nodev mount makes unreadable. The cap keeps the descriptor count far below any limit.
+[ "$ETC_MASKED" -le 200 ] || refuse "$ETC_MASKED files under /etc name a home or another account: more than this launcher masks"
+for f in "${MASKS[@]}"; do exec {fd}</dev/null; ETCARGS+=(--ro-bind-data "$fd" "$f"); done
+
 # ---- the environment the caller passed, exactly (minus SANDBOX_*) -----------------------------------------
 # /proc/$$/environ is the block bash was started with, before bash adds PWD/SHLVL/_ of its own.
 ENVARGS=()
@@ -176,17 +206,17 @@ if [ ! -S "$SOCK" ]; then
 fi
 disown "$FPID" 2>/dev/null
 
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
 # paths. bwrap creates the missing parent directories inside the tmpfs for the file bind.
-BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc
+BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc --unshare-uts --hostname sandbox
     --clearenv "${ENVARGS[@]}"
     --proc /proc --dev /dev
     --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin
     --ro-bind-try /lib /lib --ro-bind-try /lib32 /lib32 --ro-bind-try /lib64 /lib64 --ro-bind-try /libx32 /libx32
-    --ro-bind-try /etc /etc --ro-bind-try /opt /opt
+    --ro-bind-try /etc /etc "${ETCARGS[@]}"
     --tmpfs /home --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run
     --bind "$SLOT" "$SLOT"
     "${EXTRA_BINDS[@]}"

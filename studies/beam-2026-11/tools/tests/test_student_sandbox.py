@@ -390,7 +390,7 @@ def test_s2_run_is_fresh_tmpfs(cfg):
 
 @needs_box
 def test_s2_slot_writable_everything_else_read_only(cfg):
-    host_ro = [p for p in ("/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin", "/opt") if os.path.isdir(p)]
+    host_ro = [p for p in ("/usr", "/etc", "/lib", "/lib64", "/bin", "/sbin") if os.path.isdir(p)]
     r = cfg.run(exec_='touch "$SLOT/w" && echo SLOT-OK; for p in "$@"; do (touch "$p/x" 2>/dev/null) && echo WROTE "$p"; done; echo done',
                 args=host_ro, SLOT=cfg.slot)
     assert "SLOT-OK" in r.stdout, r.stderr
@@ -1153,3 +1153,156 @@ def test_r3_no_leaked_descriptors_inside(cfg):
     r = cfg.run(exec_="ls /proc/self/fd")
     assert r.returncode == 0, r.stderr
     assert set(r.stdout.split()) <= {"0", "1", "2", "3"}, "the box inherited extra descriptors: %r" % r.stdout.split()
+
+
+# ---------------------------------------------------------------- R4: /etc stays, minus what names other people
+
+ETC_OVERLAID = ("passwd", "group", "machine-id", "hostname")
+
+
+def _other_account_names():
+    """Account names from the HOST's database at test time, other than root and the invoker."""
+    import pwd
+    me = pwd.getpwuid(os.getuid()).pw_name
+    return sorted({u.pw_name for u in pwd.getpwall()} - {"root", me})
+
+
+def _name_rx(names):
+    import re
+    if not names:
+        return None
+    alt = b"|".join(re.escape(n.encode()) for n in names)
+    return re.compile(rb"(?:^|[:,])(?:" + alt + rb")(?=[:,\n]|$)", re.M)
+
+
+def _host_etc_masked():
+    """The class rule, restated independently of the wrapper: every readable regular file under /etc (symlinks not
+    followed) whose content contains '/home/' or an account name other than root and the invoker as a whole
+    colon/comma-delimited token, except the four files that are replaced by synthetic ones."""
+    rx = _name_rx(_other_account_names())
+    skip = {os.path.realpath("/etc/" + n) for n in ETC_OVERLAID}
+    out = []
+    for dp, dn, fn in os.walk("/etc"):
+        for f in fn:
+            p = os.path.join(dp, f)
+            if os.path.islink(p) or not os.path.isfile(p) or not os.access(p, os.R_OK) or os.path.realpath(p) in skip:
+                continue
+            try:
+                d = open(p, "rb").read()
+            except OSError:
+                continue
+            if b"/home/" in d or (rx is not None and rx.search(d)):
+                out.append(p)
+    return sorted(out)
+
+
+ETC_PROBE = r'''
+import os, re, sys
+names = [n.encode() for n in sys.argv[1:]]
+rx = re.compile(rb"(?:^|[:,])(?:" + b"|".join(re.escape(n) for n in names) + rb")(?=[:,\n]|$)", re.M) if names else None
+bad = []
+for dp, dn, fn in os.walk("/etc"):
+    for f in fn:
+        p = os.path.join(dp, f)
+        if os.path.islink(p) or not os.path.isfile(p) or not os.access(p, os.R_OK):
+            continue
+        try:
+            d = open(p, "rb").read()
+        except OSError:
+            continue
+        if b"/home/" in d or (rx is not None and rx.search(d)):
+            bad.append(p)
+print("BAD", len(bad))
+'''
+
+
+@needs_box
+def test_r4_no_readable_file_under_etc_names_a_home_or_another_account(cfg):
+    """Class check from inside the box, against the HOST's account database now."""
+    names = _other_account_names()
+    assert names, "the host account database lists no account other than root and the invoker"
+    pf = os.path.join(cfg.slot, "etcprobe.py")
+    open(pf, "w").write(ETC_PROBE)
+    r = cfg.run(exec_='%s -I %s "$@"' % (PY, shlex.quote(pf)), args=names)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["BAD", "0"], r.stdout
+
+
+@needs_box
+def test_r4_passwd_and_group_list_only_root_and_the_invoker(cfg):
+    import pwd, grp
+    me = pwd.getpwuid(os.getuid())
+    r = cfg.run(exec_="cat /etc/passwd; echo ====; cat /etc/group; echo ====; id -un; id -gn; echo $HOME")
+    assert r.returncode == 0, r.stderr
+    pw, gr, rest = r.stdout.split("====\n")
+    rows = [l.split(":") for l in pw.splitlines() if l.strip()]
+    assert {x[0] for x in rows} == {"root", me.pw_name}, rows
+    mine = [x for x in rows if x[0] == me.pw_name][0]
+    assert int(mine[2]) == me.pw_uid and int(mine[3]) == me.pw_gid and mine[5] == cfg.slot, mine
+    gnames = {l.split(":")[0] for l in gr.splitlines() if l.strip()}
+    gme = grp.getgrgid(os.getgid()).gr_name
+    assert gnames <= {"root", gme} and gme in gnames, gnames
+    assert "/home/" not in pw + gr
+    assert rest.split()[0] == me.pw_name, rest
+
+
+@needs_box
+def test_r4_machine_id_and_hostname_are_fixed(cfg):
+    r = cfg.run(exec_='for f in /etc/machine-id /etc/hostname; do if [ -e "$f" ]; then echo "$f"; cat "$f"; fi; done; '
+                      'echo KERNEL-HOSTNAME; cat /proc/sys/kernel/hostname')
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    if os.path.isfile("/etc/machine-id"):
+        assert "/etc/machine-id\n" + "0" * 32 + "\n" in out, out
+    if os.path.isfile("/etc/hostname"):
+        assert "/etc/hostname\nsandbox\n" in out, out
+    assert out.endswith("KERNEL-HOSTNAME\nsandbox\n"), out   # the host's name is not visible through the kernel either
+
+
+@needs_box
+def test_r4_launch_line_counts_masked_files_not_names(cfg):
+    masked = _host_etc_masked()
+    r = cfg.run(exec_="true", SANDBOX_LOG=cfg.log)
+    assert r.returncode == 0, r.stderr
+    line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]
+    f = dict(kv.split("=", 1) for kv in line.split()[1:])
+    assert f["etc_masked"] == str(len(masked)), (f["etc_masked"], len(masked))
+    for p in masked:
+        assert os.path.basename(p) not in line.split(), "a masked file name is in the launch line"
+
+
+@needs_box
+def test_r4_masked_files_are_empty_and_every_other_etc_file_is_unchanged(cfg):
+    """Masked files read empty inside; every other readable regular file under /etc is byte-identical to the host's
+    (so /etc is genuinely still there for the harness), except the four synthetic ones."""
+    masked = set(_host_etc_masked())
+    skip = {os.path.realpath("/etc/" + n) for n in ETC_OVERLAID}
+    keep = []
+    for dp, dn, fn in os.walk("/etc"):
+        for f in fn:
+            p = os.path.join(dp, f)
+            if (not os.path.islink(p) and os.path.isfile(p) and os.access(p, os.R_OK) and p not in masked
+                    and os.path.realpath(p) not in skip):
+                keep.append(p)
+    assert len(keep) > 20 and masked, (len(keep), len(masked))
+    listing = os.path.join(cfg.slot, "paths.txt")
+    open(listing, "w").write("\n".join(keep + sorted(masked)))
+    probe = ('%s -I -c \'import hashlib,sys\n'
+             'for p in open(sys.argv[1]).read().split("\\n"):\n'
+             '    try: print(hashlib.sha256(open(p,"rb").read()).hexdigest(), p)\n'
+             '    except OSError as e: print("ERR", p)\' %s') % (PY, shlex.quote(listing))
+    r = cfg.run(exec_=probe, timeout=120)
+    assert r.returncode == 0, r.stderr
+    got = {l.split(" ", 1)[1]: l.split(" ", 1)[0] for l in r.stdout.splitlines()}
+    empty = hashlib.sha256(b"").hexdigest()
+    for p in masked:
+        assert got[p] == empty, "masked file is not empty inside: " + p
+    differ = [p for p in keep if got[p] != sha256_of(p)]
+    assert not differ, "%d unmasked /etc files differ inside the box" % len(differ)
+
+
+@needs_box
+def test_r4_opt_is_not_bound(cfg):
+    r = cfg.run(exec_='if [ -d /opt ]; then ls -A /opt | wc -l; else echo absent; fi')
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split()[0] in ("absent", "0"), "host /opt is visible inside: %r" % r.stdout
