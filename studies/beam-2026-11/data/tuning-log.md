@@ -2290,3 +2290,30 @@ Pool rows carry only an opaque id, the question, the gold line and the answer. `
 `d742f3639603da9dfb165f38e5ee7e875074f9c2e28d0200b60c3fa59044798d`; the sealed key `key.json` (opaque id to session,
 question id and kind) sha256 `a5268876634b8e6be59b662d96ad8210e1167fd1798d0db1f5a1b0b3e94114ba`, not opened until every
 call is done. Abstention items are judged in the same pool and reported apart from the accuracy.
+
+## P1 answering pilot: the judge has run; the analysis fixed BEFORE the key is opened (logged 2026-11-19)
+
+**The judge run.** 2026-11-19T15:56:20Z to 15:57:19Z, `tools/p1_grade.py judge` on the sealed pool (`d742f363...`): 168 of
+168 items scored, 0 unscored, 0 refusals or parse errors, 0 served by another model. Raw scores `judge-raw.jsonl` sha256
+`a6459353c99174d339bb69d0df01610759faf79a4167eef41e7fcf38b48870dc`. The key (`a5268876...`) is still unopened; no score has
+been read.
+
+**The scorer, fixed now** (`tools/p1_score.py` sha256 `947abf7b...`; contract tests `tools/tests/test_p1_score.py` sha256
+`d8aadfca...`, 13 cells written before it; three mutants, the superseded 5th/95th bounds, missing answers not scored 0, and
+0.5 counted correct under reading (a), each caught by its own cell). Its statistic and bootstrap lines are those of
+`tools/p1-answering-power-clustered.py`, the simulation that set the rule: the mean over exchanges of the within-exchange
+accuracy difference (K = 3 minus k = 1); `numpy.random.default_rng(seed)`, `rng.integers(0, E, size=(B, E))`, the 4th and
+96th percentiles. **B = 1,000 and seed 20261123, fixed here before the key is opened.**
+
+**Populations, measured from the frozen files without opening the key:** 75 counting questions in 38 exchanges; the
+last-position guard's subset, exchanges whose number is a multiple of 3, holds **26 questions in 14 exchanges** (6, 9, ...,
+45), equal to the pre-log's count.
+
+**One reading the study lead states before the key is opened, for the design owner to confirm or change:** the guard is
+"the point estimate of the same difference on those questions". The script takes the SAME statistic as the overall test,
+the mean over the 14 guard exchanges of the within-exchange difference, and prints the question-level difference over the
+26 questions beside it, deciding nothing. The guard's value is compared with -0.20.
+
+**Printed, deciding nothing:** reading (c) and the sensitivity score through the same rule; the per-session 0/0.5/1 counts;
+the abstention items apart; the paired table, D (discordant share) and Newcombe's question-level lower bound; and the line
+without F37 and F48.
