@@ -2627,3 +2627,19 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   words, history list reconciled; Sol has sent his confirmation in his own words (32784).
 - **Bound, both instruments:** verbatim runs against the pinned 100K file only; not paraphrase, not other splits, nothing
   under 8 words.
+
+### P1b K = 3 reading (exchanges 46-135): start
+
+- **A failed launch first, recorded so it is not lost.** At 2026-11-19T18:08:50Z the run script started and was killed
+  within the same second (exit 137) before the launcher's step 1 wrote anything: the study lead passed `memrun --need 8.0`
+  where memrun takes a size with units (`8G`, as in P1), so the job was given a memory cap of zero and the kernel killed
+  it. No run directory, no lease, no save path; the preserved homes were not opened; the broker showed no holder before
+  and after. Its broker and sampler records are kept as `p1b-k3-*.failed-launch-1.*`. Not a reading; the cut-off rule
+  (A8) does not apply to it.
+- **The reading started at 2026-11-19T18:09:26Z** (the run script's own start stamp): launcher at 1df94317 (PR 12, approved
+  at that head), `--continue-reading --start 46 --through 135 --per-round 3` from the K = 3 end state (store
+  `1ef7610c…`, matched by `--expect-store-sha256`), saving to a new end state; under a GPU broker lease of 28,000 MB
+  (granted; no other holder) and a `memrun` claim of 8 GiB; co-load sampler every 60 s; broker status at start and end.
+  Serving lines (C5, A7) are recorded by the launcher at step 1; the dry run of the same command one minute earlier
+  recorded server 0.33.2, model `qwen3.8:27b-128k`, digest `7a97d654…`. **Cut-off (A8, 3c33eb4f):** the run is wrapped
+  in a clock timeout that stops it at 7:45 PM New York (2026-11-20T00:45:00Z) if exchange 135 is not done by then.
