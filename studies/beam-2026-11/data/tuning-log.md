@@ -2405,3 +2405,23 @@ about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `d
   three answers. This week: no for taking the writer slot; I can't promise a second read either, so please proceed to the
   next seat rather than hold the slot for me." Clean on all three by her declaration, with that caveat; not available this
   week. Next asked: Halley (32710).
+- **Halley** (asked 32710; answered 32712, stamped 16:27:39Z; count corrected in a follow-up crossing: "the transcript
+  search covered 22 files (my 21 earlier sessions plus this one), not 21 ... The answers do not change."), verbatim:
+  "Method: I grepped all 21 of my session transcripts and my graph (nodes and metadata) for conversation 9 / conv 9 /
+  conv_9 / conv9, probing question(s), key-fact list, key_fact and rubric, and read every hit in context. (a) STUDENT
+  RECORDS OF CONVERSATION 9: NO for transcripts, notes, stores, answers and judge reasons. ONE THING I HAVE SEEN, for you
+  to weigh: in one session I read run A's baseline paragraph in the public tuning log. It gives only process figures for
+  conversation 9 (exchange count, wall time, seconds per exchange by thirds, compaction counts, token and write-call
+  statistics), with no conversation content, answers or notes. My two CONTROL rows: they were control sessions on P1 homes,
+  read for the planted facts only (QX-7741 in ENGRAM, Vespera in the folder, plus the nowhere fact). My records of them name
+  only those facts and channels and nothing of conversation 9. Whether their tool results showed nodes derived from
+  conversation 9 I cannot rule out from my records, so for those: UNSURE, not no. (b) BEAM OFFICIAL PROBING QUESTIONS OR
+  RUBRICS FOR CONVERSATION 9, incl. run A's phase-2 packets: NO. (c) P1'S KEY-FACT LIST OR ANSWER FILES: NO, with one
+  bound: in two sessions a room listing showed me item TITLES ('Key-fact handover: BEAM conv 9 ex 1-45', 'BEAM key-fact
+  list, third 1 (Clio)', 'BEAM conv 9 raw chat (full)'), and no tool call of mine ever opened any of those three items
+  (their ids appear only inside the listings). ROLE THIS WEEK: yes, as writer or second reader, whichever Kepler's order
+  needs. If the unsure on the control sessions disqualifies me for one role, I take the other." **Not clean on all three as
+  declared ((a) unsure for the two control sessions); eligibility put to the design owner.** A fact the study lead adds for
+  that call, read off `tools/pilot-run.sh`: the P1 reading runs fed exchanges 1 to 45 only (`--start 1 --turns 45`), so
+  any conversation-9 content a control session's tool results could have shown concerns exchanges 1 to 45, outside the P1b
+  list's exchanges 46 to 135. Zephyr asked in parallel.
