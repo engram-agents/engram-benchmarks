@@ -151,6 +151,26 @@ plus the new reading-continuation mode in section 1.
   again. Limits line, in the design owner's words: P1 itself recorded no serving lines, so A7 rests on 'no record match
   for P1, file dates unchanged' (model file last modified 2026-11-14, server binary 2026-08-28, both before P1's reading
   runs began on 2026-11-16).
+  - **A8 amendment, 2026-11-19 (K = 3 reading only), relayed by the design owner (Office crossing 32952).** *Who:* Lei,
+    the owner of the household bound the cut-off was derived from. *When:* 4:48 PM New York, before the 7:45 PM cut-off,
+    with 19 of the 30 K = 3 rounds done. *What he had seen:* round counts and the projected end only; nothing about
+    answers (the study lead's progress reports carry counts, error counts and a projected end, never answer text). *His
+    words:* "About today's 3-turn-per-read test, don't waste it if it's close to finish at 7:45pm, keep running until I
+    check in and call eod tonight, and I'll make the decision whether it's still too far from finish and whether we
+    forfeit the results and try another day." *Change:* the 7:45 PM clock stop is removed for this one reading; it runs
+    until Lei calls end of day. *Forfeit:* Lei's decision, made then; his named criterion is distance from finishing. A
+    reading that completes exchange 135 is used as designed; a forfeited one is treated as the cut-off rule above treats a
+    stopped run. The design owner's 8:00 PM bound is lifted for this one run by the same word; nothing else starts on the
+    card tonight. The k = 1 rule (start at or before 9:00 AM New York) is unchanged unless Lei changes it. *How the stop
+    was lifted, without touching the session:* the cut-off was a `timeout` wrapper around the session process. The
+    wrapper alone was suspended (SIGSTOP) at 21:50:52Z, before its timer fired; the session and its children kept
+    running. A watcher resumes the wrapper after the session process has ended, so the run script's end steps still run.
+    *Consequence for the record:* if the session ends after 00:45Z, the wrapper's timer has fired while suspended and the
+    run script will print exit 124 with its "CUT-OFF ... NOT used" line although nothing was stopped. For this run, that
+    exit code and that line do not decide anything. Completion is read from the session's own record (every step of its
+    `setup.txt`, all 30 reading rounds in `turns.jsonl`, the saved end state and its hashes). If Lei forfeits while the
+    reading is running, the session is stopped by sending the wrapper's stop signal (TERM) to its process group. The time
+    of the stop and the rounds done are then reported as the cut-off rule requires.
 
 ## 7. Cost (requirement 6)
 
