@@ -2193,3 +2193,20 @@ owner to accept or change:** a final text whose whole stripped content is "no ou
 surrounding brackets or punctuation (`[\W_]*no\s+output[\W_]*`, matched in full), but not the exact placeholder. A reply that
 only mentions "no output" inside a sentence is an answer. On session 1: 84 question turns, 4 placeholder (missing), 0 near
 variants, 0 tool-ending; answers file sha256 `d5d5dcdd...`, unread.
+
+## P1 answering pilot: the near-variant definition, accepted and widened (design owner; logged 2026-11-19, before any grade)
+
+The design owner accepted the study lead's definition with one widening, same full-match shape (Office crossing 32578). A
+**near variant** is a final text whose WHOLE stripped content, in any letter case and with optional surrounding brackets or
+punctuation, is one of: no output / no content / no response / no answer / none / null / empty / n/a; or which holds no
+letter or digit at all (punctuation or whitespace only). The exact placeholder stays its own class. The script lists near
+variants (id, class, length) and decides none of them: a bare "None" can be a correct answer to some question, so each goes
+to the design owner with the item's type, and he rules per class before grading, without the rest of the turn. A reply that
+only mentions such a phrase inside a sentence stays an answer.
+
+Script `tools/p1_answers.py` sha256 `63cfc27a...`, tests `tools/tests/test_p1_answers.py` sha256 `a1c3809c...`: 28 cells
+(one per added word, one for the punctuation-only case, one for the exact placeholder staying its own class, one for the
+words inside sentences), written before the change. Three plausible-wrong mutants (a substring search instead of a full
+match, no punctuation-only class, "n/a" left out) are each caught by their own cells, the rest green. **On session 1 the
+widening catches nothing:** 0 near variants; 4 placeholder turns, missing (A08, F14, F17, F37); answers file unchanged
+(`d5d5dcdd...`).

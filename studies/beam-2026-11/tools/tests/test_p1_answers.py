@@ -89,8 +89,34 @@ def test_near_variant_is_listed_and_not_decided():
     out = run([("question", "F17", [a_text("earlier"), a_text("No output.")], "No output.")])
     a = out["answers"]["F17"]
     assert a["route"] == "near_variant" and a["answer"] is None
-    assert out["near_variants"] == ["F17"] and out["counts"]["near_variant"] == 1
-    assert out["counts"]["missing"] == 0
+    assert out["near_variants"] == [{"id": "F17", "class": "no output", "length": 10}]
+    assert out["counts"]["near_variant"] == 1 and out["counts"]["missing"] == 0
+
+# Kepler 32578: the widening, one cell per added word, one for the punctuation-only case.
+import pytest
+@pytest.mark.parametrize("text,cls", [
+    ("No content", "no content"), ("[no response]", "no response"), ("No answer.", "no answer"),
+    ("None", "none"), ("NULL", "null"), ("(empty)", "empty"), ("N/A", "n/a"),
+])
+def test_widened_near_variant_words(text, cls):
+    out = run([("question", "F20", [a_text(text)], text)])
+    a = out["answers"]["F20"]
+    assert a["route"] == "near_variant" and a["answer"] is None
+    assert out["near_variants"] == [{"id": "F20", "class": cls, "length": len(text.strip())}]
+
+def test_punctuation_only_final_text_is_a_near_variant():
+    out = run([("question", "F21", [a_text("earlier"), a_text(" ... ")], " ... ")])
+    assert out["answers"]["F21"]["route"] == "near_variant"
+    assert out["near_variants"] == [{"id": "F21", "class": "no letters or digits", "length": 3}]
+
+def test_exact_placeholder_is_not_a_near_variant():
+    out = run([("question", "F22", [a_text(PH)], PH)])
+    assert out["near_variants"] == [] and out["answers"]["F22"]["route"] == "placeholder_missing"
+
+def test_word_inside_a_sentence_stays_an_answer():
+    for t in ("None of the three options fit.", "The box was empty when she opened it.", "N/A on the form means unknown."):
+        out = run([("question", "F23", [a_text(t)], t)])
+        assert out["answers"]["F23"]["route"] == "recorded" and out["near_variants"] == []
 
 def test_answer_mentioning_no_output_in_a_sentence_is_an_answer():
     t = "The script gave no output, so the meeting moved to 4 PM."

@@ -13,9 +13,22 @@ import json, os, re, sys
 
 PLACEHOLDER = "[no output]"
 # Ruling 2 (Office 32574): a final text that is exactly the placeholder after stripping whitespace is an empty reply
-# (missing, incorrect). A NEAR VARIANT is a final text whose whole stripped content is "no output" in any case, with
-# optional surrounding brackets/punctuation, but is not exact; it is listed for the design owner, not decided here.
-NEAR = re.compile(r"^[\W_]*no\s+output[\W_]*$", re.IGNORECASE)
+# (missing, incorrect). A NEAR VARIANT (study lead's definition, widened by the design owner, Office 32578) is a final
+# text whose WHOLE stripped content, in any letter case with optional surrounding brackets or punctuation, is one of the
+# words below, or which holds no letter or digit at all. It is listed (id, class, length) for the design owner and decided
+# by nobody here. The exact placeholder is its own class and is not a near variant.
+NEAR = re.compile(r"[\W_]*(no\s+output|no\s+content|no\s+response|no\s+answer|none|null|empty|n\s*/\s*a)[\W_]*",
+                  re.IGNORECASE)
+NO_ALNUM = "no letters or digits"
+
+
+def near_class(stripped):
+    m = NEAR.fullmatch(stripped)
+    if m:
+        return re.sub(r"\s+", " ", re.sub(r"\s*/\s*", "/", m.group(1).lower()))
+    if not any(ch.isalnum() for ch in stripped):
+        return NO_ALNUM
+    return None
 
 
 def split_turns(events):
@@ -81,9 +94,10 @@ def extract(events, rows):
                 ans, route = None, "placeholder_missing"
                 counts["missing"] += 1; counts["placeholder"] += 1
                 sens = texts[-2] if len(texts) > 1 else None
-            elif NEAR.fullmatch(final_text.strip()):
+            elif near_class(final_text.strip()) is not None:
                 ans, route = None, "near_variant"
-                counts["near_variant"] += 1; near.append(qid)
+                counts["near_variant"] += 1
+                near.append({"id": qid, "class": near_class(final_text.strip()), "length": len(final_text.strip())})
         if tool_ending != string_route:
             dis.append({"id": qid, "tool_ending": tool_ending, "string_route": string_route})
         answers[qid] = {"answer": ans, "route": route, "tool_ending": tool_ending, "string_route": string_route,
@@ -105,7 +119,7 @@ def main(argv):
     print("missing ids", sorted(k for k, v in res["answers"].items() if v["route"] in ("missing", "placeholder_missing")))
     print("disagreements", json.dumps(res["disagreements"]))
     print("placeholder ids", sorted(k for k, v in res["answers"].items() if v["route"] == "placeholder_missing"))
-    print("near_variant ids", res["near_variants"])
+    print("near_variants (id, class, length)", json.dumps(res["near_variants"]))
     return 0
 
 
