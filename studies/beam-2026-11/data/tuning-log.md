@@ -2357,3 +2357,29 @@ again to look for a different answer.
 `data/p1-answering-grading-key.json`), the raw scores `a6459353...` (held by the design owner's seat as well); the scorer
 output is `data/p1-answering-score-output.txt`. An independent recomputation from the key and the raw scores, sharing no
 code with the scorer, reproduced the two accuracies, the 38-exchange mean, both bootstrap bounds and the guard exactly.
+
+**Additions to the result above (design owner's requests, Office crossing 32694).**
+
+- **Who ran the independent recomputation:** the study lead, as an inline Python run reading only `key.json`,
+  `judge-raw.jsonl`, the frozen key-fact list and the question file, importing nothing from `p1_score.py`. It reproduced
+  both accuracies, the 38-exchange mean, both bootstrap bounds and the guard exactly. It shares the study lead's
+  understanding of the rule, so it checks the code, not the reading of the rule.
+- **The ruling chain this result rests on, in one place:**
+
+| ruling | crossing | what it fixed |
+|---|---|---|
+| 1 | 32566 | a turn ending on a tool call is answered by its last text block (stands, none occurred); made on a premise later shown false (32569) |
+| 2 | 32574 | a final text that is exactly `[no output]` is a missing answer; the earlier block is the sensitivity score |
+| 3 | 32673, 32674 | the "no output" class (any case, brackets or punctuation) is the same class; the near-variant list widened (32578) |
+| 4 | 32683 | correct iff the judge gives 1; the raw score is secondary and never decides |
+| guard | 32690 | the guard is the overall statistic on the 26 guard questions in their 14 exchanges |
+
+- **What K = 3 saves, measured from the three reading runs' own records** (`turns.jsonl`, reading rounds only, conversation
+  9, exchanges 1 to 45): wall seconds per exchange, k = 1 re-run 290.7, **K = 3 86.5**, K = 5 77.2 (run A, the older k = 1
+  run, 259.4); input tokens per exchange summed over model calls, k = 1 re-run 350K, K = 3 145K, K = 5 106K. The K = 3 to
+  k = 1 wall ratio is 0.30 to 0.33. **Projected to the registered study** (19 scored conversations of about 143 exchanges,
+  arm 2, plus 15 percent for the variance repeats), from run A's whole-conversation pace (362.7 s per exchange over 135
+  exchanges) and that ratio: **k = 1 315 to 353 GPU-hours, K = 3 94 to 118, a saving of about 220 to 235 GPU-hours
+  (about 70 percent).** **Bound:** one run per k; the ratio is measured only on exchanges 1 to 45, run A's mildest stretch
+  (its thirds ran 259, 307 and 452 s per exchange), and is ASSUMED to hold over whole conversations, which nobody has
+  measured; co-load not separated; GPU-hours per day is a parameter of the reader's choosing, not a measurement.
