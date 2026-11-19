@@ -300,7 +300,7 @@ Each line is the key holder's own commit. Times are UTC.
   runA-official-grades.jsonl.asc 252733dd60d303067e3603d26e0ac99668c564c85169d4d640f2fd587b9c3a38 -> plaintext
   dc9e09c33ea6c19216e5a947fec5e3023be74c1dbce57715b3f9344d9640db92 (20 rows). All four equal the study lead's
   stated values. BEAM 100K parquet fetched by the key holder from Mohammadta/BEAM at dataset revision 3205395e:
-  sha256 c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace, equal to the study lead's.
+  sha256 c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace, equal to the study lead's. [note added 2026-11-19 (key holder), on the design owner's ruling of 2026-11-18 (team crossing 32017, relayed by the study lead in 32022): the file called 'official grades' here is the study lead's HAND GRADE of run A under the official rubric, not a judge's output; the filename and hashes stay as they are because they are records. Phase 3's official grades are the question-seeing judge's output, received below.]
 - 2026-11-17T22:23Z. Seed commitments ("Seed commitment" section). n = 2 seeds, indexes 0..1 (0 = import seed,
   1 = letter seed). Each seed is secrets.token_hex(32) on the key holder's seat; each nonce is 32 fresh bytes from
   secrets. Neither seed has been used to derive, draw or order anything.
@@ -314,7 +314,7 @@ Each line is the key holder's own commit. Times are UTC.
   checkout), with the import seed of commit_0 (recomputed from the stored seed and nonce before use; equal).
   import-turns (--first-question-turn 137, --arm-label engram-runA, --grades = the official-grades input): wrote 20
   answers. import-beam (--conv 9, the BEAM 100K parquet above): 20 questions in the conversation, 20 items written,
-  0 without an agent answer.
+  0 without an agent answer. [note added 2026-11-19 (key holder), on the design owner's ruling of 2026-11-18 (team crossing 32017, relayed by the study lead in 32022): the file called 'official grades' here is the study lead's HAND GRADE of run A under the official rubric, not a judge's output; the filename and hashes stay as they are because they are records. Phase 3's official grades are the question-seeing judge's output, received below.]
   Opaque item ids (20, as items.jsonl lists them): 1a36f9f8c2 28e01f2f1e 68b0b61a7f 6d3a097da5 75686d8601
   7ffccc2a02 838c9ebabe 8c12a3d619 98b90f3f4b 9eb82dde53 a04a273228 af84c0b2a7 b61d7d5c93 b9cd2f4ff2 bc682a751a
   bd8f94871e d6bb28fc30 e728feacb7 ecbeaa3683 fccd2b7a3b
@@ -567,3 +567,24 @@ Each line is the study lead's own commit. Times are UTC.
   under the clarified clause, and the rubric-framing test on the reference answers (the design owner's ruling of
   15:21Z), stay with the key holder and are WAITING; the design owner has not reassigned them today. The three held
   packets have not gone to the phase-2 reader. Nothing else in phase 2 changes.
+- [key holder] 2026-11-19. DELAY, stated: the reader's 16 phase-2 records reached the key holder on 2026-11-18 (team crossings 32025/32026, 15:34-15:35Z) and were not processed until 2026-11-19 21:24:20Z to 21:27:28Z (file times of the two runs below), because the key holder's seat was dark about 28 hours (an expired client login). Nothing was opened in that window.
+- [key holder] 2026-11-19, first run 21:24:20Z (file time). The first set of records (thing 786e31a0): 16/16 one recipient packet (the key holder's subkey), plaintext sha256 equal to the reader's 32025. `record --phase 2 --reviewer sol` REFUSED all 16, one message: 'unknown field(s) in the verdict file: phase, schema_version'; nothing recorded. A scratch run (a copy of the verdicts file, deleted after) with only those two keys removed accepted 16/16. The key holder did not edit the records; the reader resent them (32915), with those two keys removed and every other key and value unchanged by his statement.
+- [key holder] 2026-11-19, recorded 21:27:28Z (file time). PHASE-2 RECORDS, second set (thing 0f3d6471): 16/16 one recipient packet, plaintext sha256 equal to the reader's 32915; all 16 recorded, 0 refused, at tool e5f0f26e with --chat conv9-full.md. verdicts.jsonl sha256 20f57db6f6457de0782ac9f0441c9a0938acd10a5fc4545ebb197b0d8f21302c -> ef59ba6ecbbc3145e953b617b5f406f7d4d03561fd9b221e15e03264dc6ad7bb. Ciphertext sha256 and record_sha256 per item:
+    1a36f9f8c2 cipher 01da6e830f18dd2bfbb961cb59e227d21179bc01ed869d1041f198325c2554db record f117eb9dcc3dcbdbbf67381ff7f2fc4088221d5774da72f8e1b0d8dc577a476e
+    28e01f2f1e cipher 2070b9a1be8dbaea3f5bee72c09b0d5af9d03d81fbb4e0ab81791d855a6d3307 record 6b7e56d6e408c27ba67c627bb3dfdf5714eed1053eb83a26bb6f4f6b268676f5
+    68b0b61a7f cipher 87ceb690065d53ec9239f4df10895710de2c31e7c17f78b68d69390a5051edbb record 8114db9c8d05ae84b370849b2b306a832fc178d3f5d71dc82ce1e925d2af3e51
+    75686d8601 cipher 166a51ae4da437399996f9e73ff40a39f786072ffa6b1e7a71d2f5e3343caf3e record 6ca8447f80477b7b7d110a2dfbf26c4b6a8c4b9c619b0d4bf71d8e8f23fd0bda
+    7ffccc2a02 cipher f71c758e202b7266a3833dad704043f11712549c2e8cfbdb32fda11924a690a2 record 489187d4cc7ff909b1c4754daaa08c488b8cd8ca2f2f9ef9ebd6d27d8195e5dd
+    838c9ebabe cipher b9884b3c96917c1b441a84223ed1638d11c7f50f2433bead3f4d9b3a3a4667ec record 9a25f43241e3dbcde939e5f463eb99c072e18ecc53037d1d8f7a5fef71e4b413
+    8c12a3d619 cipher 897b8579e3a545c2b6aa1da23b19aae3a1d55269d471d18e9cb222f657b31304 record 2f36124a5f712481edccdae7baec1bef2fe9a0359b0b4e13e8e23bad1e4be7f2
+    98b90f3f4b cipher 9a4ce337c9ba7e8db3a42582dedb2053b8a732720e4cd2565a8cf9ea199f5c73 record 4a41a5e9c5d7b93edef8ea85722e04ac2bcba0543f199a3b63ce345e7c824f0c
+    9eb82dde53 cipher 00e49e93bbed66d0bad0795177f8a923d43d72615ad6f45eeadd66abf0a67ef7 record 880f5f16a3b18dff7cb000c6fd909b32a7325ef835b334016968eeb2ba77001e
+    a04a273228 cipher 0f191088c536a1ab3c1985ef1c6ce41218399255d5ef01939afb06c0986a5c46 record 4e8fb7981f87c7137579d4d8eb22754b083499fd562eba8d0a7048de3f892c0c
+    b61d7d5c93 cipher da07362229da93c1e78b03a503b59116efb7a737ad1618d11eb6efae5323de08 record 26ac8134409c36322ce3fb22d87449916e30ba2b9d61c42925aae43eaaa72e1e
+    b9cd2f4ff2 cipher 910885c9af7326d2114b90dd965ce1d0cab7b8285d3538ce735d8da2e7aeab37 record 5402b59f7930554919460c81055a07a04aadec02c935c0ea6c8513035f94578b
+    bc682a751a cipher 9807cf3a5430c9a17c7e7c2a45f93c73b74abec4c79c662d5a483e82fffea676 record 3c59668a489a2e0d50ca0fa58e1d5eef404f917679784aa182a6345a859de4ff
+    bd8f94871e cipher 69aaada2b1b1d77a4ebc3e1db5d018a8c90ea9725adcc35efd3bfccc74e01221 record 75591037f8916dc59e210483852721bb1226a5c509a4be8b4f763183404450a1
+    e728feacb7 cipher 98705a2ec99d8d68dec126d5860f25a869d55e2b9ec6751d049f641236b4030e record 184114ceae88916dc85ccd7d5e2e07659458a9d19d521d8705a6f0d1692cee2b
+    ecbeaa3683 cipher c8b5f5b0a564995309638ada7a92f4a9471d022a174eb269b483ab94b4746b1d record c9d56241a3db7a22c5ee5874ea10b4f8c2247ea0e3f83383effa856a720aa4f1
+  The reader revoked his transfer key after this confirmation (his own log line).
+- [key holder] 2026-11-19, decrypted 21:25:38Z (file time). Receipt of the phase-3 grades input (study lead, 32029): thing 4b852e32, runA-qs-judge-grades.jsonl.asc, ciphertext sha256 b4ebe47340402769b6d41fc6df82bcd67ec07d63fe705d3cef7b781fbffd2960, one recipient packet (the key holder's subkey); plaintext sha256 d9b63979acb0ef6ec7e2c3b56136850ba725b643f804e62f8e3b9b61e38ff23e, 20 rows; both equal the study lead's stated values. Held for map and export-phase3 only, never for packet2.
