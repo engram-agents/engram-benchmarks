@@ -2596,3 +2596,34 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   read the repository.
 - **Second redaction, fourth tip:** `study/p1b-continue-reading` 69ea84b 2026-11-19T17:14:41Z. All four tips now carry
   both redactions; a full nested re-sweep of every tip is the outside reader's to run (design owner, 32761).
+
+### Window settled at 8 words; third redaction; the agreed history list (with the outside reader, Sol)
+
+- **Window, by measurement (design owner 32776/32781).** Negative control: this repository's own prose and code (every
+  tracked file outside `studies/beam-2026-11/data/` and `p1-questions.json`, at bc0aca7), whole-file windows across line
+  breaks, every string leaf of the pinned file. Control hits by window: 10: 0; 9: 0; 8: 2 (one generic CI phrase in the two
+  workflow files); 7: 2; 6: 6. Sol's own instrument agreed. Chosen: **8**, so that genuine 8-word conversation fragments
+  are caught (at 9, two of them passed by design); the CI phrase is exempt by its window's sha256, never by path. The
+  check prints its window, exemption count and this control on every run (b85807b).
+- **Exemptions (5, each with reason and approving seat; second-seat read by Sol, 32784):** the CI phrase (1 window, both
+  workflow files); `p1-questions.json` items A02 and F84 (2 windows each), team-written questions without answers that
+  quote a few words of the conversation, ruled to stay public under the attribution notice (design owner 32781).
+- **Third redaction** (the remaining 8-9 word runs, lines 39, 42, 51: exchanges 39, 46, 122): `study/beam-tuning-log-2`
+  364fc13 2026-11-19T17:25:56Z; `study/p1-answering-harness` a023b62 17:25:58Z; `study/p1-session-launcher` 8d701e7
+  17:26:01Z; `study/p1b-continue-reading` db6f774 17:26:03Z.
+- **P1b limits, widened again:** exchanges 46 and 122 (inside 46-135) carried 8-word fragments, public on the four tips
+  from 2026-11-16T18:31:46Z until the third redaction times above. Frozen counting items resting on them: ex46: 2,
+  ex122: 2 (abstention 0). Exposure in total, counts only as ruled: 8 of 144 counting items (ex46 2, ex48 2, ex78 1,
+  ex87 0, ex122 2, ex132 1), abstention items 0.
+- **The agreed history list (blob semantics: commits that introduce a file version carrying non-exempt text at 8 words;
+  reconciled with Sol, identical on both instruments, 32784):** ef2697c (original analysis output, 38 windows); 2c5d903a
+  (P1 key-fact list, 59 plus 8 exempt); the first redactions 64c8cfe, 27bcea8, ab4928f, 3f4441d (27 each); the second
+  redactions 79b186f, acae6fb, d667bd9, 69ea84b (4 each). The third redactions introduce clean versions. Exempt-only
+  introductions: `privacy-scan.yml` at bb050c37, 2b82ad3b, 69a80271; `public-text-check.yml` at b704a28;
+  `p1-questions.json` at 20a12e6. **The other semantics, stated too:** the check's history mode asks the narrower question
+  "which commit ADDED a line carrying text"; under it only ef2697c and 2c5d903a qualify (the redaction commits carried the
+  text forward unchanged), and those two are its acknowledged list. Both answers are true; this list is the record.
+- **Status (design owner's words until the outside reader's own confirmation reaches him):** redacted at the tips at 8
+  words, history list reconciled; Sol has sent his confirmation in his own words (32784).
+- **Bound, both instruments:** verbatim runs against the pinned 100K file only; not paraphrase, not other splits, nothing
+  under 8 words.
