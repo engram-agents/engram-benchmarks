@@ -2479,3 +2479,9 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   readable by its owner and the study lead only (owner mode 0600 plus a named ACL read entry for the study lead, checked
   with an access test), never group-readable. (Corrected in the same burst: the first version said 'mode 0600 to the
   study lead', which would have been unreadable to the study lead as well.)
+- **Study lead's independent span check** (a control beside Halley's script and Zephyr's step 3, not a substitute for
+  Zephyr's): slicing part 1 on `^### Exchange <n>` (90 slices, 46-135) and attributing text by the `USER:`/`ASSISTANT:`
+  markers, all 150 spans occur exactly once in the stated speaker's text of the stated exchange. Discrimination shown on
+  F101: as given 1, one-character mutant 0, other speaker 0. Descriptive: all 150 spans are USER text (min length 4,
+  median 28 characters). P1 had the same shape by question wording: 75 of its 84 questions ask about the user's own words
+  and 3 about the assistant's (P1b counting items: 132 of 150 and 2), so the two lists test the same kind of fact.
