@@ -2383,3 +2383,13 @@ code with the scorer, reproduced the two accuracies, the 38-exchange mean, both 
   (about 70 percent).** **Bound:** one run per k; the ratio is measured only on exchanges 1 to 45, run A's mildest stretch
   (its thirds ran 259, 307 and 452 s per exchange), and is ASSUMED to hold over whole conversations, which nobody has
   measured; co-load not separated; GPU-hours per day is a parameter of the reader's choosing, not a measurement.
+
+## P1b: design drafted for the design owner's read (logged 2026-11-19, before any question is written)
+
+On the design owner's GO to design (Office crossing 32699), the larger instrument is drafted in
+[protocol/p1b-design.md](../protocol/p1b-design.md): continuation from P1's preserved end states over exchanges 46 to 135;
+about 150 questions (re-simulated at the final count; stop and report if an equal K = 3 would be accepted less than half
+the time at D = 0.25); no pooling with P1 (pooled bound printed beside, never deciding); speed ratio R as a registered
+quantity with a stop line at R > 0.75; writer and second reader by declaration; P1's answer rules written in up front;
+about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `data/p1b-pooling-sim.txt` and
+`tools/p1b/pooling_sim.py` (seed 20261125). Nothing is built or run until the design is read.

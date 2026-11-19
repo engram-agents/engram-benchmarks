@@ -1,0 +1,9 @@
+seed 20261125, trials 3000, p 0.8, margin -0.10, bounds 4/96, stage1 P1 75/38, stage2 A 150/76
+rho 0.2 D 0.15 loss 0.00: P(stage1 INCONCLUSIVE) 0.332; given that, ACCEPTED by stage 2 alone 0.857, by pooled 0.908  (n=997)
+rho 0.2 D 0.15 loss 0.10: P(stage1 INCONCLUSIVE) 0.372; given that, ACCEPTED by stage 2 alone 0.050, by pooled 0.069  (n=1117)
+rho 0.2 D 0.25 loss 0.00: P(stage1 INCONCLUSIVE) 0.507; given that, ACCEPTED by stage 2 alone 0.665, by pooled 0.722  (n=1522)
+rho 0.2 D 0.25 loss 0.10: P(stage1 INCONCLUSIVE) 0.560; given that, ACCEPTED by stage 2 alone 0.049, by pooled 0.051  (n=1681)
+rho 0.6 D 0.15 loss 0.00: P(stage1 INCONCLUSIVE) 0.377; given that, ACCEPTED by stage 2 alone 0.816, by pooled 0.882  (n=1132)
+rho 0.6 D 0.15 loss 0.10: P(stage1 INCONCLUSIVE) 0.401; given that, ACCEPTED by stage 2 alone 0.046, by pooled 0.069  (n=1204)
+rho 0.6 D 0.25 loss 0.00: P(stage1 INCONCLUSIVE) 0.537; given that, ACCEPTED by stage 2 alone 0.607, by pooled 0.708  (n=1612)
+rho 0.6 D 0.25 loss 0.10: P(stage1 INCONCLUSIVE) 0.593; given that, ACCEPTED by stage 2 alone 0.046, by pooled 0.047  (n=1780)
