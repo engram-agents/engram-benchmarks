@@ -747,12 +747,48 @@ def extra(tmp_path):
     return x
 
 
-SHARED = os.path.join("/home", "agents-shared")  # joined so that no host path literal sits in the file
-
-
 def user_home():
     import pwd
     return os.path.realpath(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def account_homes():
+    """Every directory that is some account's home in the host's account database, generated now (a class, never a
+    hand list). Includes the invoking user's."""
+    import pwd
+    return sorted({os.path.realpath(u.pw_dir) for u in pwd.getpwall() if u.pw_dir and os.path.isdir(u.pw_dir)})
+
+
+def _launch(cfg, fake_bwrap, **kw):
+    fdir, out = fake_bwrap
+    return cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log, **kw), out
+
+
+def _wait_clean(cfg):
+    end = time.time() + 8
+    while os.listdir(cfg.tmpd) and time.time() < end:
+        time.sleep(0.05)
+    assert os.listdir(cfg.tmpd) == [], "the bridge forwarder did not clean up"
+    if os.path.exists(cfg.log):
+        os.unlink(cfg.log)
+
+
+def _refused(cfg, fake_bwrap, var, word, **kw):
+    """Exit 2, exactly one stderr line that names the offending variable and says why; nothing started or created."""
+    r, out = _launch(cfg, fake_bwrap, **kw)
+    assert r.returncode == 2, (kw, r.returncode, r.stderr)
+    lines = [l for l in r.stderr.splitlines() if l.strip()]
+    assert len(lines) == 1 and var in lines[0] and word in lines[0], (var, word, r.stderr)
+    assert not os.path.exists(out), "bwrap was started"
+    assert os.listdir(cfg.tmpd) == [] and not os.path.exists(cfg.log)
+
+
+def _accepted(cfg, fake_bwrap, **kw):
+    """The positive control of a refusal cell: the configuration passes every check and reaches bwrap."""
+    r, out = _launch(cfg, fake_bwrap, **kw)
+    assert r.returncode == 99 and os.path.exists(out), (kw, r.returncode, r.stderr)
+    os.unlink(out)
+    _wait_clean(cfg)
 
 
 def test_f2_refusals_entry_shapes(cfg, fake_bwrap, extra):
@@ -761,55 +797,135 @@ def test_f2_refusals_entry_shapes(cfg, fake_bwrap, extra):
     nosuch = os.path.join(extra.base, "no-such")
     for val in ("relative/dir", nosuch, f, extra.tools + ":" + nosuch,
                 extra.tools + ":", ":" + extra.tools, extra.tools + "::" + extra.secret):
-        assert_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", SANDBOX_RO_BINDS=val)
+        assert_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", SANDBOX_RO_BINDS=val, SANDBOX_RO_ROOT=extra.base)
 
 
-def _protected_refused(cfg, fake_bwrap, var, val, **kw):
-    fdir, out = fake_bwrap
-    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log, **{var: val}, **kw)
-    assert r.returncode == 2, (val, r.returncode, r.stderr)
-    lines = [l for l in r.stderr.splitlines() if l.strip()]
-    assert len(lines) == 1 and var in lines[0] and "protected" in lines[0], r.stderr
-    assert not os.path.exists(out) and os.listdir(cfg.tmpd) == [] and not os.path.exists(cfg.log)
+# ---------------------------------------------------------------- R1: allow-list by declared roots
+
+def test_r1_ro_root_is_required_with_ro_binds(cfg, fake_bwrap, extra):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", SANDBOX_RO_BINDS=extra.tools)
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base)
 
 
-def test_f2_refuses_the_filesystem_root(cfg, fake_bwrap):
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "/")
+def test_r1_ro_root_must_be_an_existing_directory(cfg, fake_bwrap, extra):
+    f = os.path.join(extra.base, "afile")
+    open(f, "w").close()
+    for val in (os.path.join(extra.base, "no-such"), f, "relative/dir"):
+        assert_refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=val)
 
 
-def test_f2_refuses_the_invoking_users_home_and_its_ancestors(cfg, fake_bwrap):
+def test_r1_descendant_of_a_shared_directory_is_refused(cfg, fake_bwrap, tmp_path):
+    """A stand-in for 'a shared directory under a home's parent': the old class rule accepted a DESCENDANT of it."""
+    t = tmp_path / "standin"
+    own, shared = t / "own" / "tools", t / "shared" / "forum" / "inbox"
+    own.mkdir(parents=True)
+    shared.mkdir(parents=True)
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(own), SANDBOX_RO_ROOT=str(t / "own"))
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "not inside", SANDBOX_RO_BINDS=str(shared), SANDBOX_RO_ROOT=str(t / "own"))
+    _refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", "not inside", SANDBOX_RW_BINDS=str(shared), SANDBOX_RW_ROOT=str(t / "own"))
+
+
+def test_r1_descendant_of_var_tmp_is_refused(cfg, fake_bwrap, tmp_path):
+    vt = tempfile.mkdtemp(dir="/var/tmp")
+    own = tmp_path / "own"
+    own.mkdir()
+    try:
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "not inside", SANDBOX_RO_BINDS=vt, SANDBOX_RO_ROOT=str(own))
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", "not inside", SANDBOX_RW_BINDS=vt, SANDBOX_RW_ROOT=str(own))
+        # and /var/tmp itself, as a root, when the slot lives under it
+        c = _with_var_tmp_slot(cfg)
+        try:
+            _refused(c, fake_bwrap, "SANDBOX_RO_ROOT", "slot", SANDBOX_RO_BINDS=vt, SANDBOX_RO_ROOT="/var/tmp")
+        finally:
+            shutil.rmtree(c.slot, ignore_errors=True)
+    finally:
+        shutil.rmtree(vt, ignore_errors=True)
+
+
+def test_r1_entry_outside_its_root_ro_and_rw(cfg, fake_bwrap, extra):
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "not inside", SANDBOX_RO_BINDS=extra.secret, SANDBOX_RO_ROOT=extra.tools)
+    _refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", "not inside", SANDBOX_RW_BINDS=extra.secret, SANDBOX_RW_ROOT=extra.runout)
+
+
+def test_r1_root_is_the_filesystem_root(cfg, fake_bwrap, extra):
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "filesystem root", SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT="/")
+    _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "filesystem root", SANDBOX_RW_BINDS=extra.proctor, SANDBOX_RW_ROOT="/")
+    # and an entry that is "/" is refused too (it cannot be inside a sane root)
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "filesystem root", SANDBOX_RO_BINDS="/", SANDBOX_RO_ROOT=extra.tools)
+
+
+def test_r1_root_is_any_account_home_or_an_ancestor_of_one(cfg, fake_bwrap, extra):
+    """Class check from the host's own account database (all users, not only the invoker), RO and RW."""
+    homes = account_homes()
+    assert user_home() in homes
+    targets = set(homes)
+    for h in homes:
+        p = os.path.dirname(h)
+        while p != "/":
+            targets.add(p)
+            p = os.path.dirname(p)
+    for t in sorted(targets):
+        word = "filesystem root" if t == "/" else "home directory"
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", word, SANDBOX_RO_BINDS=t, SANDBOX_RO_ROOT=t)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", word, SANDBOX_RW_BINDS=t, SANDBOX_RW_ROOT=t)
+
+
+def test_r1_root_is_another_accounts_home(cfg, fake_bwrap, extra, tmp_path):
+    other = tmp_path / "other-account-home"
+    (other / "sub").mkdir(parents=True)
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "home directory", SANDBOX_RO_BINDS=str(other),
+             SANDBOX_RO_ROOT=str(other), SANDBOX_TEST_EXTRA_HOMES=str(other))
+    # its ancestor too, and a root inside it is fine (positive control: only the home itself is refused)
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "home directory", SANDBOX_RO_BINDS=str(other),
+             SANDBOX_RO_ROOT=str(tmp_path), SANDBOX_TEST_EXTRA_HOMES=str(other))
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(other / "sub"), SANDBOX_RO_ROOT=str(other / "sub"),
+              SANDBOX_TEST_EXTRA_HOMES=str(other))
+
+
+def test_r1_root_inside_a_dot_directory_of_a_home(cfg, fake_bwrap, tmp_path):
+    fake = tmp_path / "fakehome"
+    for d in (".secrets/inner", "visible/inner", "a/.b/c", "dot.in.name/x"):
+        (fake / d).mkdir(parents=True)
+    kw = {"SANDBOX_TEST_EXTRA_HOMES": str(fake)}
+    for d in (".secrets", ".secrets/inner", "a/.b", "a/.b/c"):
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "dot-directory", SANDBOX_RO_BINDS=str(fake / d),
+                 SANDBOX_RO_ROOT=str(fake / d), **kw)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "dot-directory", SANDBOX_RW_BINDS=str(fake / d),
+                 SANDBOX_RW_ROOT=str(fake / d), **kw)
+    # controls: a visible directory, and a dot only inside a name, are fine
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(fake / "visible" / "inner"), SANDBOX_RO_ROOT=str(fake / "visible"), **kw)
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(fake / "dot.in.name" / "x"), SANDBOX_RO_ROOT=str(fake / "dot.in.name"), **kw)
+    # an entry inside a dot-directory is refused even when the root above it is clean
+    (fake / "visible" / ".hid").mkdir()
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "dot-directory", SANDBOX_RO_BINDS=str(fake / "visible" / ".hid"),
+             SANDBOX_RO_ROOT=str(fake / "visible"), **kw)
+    # the same, in the invoking user's real home when it is writable (no host name is spelled here)
     h = user_home()
-    assert os.path.isdir(h)
-    for e in {h, os.path.dirname(h)}:
-        if e != "/":
-            _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", e)
+    if os.access(h, os.W_OK):
+        d = tempfile.mkdtemp(dir=h, prefix=".sandbox-dotdir-")
+        try:
+            _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "dot-directory", SANDBOX_RO_BINDS=d, SANDBOX_RO_ROOT=d)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
-def test_f2_refuses_home_and_agents_shared(cfg, fake_bwrap):
-    if not os.path.isdir(SHARED):
-        pytest.skip("no shared agents directory under /home on this host: the entry would be refused as nonexistent, not as protected")
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "/home")
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", SHARED)
-
-
-def test_f2_refuses_the_slots_parent_and_its_ancestors(cfg, fake_bwrap):
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", cfg.root)
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", os.path.dirname(cfg.root))
-
-
-def test_f2_refuses_the_dataset_directory_and_its_ancestors(cfg, fake_bwrap, tmp_path):
+def test_r1_root_contains_the_dataset_or_the_binary(cfg, fake_bwrap, tmp_path):
     d = tmp_path / "data" / "inner"
     d.mkdir(parents=True)
     p = str(d / "standin.parquet")
     open(p, "w").close()
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", str(d), BEAM_PARQUET=p)
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", str(d.parent), BEAM_PARQUET=p)
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", str(d), BEAM_PARQUET=p, SANDBOX_RW_ROOT=str(d.parent))
+    for root in (str(d), str(d.parent)):
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "dataset", SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=root, BEAM_PARQUET=p)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "dataset", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=root, BEAM_PARQUET=p)
+    # control: the same tree is fine when the dataset is elsewhere
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=str(d.parent), BEAM_PARQUET=os.path.join(cfg.root, "elsewhere.parquet"))
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "binary", SANDBOX_RO_BINDS=cfg.bindir, SANDBOX_RO_ROOT=cfg.bindir)
 
 
-def test_f2_refuses_the_scratch_directories(cfg, fake_bwrap):
-    for e in ("/tmp", "/var/tmp"):
-        _protected_refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", e)
+def test_r1_root_is_an_ancestor_of_the_slot(cfg, fake_bwrap, extra):
+    for root in (cfg.slot, cfg.root, os.path.dirname(cfg.root)):
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "slot", SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=root)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "slot", SANDBOX_RW_BINDS=extra.proctor, SANDBOX_RW_ROOT=root)
 
 
 def test_f2_rw_refusals(cfg, fake_bwrap, extra):
@@ -837,8 +953,41 @@ def test_f2_rw_refusals(cfg, fake_bwrap, extra):
                    SANDBOX_RW_ROOT=extra.runout)
 
 
-def test_f2_refuses_an_rw_entry_that_is_the_home(cfg, fake_bwrap):
-    _protected_refused(cfg, fake_bwrap, "SANDBOX_RW_BINDS", user_home(), SANDBOX_RW_ROOT=os.path.dirname(user_home()))
+# ---------------------------------------------------------------- R2: the slot is validated by the same class rules
+
+def test_r2_slot_is_the_filesystem_root(cfg, fake_bwrap):
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "filesystem root", SANDBOX_SLOT="/")
+
+
+def test_r2_slot_is_any_account_home_or_an_ancestor_of_one(cfg, fake_bwrap):
+    homes = account_homes()
+    targets = set(homes)
+    for h in homes:
+        p = os.path.dirname(h)
+        while p != "/":
+            targets.add(p)
+            p = os.path.dirname(p)
+    for t in sorted(targets):
+        _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "filesystem root" if t == "/" else "home directory", SANDBOX_SLOT=t)
+
+
+def test_r2_slot_contains_the_dataset_or_the_binary(cfg, fake_bwrap):
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dataset", BEAM_PARQUET=os.path.join(cfg.slot, "work", "standin.parquet"))
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dataset", BEAM_PARQUET=os.path.join(cfg.slot, "work", "standin.parquet"),
+             SANDBOX_SLOT=os.path.join(cfg.slot, "work"))
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "binary", SANDBOX_SLOT=cfg.root)
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "binary", SANDBOX_SLOT=cfg.bindir)
+    _accepted(cfg, fake_bwrap, BEAM_PARQUET=os.path.join(cfg.root, "elsewhere.parquet"))
+
+
+def test_r2_slot_inside_a_dot_directory_of_a_home(cfg, fake_bwrap, tmp_path):
+    fake = tmp_path / "fakehome"
+    (fake / ".cfg" / "slot").mkdir(parents=True)
+    (fake / "slot").mkdir()
+    kw = {"SANDBOX_TEST_EXTRA_HOMES": str(fake)}
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dot-directory", SANDBOX_SLOT=str(fake / ".cfg" / "slot"), **kw)
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dot-directory", SANDBOX_SLOT=str(fake / ".cfg"), **kw)
+    _accepted(cfg, fake_bwrap, SANDBOX_SLOT=str(fake / "slot"), **kw)   # a slot under a home is fine when no dot
 
 
 @needs_box
@@ -846,7 +995,7 @@ def test_f2_ro_bind_is_visible_not_writable_and_its_sibling_is_not(cfg, extra):
     r = cfg.run(exec_='test -x "$1/ask-proctor" && echo TOOL; (touch "$1/x") 2>/dev/null && echo WROTE; '
                       '(: > "$1/ask-proctor") 2>/dev/null && echo CLOBBERED; test -e "$2" && echo SECRET; '
                       'test -e "$3/key" && echo KEY; ls -A "$4"; echo done',
-                args=[extra.tools, extra.base + "/secret", extra.secret, extra.base], SANDBOX_RO_BINDS=extra.tools)
+                args=[extra.tools, extra.base + "/secret", extra.secret, extra.base], SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base)
     assert r.returncode == 0, r.stderr
     assert r.stdout.split() == ["TOOL", "tools", "done"], r.stdout
     assert not os.path.exists(os.path.join(extra.tools, "x"))
@@ -865,7 +1014,7 @@ def test_f2_both_variables_and_two_entries(cfg, extra):
     second = os.path.join(extra.runout, "second")
     os.makedirs(second)
     r = cfg.run(exec_='test -x "$1/ask-proctor" && touch "$2/a" "$3/b" && echo ok', args=[extra.tools, extra.proctor, second],
-                SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor + ":" + second, SANDBOX_RW_ROOT=extra.runout)
+                SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor + ":" + second, SANDBOX_RW_ROOT=extra.runout)
     assert r.returncode == 0 and r.stdout.strip() == "ok", r.stderr
     assert os.path.exists(os.path.join(extra.proctor, "a")) and os.path.exists(os.path.join(second, "b"))
 
@@ -873,7 +1022,7 @@ def test_f2_both_variables_and_two_entries(cfg, extra):
 @needs_box
 def test_f2_ask_proctor_works_from_inside(cfg, extra):
     r = cfg.run(exec_='ask-proctor what is this; echo "$PROCTOR_DIR"', PATH=extra.tools + ":/usr/bin:/bin",
-                PROCTOR_DIR=extra.proctor, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor,
+                PROCTOR_DIR=extra.proctor, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor,
                 SANDBOX_RW_ROOT=extra.runout)
     assert r.returncode == 0, r.stderr
     assert r.stdout.split("\n")[:2] == ["asked", extra.proctor]
@@ -893,14 +1042,14 @@ def test_f2_dataset_stand_in_stays_invisible_when_its_parents_sibling_is_bound(c
         open(os.path.join(sib, "marker"), "w").close()
         r = cfg.run(exec_='test -e "$1/marker" && echo SIBLING-BOUND; test -e "$2" && echo STANDIN-VISIBLE; '
                           'test -e "$3" && echo STANDIN-DIR-VISIBLE; echo done', args=[sib, p, d],
-                    BEAM_PARQUET=p, SANDBOX_RO_BINDS=sib)
+                    BEAM_PARQUET=p, SANDBOX_RO_BINDS=sib, SANDBOX_RO_ROOT=sib)
         assert r.returncode == 0, r.stderr
         assert r.stdout.split() == ["SIBLING-BOUND", "done"], r.stdout
         # binding the home itself must be refused, and must never make the stand-in visible
         r = cfg.run(exec_='test -e "$1" && echo STANDIN-VISIBLE; echo done', args=[p], BEAM_PARQUET=p,
-                    SANDBOX_RO_BINDS=home)
+                    SANDBOX_RO_BINDS=home, SANDBOX_RO_ROOT=home)
         assert "STANDIN-VISIBLE" not in r.stdout, "the stand-in became visible through an ancestor bind"
-        assert r.returncode == 2 and "protected" in r.stderr, (r.returncode, r.stderr)
+        assert r.returncode == 2 and "home directory" in r.stderr, (r.returncode, r.stderr)
     finally:
         shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(sib, ignore_errors=True)
@@ -908,7 +1057,7 @@ def test_f2_dataset_stand_in_stays_invisible_when_its_parents_sibling_is_bound(c
 
 @needs_box
 def test_f2_launch_line_logs_every_extra_bind(cfg, extra):
-    r = cfg.run(exec_="true", SANDBOX_LOG=cfg.log, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RW_BINDS=extra.proctor,
+    r = cfg.run(exec_="true", SANDBOX_LOG=cfg.log, SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor,
                 SANDBOX_RW_ROOT=extra.runout)
     assert r.returncode == 0, r.stderr
     line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]

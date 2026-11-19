@@ -11,6 +11,7 @@ socket, and nothing else crosses:
          Forks into the background, then execs the command it was given, so the student is the main process.
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
+  homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID [--log FILE]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
@@ -158,6 +159,13 @@ def run_inner(a):
         return 127
 
 
+def run_homes(a):
+    import pwd
+    homes = {os.path.realpath(u.pw_dir) for u in pwd.getpwall() if u.pw_dir}
+    sys.stdout.write("".join(h + "\0" for h in sorted(homes)))
+    return 0
+
+
 def one_request(host, port):
     t0 = time.perf_counter()
     s = socket.create_connection((host, port), timeout=10)
@@ -213,6 +221,7 @@ def main(argv):
     i.add_argument("--sock", required=True); i.add_argument("--port", type=int, required=True)
     i.add_argument("--unset", action="append", default=[])
     i.add_argument("cmd", nargs="*")
+    sub.add_parser("homes")
     la = sub.add_parser("latency")
     la.add_argument("--host", required=True); la.add_argument("--port", type=int, required=True)
     la.add_argument("-n", type=int, default=50)
@@ -220,7 +229,7 @@ def main(argv):
     lc.add_argument("--wrapper", required=True); lc.add_argument("-n", type=int, default=50)
     a = ap.parse_args(argv)
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
-            "latency-compare": run_latency_compare}[a.mode](a)
+            "latency-compare": run_latency_compare, "homes": run_homes}[a.mode](a)
 
 
 if __name__ == "__main__":

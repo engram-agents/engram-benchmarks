@@ -57,62 +57,79 @@ print(p); print(hashlib.sha256(open(p, "rb").read()).hexdigest())' "$SANDBOX_BIN
 [ -n "${BIN_SUM:-}" ] || refuse "SANDBOX_BINARY could not be read"
 want=${SANDBOX_BINARY_SHA256,,}
 [ "$BIN_SUM" = "$want" ] || refuse "SANDBOX_BINARY_SHA256 mismatch: the binary's sha256 is not the pinned one"
-SLOT=$(cd -P -- "$SANDBOX_SLOT" && pwd -P)
-# (Round 2, F1: only the binary FILE is bound, so its directory's other entries are never visible. The old
-# "binary directory contains the slot" refusal existed because the whole directory was bound read-only over the
-# read-write slot; with a single file bound it has no meaning and is gone.)
+SLOT=$(realpath -e -- "$SANDBOX_SLOT" 2>/dev/null) && [ -n "$SLOT" ] || refuse "SANDBOX_SLOT cannot be resolved"
+
+# ---- R1/R2: an allow-list by declared roots. The slot, each ROOT and each entry obey the same class rules, all
+# generated from the host at run time (no path is named here): refused when it is "/", equal to or an ancestor of
+# ANY home directory in the account database (all users) or of the slot, contains the dataset file or the pinned
+# binary, or sits below a home directory at any depth through a path component that begins with "." (dot-directories
+# hold secrets, ssh keys, config, the ENGRAM home). Every RO entry must lie inside SANDBOX_RO_ROOT and every RW entry
+# inside SANDBOX_RW_ROOT, after realpath. (Round 3 withdrew the hand-listed protected array of round 2.)
+HOMES=()
+while IFS= read -r -d '' h; do HOMES+=("$h"); done < <("$PY" -I "$FWD" homes 2>/dev/null)
+if [ "${SANDBOX_TEST:-}" = 1 ] && [ -n "${SANDBOX_TEST_EXTRA_HOMES:-}" ]; then
+  # test only: extra stand-in home directories, so the home rules are tested without touching host homes. It adds
+  # homes, so it can only add refusals.
+  IFS=: read -r -a XH <<< "$SANDBOX_TEST_EXTRA_HOMES"
+  for h in "${XH[@]}"; do HOMES+=("$(realpath -m -- "$h")"); done
+fi
+[ "${#HOMES[@]}" -gt 0 ] || refuse "cannot read the account database"
+DATASET=""
+[ -z "${BEAM_PARQUET:-}" ] || DATASET=$(realpath -m -- "$BEAM_PARQUET")
+
+inside() { [ "$1" = / ] && return 0; case "$2/" in "$1"/*) return 0 ;; esac; return 1; }   # $2 equal to or inside $1
+class_check() {   # $1 variable name, $2 resolved path, $3 kind: slot | ro | rw. Refuses; returns when the path is fine.
+  local v=$1 p=$2 kind=$3 h rel
+  [ "$p" != / ] || refuse "$v is the filesystem root"
+  for h in "${HOMES[@]}"; do
+    if inside "$p" "$h"; then refuse "$v $p is, or is an ancestor of, a home directory in the account database"; fi
+  done
+  if [ "$kind" != slot ] && inside "$p" "$SLOT"; then refuse "$v $p is, or is an ancestor of, the slot"; fi
+  if [ -n "$DATASET" ] && inside "$p" "$DATASET"; then refuse "$v $p contains the dataset file"; fi
+  if inside "$p" "$BIN_REAL" && ! { [ "${SANDBOX_TEST:-}" = 1 ] && [ "${SANDBOX_TEST_ALLOW_BINARY_IN_RW:-}" = 1 ] && [ "$kind" != ro ]; }; then
+    refuse "$v $p contains the pinned binary"
+  fi
+  for h in "${HOMES[@]}"; do
+    [ "$h" != / ] && [ "$p" != "$h" ] && inside "$h" "$p" || continue
+    rel=${p#"$h"/}
+    if [[ /$rel == */.* ]]; then refuse "$v $p is inside a dot-directory of a home"; fi
+  done
+}
+class_check SANDBOX_SLOT "$SLOT" slot
 
 # ---- F2: extra binds, validated here (same refuse-before-anything rule) ------------------------------------
-# SANDBOX_RO_BINDS / SANDBOX_RW_BINDS: colon-separated absolute directories, bound at their own (resolved) paths.
-# An entry is refused when it is "/", or equal to or an ancestor of a protected path, and an RW entry must lie
-# inside SANDBOX_RW_ROOT. "Protected" = the invoking user's home, /home, the shared agents directory under /home, the slot's parent,
-# BEAM_PARQUET when set, and (beyond the contract) /tmp, /var/tmp and /run, so that binding a scratch directory
-# cannot expose the bridge socket directory or another run's files.
-RO_LIST=(); RW_LIST=(); RW_ROOT_REAL=""
+# SANDBOX_RO_BINDS / SANDBOX_RW_BINDS: colon-separated absolute directories, bound at their own (resolved) paths,
+# each inside its declared root (SANDBOX_RO_ROOT / SANDBOX_RW_ROOT, required with the binds).
+RO_LIST=(); RW_LIST=()
 CANON=""
-canon_entry() {   # $1 variable name, $2 one entry; sets CANON to its resolved path, or refuses
+canon_entry() {   # $1 variable name, $2 one entry, $3 "entry " or ""; sets CANON to its resolved path, or refuses
   local e=$2
   [ -n "$e" ] || refuse "$1 has an empty entry"
-  [[ $e == /* ]] || refuse "$1 entry is not an absolute path: $e"
-  [ -d "$e" ] || refuse "$1 entry is not an existing directory: $e"
-  CANON=$(realpath -e -- "$e" 2>/dev/null) && [ -n "$CANON" ] || refuse "$1 entry cannot be resolved: $e"
+  [[ $e == /* ]] || refuse "$1 ${3}is not an absolute path: $e"
+  [ -d "$e" ] || refuse "$1 ${3}is not an existing directory: $e"
+  CANON=$(realpath -e -- "$e" 2>/dev/null) && [ -n "$CANON" ] || refuse "$1 ${3}cannot be resolved: $e"
 }
 split_entries() {  # $1 variable name, $2 list; fills ENTRIES
   ENTRIES=()
   [[ $2 == :* || $2 == *: || $2 == *::* ]] && refuse "$1 has an empty entry"
   IFS=: read -r -a ENTRIES <<< "$2"
 }
-if [ -n "${SANDBOX_RO_BINDS:-}${SANDBOX_RW_BINDS:-}" ]; then
-  UHOME=$("$PY" -I -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null) \
-    && [ -n "$UHOME" ] || refuse "cannot determine the invoking user's home directory"
-  PROT=(/home /home/"agents-shared" /tmp /var/tmp /run "$UHOME" "${SLOT%/*}")
-  [ -n "${BEAM_PARQUET:-}" ] && PROT+=("$BEAM_PARQUET")
-  for i in "${!PROT[@]}"; do PROT[$i]=$(realpath -m -- "${PROT[$i]}") || refuse "cannot resolve a protected path"; done
-  check_entry() {   # $1 variable name, $2 one entry; sets CANON after the root / protected-path checks
-    canon_entry "$1" "$2"
-    [ "$CANON" != / ] || refuse "$1 entry $2 is the filesystem root, a protected path"
-    local p
-    for p in "${PROT[@]}"; do
-      case "$p/" in "$CANON"/*) refuse "$1 entry $2 is or contains a protected path ($p)" ;; esac
-    done
-  }
-  if [ -n "${SANDBOX_RO_BINDS:-}" ]; then
-    split_entries SANDBOX_RO_BINDS "$SANDBOX_RO_BINDS"
-    for e in "${ENTRIES[@]}"; do check_entry SANDBOX_RO_BINDS "$e"; RO_LIST+=("$CANON"); done
-  fi
-  if [ -n "${SANDBOX_RW_BINDS:-}" ]; then
-    [ -n "${SANDBOX_RW_ROOT:-}" ] || refuse "SANDBOX_RW_ROOT is required when SANDBOX_RW_BINDS is set"
-    canon_entry SANDBOX_RW_ROOT "$SANDBOX_RW_ROOT"
-    RW_ROOT_REAL=$CANON
-    [ "$RW_ROOT_REAL" != / ] || refuse "SANDBOX_RW_ROOT is the filesystem root"
-    split_entries SANDBOX_RW_BINDS "$SANDBOX_RW_BINDS"
-    for e in "${ENTRIES[@]}"; do
-      check_entry SANDBOX_RW_BINDS "$e"
-      case "$CANON/" in "$RW_ROOT_REAL"/*) ;; *) refuse "SANDBOX_RW_BINDS entry $e is not inside SANDBOX_RW_ROOT" ;; esac
-      RW_LIST+=("$CANON")
-    done
-  fi
-fi
+bind_list() {   # $1 kind ro|rw, $2 binds variable name, $3 root variable name; fills RO_LIST / RW_LIST
+  local kind=$1 bv=$2 rv=$3 root e
+  [ -n "${!rv:-}" ] || refuse "$rv is required when $bv is set"
+  canon_entry "$rv" "${!rv}" ""
+  root=$CANON
+  class_check "$rv" "$root" "$kind"
+  split_entries "$bv" "${!bv}"
+  for e in "${ENTRIES[@]}"; do
+    canon_entry "$bv" "$e" "entry "
+    class_check "$bv" "$CANON" "$kind"
+    inside "$root" "$CANON" || refuse "$bv entry $e is not inside $rv"
+    if [ "$kind" = ro ]; then RO_LIST+=("$CANON"); else RW_LIST+=("$CANON"); fi
+  done
+}
+[ -z "${SANDBOX_RO_BINDS:-}" ] || bind_list ro SANDBOX_RO_BINDS SANDBOX_RO_ROOT
+[ -z "${SANDBOX_RW_BINDS:-}" ] || bind_list rw SANDBOX_RW_BINDS SANDBOX_RW_ROOT
 EXTRA_BINDS=()
 for d in "${RO_LIST[@]}"; do EXTRA_BINDS+=(--ro-bind "$d" "$d"); done
 for d in "${RW_LIST[@]}"; do EXTRA_BINDS+=(--bind "$d" "$d"); done
