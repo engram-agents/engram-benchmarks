@@ -2594,3 +2594,5 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   whose lines were public (ex48: 2, ex78: 1, ex87: 0, ex132: 1); abstention items: 0. Counts only, by the design owner's
   instruction the items are not compared with the redacted lines: nothing is decided by it, and the student models never
   read the repository.
+- **Second redaction, fourth tip:** `study/p1b-continue-reading` 69ea84b 2026-11-19T17:14:41Z. All four tips now carry
+  both redactions; a full nested re-sweep of every tip is the outside reader's to run (design owner, 32761).
