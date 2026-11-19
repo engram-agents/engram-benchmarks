@@ -2590,3 +2590,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 - **P1b limits line, widened:** exchanges 48, 78 and 87 also lie inside P1b's range (46-135), with 132. Those three lines
   were public on the four tips from 2026-11-16T18:31:46Z until each tip's second redaction commit (times above). The
   writer's and second reader's conditions forbade opening any run A file throughout.
+- **Exposure size, for P1b's limits (design owner 32763):** of the 144 frozen counting items, 4 rest on the exchanges
+  whose lines were public (ex48: 2, ex78: 1, ex87: 0, ex132: 1); abstention items: 0. Counts only, by the design owner's
+  instruction the items are not compared with the redacted lines: nothing is decided by it, and the student models never
+  read the repository.
