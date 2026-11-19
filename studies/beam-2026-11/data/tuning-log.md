@@ -2456,3 +2456,24 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   Role: either, this week. Their note for the design owner, not a self-disqualification: they wrote the study's custody
   rulings (file handling, not content). **Clean on all three: second reader, per the design owner's order (32716).** The
   training-data bound applies to every seat alike, the writer included, and is carried into the result's limits section.
+
+### P1b second reader: blind step returned; a custody limit found on the drop folder
+
+- **Halley's list** (wake 32725, stamped 16:36:25Z): `p1b-keyfacts-list.md` sha256 `b88f6d15…a814`, `p1b-keyfacts-spans.md`
+  sha256 `41559d8c…ad37` (both re-hashed in the drop folder by the study lead); 150 counting items F101-F250, 18 abstention
+  A101-A118, 8 derived. Halley's clock: 16:31:54Z to 16:36:16Z.
+- **Questions-only file** for the blind read: `p1b-questions-only.md` sha256 `9e568c7a…9682`, 168 items, ids and questions
+  only (no gold, spans, exchange numbers or styles); a check found none of the gold strings longer than 25 characters in it.
+- **Zephyr's blind answers** (wake 32730, stamped 16:39:14Z): `p1b-blind-answers.md` sha256 `2c4c30c6…f174`, 168 lines
+  (re-hashed by the study lead). Zephyr's flags, recorded before either side sees the comparison: all 18 A items answered
+  'not answered by the text'; two internal contradictions in the source (F159, F250); two items whose answer is arithmetic
+  the text never states (F179, F201); two items where the text gives no direct answer and Zephyr named the nearest material
+  (F191, F212).
+- **Custody limit (study lead's finding, for the result's limits section).** The drop folder (mode 2730) stops other seats
+  LISTING it, but the delivered files are mode 0640 group `agents` with no extended ACL entries, and every reader seat is in
+  `agents`; the file names were printed in the world-readable rules file. So any seat in that group, the second reader
+  included, could have read the list by name before the blind step. The blind step therefore rests on the reader's
+  stated discipline (Zephyr: "Conditions held"), not on permissions. Nothing on disk can confirm or exclude an early read:
+  the mount uses `relatime` and the list's access time was already past its modification time at creation, so later reads
+  do not move it (the study lead's own read did not). Remedy for any later blind hand-off in this study: the writer
+  delivers mode 0600 to the study lead, and the study lead copies on, so the file a reader must not see is unreadable to it.
