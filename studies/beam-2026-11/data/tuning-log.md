@@ -2660,3 +2660,28 @@ Measured from record types and fields only; no answer text was read for this.
   - **Reading:** in what the transcripts record, the student was never shown the string before writing it; it first
     produced it itself. **Bound:** the transcripts record what the harness stored, not every rendering the model saw (for
     example how the harness presents an empty tool result to the model); this rules out the recorded channels only.
+
+### DEVIATION found: the student's Claude Code version is not the one the setup id records (logged 2026-11-19T22:17:56Z, facts only; ruling is the design owner's)
+
+Found while answering the isolation item, by reading each session's own records (every transcript record carries the
+Claude Code `version` that wrote it). Versions by session:
+
+| sessions | Claude Code in the records | setup id says |
+|---|---|---|
+| P1 reading runs (2026-11-16) | 2.1.325 | 2.1.325 (setup ids d18b5d26 and siblings) |
+| P1 controls 1 and 2 (2026-11-18) | 2.1.327 | 2.1.327 (171fb069) |
+| P1 answering, K = 3 and k = 1 (2026-11-19) | **2.1.328** | 2.1.327 (171fb069) |
+| P1b K = 3 reading (2026-11-19, running) | **2.1.328** | 2.1.327 (components file of 171fb069) |
+
+- **Why nothing refused:** at run time the feeder checks only its own two files' hashes against the components file;
+  the Claude Code line is written when the setup is built and never checked again. The student's `claude` resolves
+  through the study lead's own seat, which updated itself to 2.1.328 at 2026-11-19T01:31:33Z, before every session
+  of that day.
+- **What it does and does not touch:** within P1's answering comparison both sessions ran the same version, so the
+  comparison is like for like; the setup id under which it is reported names the wrong version, and the controls
+  that checked the instrument ran on 2.1.327. P1b's K = 3 reading runs on 2.1.328.
+- **Step taken so R compares like with like:** an exact copy of the 2.1.328 binary is kept outside the seat's update
+  path (sha256 prefix `a982d380`, equal to the seat's copy at 22:17:38Z), so the k = 1 reading can run on the same
+  version as the K = 3 reading whatever the seat installs overnight. Whether to use it is the design owner's call.
+- **For the registered study:** the student's Claude Code becomes a pinned binary named by hash in the setup id, and
+  the feeder refuses to start when the running `claude --version` or the binary's hash differs.
