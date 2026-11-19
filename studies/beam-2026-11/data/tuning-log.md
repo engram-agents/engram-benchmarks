@@ -2563,3 +2563,9 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   on the tips of `study/beam-tuning-log-2`, `study/p1-answering-harness`, `study/p1-session-launcher` and
   `study/p1b-continue-reading` from its commit at 2026-11-16T18:31:46Z until each tip's redaction commit (times recorded
   below as they land). The P1b writer's and second reader's conditions already forbade opening any run A file.
+- **Redaction times (commit times, read from the commits; each push followed within seconds):** `study/beam-tuning-log-2`
+  64c8cfe 2026-11-19T16:52:45Z; `study/p1-answering-harness` 27bcea8 16:52:59Z; `study/p1-session-launcher` ab4928f
+  16:53:01Z; `study/p1b-continue-reading` 3f4441d 16:57:55Z. So the exchange-132 line was public on each tip from
+  2026-11-16T18:31:46Z (its commit) until that tip's time above. The approvals on PR 8 (at b2d4f710) and PR 11 (at e62f51ac)
+  no longer name the heads; their reviewers are P1b readers and do not open the redaction diff while P1b is open; a seat
+  outside P1b reads it instead.
