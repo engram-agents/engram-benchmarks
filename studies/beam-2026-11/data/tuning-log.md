@@ -2257,3 +2257,36 @@ mutants (no class ruled, no sensitivity answer, every class ruled) are each caug
 missing (A08, F14, F17, F37, exact placeholder), answers file `db0ae3fa...` (its hash moved from `d5d5dcdd...` only by the new
 count key); k = 1, 3 missing (A04, F35, F43, ruled class), answers file `2a0f0529...`. Each of the seven has an earlier text
 block, so each has a sensitivity answer. No answer has been read.
+
+## P1 answering pilot: what "graded correct" means, and the judge settings (logged 2026-11-19, BEFORE the first judge call)
+
+**Clarification of the registered rule, made before any grade and with no answer read** (design owner, Office crossing
+32683, on the study lead's question 32682). In P1 each question has ONE rubric item, its gold line from the frozen list.
+The official judge scores a rubric item 0, 0.5 or 1; the registered rule speaks of questions "graded correct", and its
+power simulation drew binary outcomes, which have no meaning for a three-valued score. **Reading (a): a question is
+CORRECT if and only if the judge gives its gold line a 1.** Reason: the rule was written for right-or-wrong; with one gold
+line a 0.5 says the key fact is only partly there, and the instrument asks whether it is there. Terms:
+1. The three outcomes (ACCEPTED, WORSE, INCONCLUSIVE) are decided on reading (a) only.
+2. **Reading (c), the judge's score as it is (0, 0.5, 1), is reported beside it as the secondary number**, because it is
+   how the benchmark scores a rubric item and the main study will report it. If (a) and (c) would give different outcomes,
+   the result says so and (a) stands, since it was fixed before any grade.
+3. The counts of 0, 0.5 and 1 are reported per session, so a reader can compute any other reading.
+4. The same for the sensitivity score.
+5. The seven missing answers score 0 under every reading in the primary, as ruled.
+
+**Judge settings, fixed now:** model `claude-sonnet-5-5` (first-party API, server-side fallback allowed and every call's
+`served_by` recorded; any call not served by that model is reported, not dropped), effort `low`, one call per item, no
+temperature (the model rejects it). Prompt: the official BEAM judge template at upstream commit 3e12035 (sha256
+`d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869`), `<question>` filled with the item's question,
+`<rubric_item>` with its gold line, `<llm_response>` with the answer. A refusal or an unparseable reply is recorded with
+score empty and reported.
+
+**The blind pool** (`tools/p1_grade.py`, sha256 `8d37a4c5...`; contract tests `tools/tests/test_p1_grade.py`, sha256
+`f807ec89...`, 12 cells written before it; three mutants, session label leaked into the pool, a missing primary pooled, the
+template check skipped, each caught by its own cells). Inputs: both sessions' answer files (`db0ae3fa...`, `2a0f0529...`),
+the question file (`e79290e0...`), the frozen key-fact list (`1895b151...`). Seed 20261119 orders the pool (it fixes only the
+order of the calls). **168 items:** K = 3, 80 answers and 4 sensitivity items; k = 1, 81 answers and 3 sensitivity items.
+Pool rows carry only an opaque id, the question, the gold line and the answer. `pool.json` sha256
+`d742f3639603da9dfb165f38e5ee7e875074f9c2e28d0200b60c3fa59044798d`; the sealed key `key.json` (opaque id to session,
+question id and kind) sha256 `a5268876634b8e6be59b662d96ad8210e1167fd1798d0db1f5a1b0b3e94114ba`, not opened until every
+call is done. Abstention items are judged in the same pool and reported apart from the accuracy.
