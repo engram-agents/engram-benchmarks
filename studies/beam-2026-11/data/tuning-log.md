@@ -2513,3 +2513,27 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   is about 1.5 standard errors above 0.05 at 4,000 trials (SE about 0.0034): consistent with the nominal one-sided 5%, and
   stated rather than rounded. A true 5-point loss is ACCEPTED 0.18 to 0.36 (A3's wording stands: "not worse by 10 points
   or more", never "equal").
+
+### P1b list FROZEN (by hash), and the F159/F250 sensitivity line, defined before any P1b answer exists
+
+- **Design owner's acceptance** (wake 32737, stamped 16:44:04Z): final count accepted (144 + 18, sum checked), his own read
+  of `data/p1b-final-count-resim.txt` at f67de5c matches the logged figures, limits (a)-(c) accepted. Two conditions,
+  carried out here: (1) a sensitivity line for F159/F250; (2) freeze the list by commit and sha256 before the first reading
+  round. Third gate still open: the launcher, reviewed by Luria, on the record.
+- **FROZEN LIST: `p1b-keyfacts-frozen.md`, sha256 `b3a9bff15424ad20bd6f798688e8521bc8651117c45b35163657ebeff89dcd16`.**
+  Built from the writer's file (`b88f6d15…a814`) by removing exactly eight lines: the item rows of F114, F156, F191, F210,
+  F231, F249 and the derived-items lines of F114 and F210 (both were derived items), with one freeze line prepended saying
+  so and that the writer's header counts are pre-drop. Content: 144 counting items over 74 exchanges, 18 abstention
+  items, 6 derived items (F159, F179, F201, F227, F248, F250). No item row was edited.
+- **Custody of the text.** This repository is public, and the design owner's ruling of 31608 keeps question and answer
+  text out of it ("the file carries question and answer text and stays out of the public repo"), with the file's sha256
+  committed instead. This commit therefore freezes the P1b list BY HASH ONLY; the file is held by the study lead (mode
+  0600) and the writer. Also held, by hash: writer's list `b88f6d15…a814`, spans `41559d8c…ad37`, blind answers
+  `2c4c30c6…f174`, second read `e97680df…48ef`. (Whether the P1 list committed in full at 2c5d903a falls under the same
+  ruling is put to the design owner, not decided here.)
+- **Sensitivity line (design owner's condition 1), defined now, deciding nothing.** Beside the deciding result, the result
+  prints the deciding statistic recomputed with F159 and F250 removed from BOTH arms (142 counting items): same scorer,
+  same scoring seed (fixed in the pre-unblinding entry), same B, percentiles, margin, guard and floor; an exchange left with
+  no counting item leaves the cluster set. Printed as "sensitivity, without F159 and F250 (kept by a gold-seeing seat's
+  call)", with its bounds and the outcome the rule would give. Reason in one line: they were kept by the study lead, who
+  sees the gold, where the drop rule is a disagreement rule.
