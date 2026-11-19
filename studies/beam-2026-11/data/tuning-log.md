@@ -2505,3 +2505,11 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   Guard exchanges (multiples of 3): 42 counting items in 25 exchanges. Rule-shaped items kept: 2 (reported with and
   without). Re-simulation: `tools/p1-answering-power-clustered.py --trials 4000 --boot 1000 --seed 20261124 --p 0.8
   --margin 0.10 --lo-pct 4 --hi-pct 96 --counts <the layout above>`; output to follow in its own entry.
+- **Final-count re-simulation** (`data/p1b-final-count-resim.txt`, sha256 `c5e24eba…868a`; run 16:42:35Z to 16:43:01Z,
+  exit 0; settings as named above; layout 74 exchanges, 144 questions). **The two rates:** a truly EQUAL K = 3 is ACCEPTED
+  0.468 to 0.826 of the time over the six cells (rho 0.2/0.6 x D 0.15/0.25/0.35), **0.658 and 0.596 at D = 0.25**; a TRUE
+  10-POINT LOSS is ACCEPTED **0.038 to 0.055** of the time. Stop line (design: stop if an equal K = 3 is accepted less than
+  half the time at D = 0.25): **not met, the run may proceed on this gate.** The highest loss cell (0.055, rho 0.6, D 0.15)
+  is about 1.5 standard errors above 0.05 at 4,000 trials (SE about 0.0034): consistent with the nominal one-sided 5%, and
+  stated rather than rounded. A true 5-point loss is ACCEPTED 0.18 to 0.36 (A3's wording stands: "not worse by 10 points
+  or more", never "equal").
