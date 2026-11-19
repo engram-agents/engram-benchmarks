@@ -896,6 +896,11 @@ def test_f2_dataset_stand_in_stays_invisible_when_its_parents_sibling_is_bound(c
                     BEAM_PARQUET=p, SANDBOX_RO_BINDS=sib)
         assert r.returncode == 0, r.stderr
         assert r.stdout.split() == ["SIBLING-BOUND", "done"], r.stdout
+        # binding the home itself must be refused, and must never make the stand-in visible
+        r = cfg.run(exec_='test -e "$1" && echo STANDIN-VISIBLE; echo done', args=[p], BEAM_PARQUET=p,
+                    SANDBOX_RO_BINDS=home)
+        assert "STANDIN-VISIBLE" not in r.stdout, "the stand-in became visible through an ancestor bind"
+        assert r.returncode == 2 and "protected" in r.stderr, (r.returncode, r.stderr)
     finally:
         shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(sib, ignore_errors=True)
