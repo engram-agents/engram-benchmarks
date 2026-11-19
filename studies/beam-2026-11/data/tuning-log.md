@@ -2210,3 +2210,24 @@ words inside sentences), written before the change. Three plausible-wrong mutant
 match, no punctuation-only class, "n/a" left out) are each caught by their own cells, the rest green. **On session 1 the
 widening catches nothing:** 0 near variants; 4 placeholder turns, missing (A08, F14, F17, F37); answers file unchanged
 (`d5d5dcdd...`).
+
+## P1 answering pilot, session 2 (k = 1): the session's facts (logged 2026-11-19, before any grading and before the answers are read)
+
+**Run.** 2026-11-19T14:30:48Z to 15:50:24Z (`setup.txt`), launcher e62f51ac (the same checkout as session 1), plant mode
+none, on a disposable copy of the k = 1 end state, 84 questions in the file's order. Every launcher step exited 0; final
+exit 0. The three preserved end states hash the same before and after (`before-hashes.txt` and `after-hashes.txt`, 1,080
+bytes each, byte-equal; the before-hashes are byte-equal to session 1's too). `answer-delivery-check.py`: PASS. The turn log
+holds 85 turns: the plan's compaction turn, then 84 question turns, one per id, in the question file's order; no turn ended
+with an error, an end of stream or a timeout. The event stream holds 4 `compact_boundary` events, one of them the plan's
+compaction. One tool result inside turn 70 is flagged as an error (a failed tool call inside the turn); the turn ended
+normally. Wall time per question turn: mean 55.3 s, longest 322.1 s, sum 4,646.2 s. Progress was read as counts only for
+the whole session.
+
+**The answer script** (`tools/p1_answers.py` sha256 `63cfc27a...`, unchanged) on session 2: 84 question turns; 0 tool-ending;
+0 placeholder; 0 missing; 0 disagreements; **3 near variants, all of class "no output":** A04 (length 10), F43 (length 11),
+F35 (length 11). In each, the final block of the turn is a text block written by the student model (`qwen3.8:27b-128k`),
+after 2 or 3 text blocks in all. A04 is an abstention item; F43 and F35 are counting items. Under the ruling these three are
+decided by the design owner, per class, before any grading and without the rest of the turn; they are put to him now.
+Answers file sha256 `c53ac89a...`, unread.
+
+Both sessions are now run. Nothing has been graded.
