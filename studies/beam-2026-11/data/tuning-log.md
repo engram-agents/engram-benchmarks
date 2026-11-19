@@ -2136,3 +2136,27 @@ rule, so this is a conformance fix, not a new answer definition. Terms:
 
 **The disclosure above, completed.** Of the four ids, only F14 (turn 26) falls in turns 14 to 27; its progress line showed
 the placeholder `[no output]` and nothing else. From here to the pilot's end, progress is read as counts only.
+
+## P1 answering pilot: CORRECTION to the two entries above — the four turns do NOT end on a tool call (logged 2026-11-19, before any grade)
+
+The session-1 facts entry says that in the four `[no output]` turns the student "wrote text ... and then ended the turn on a
+tool call". **That was inferred from the placeholder and never measured, and it is false.** The design owner's ruling
+above was made on that description. Measured since, on the session's event stream, from block types, lengths and
+metadata only (no turn's text read):
+- In each of A08, F14, F17 and F37 the last block before the turn's result is a **text block of 11 characters equal to
+  `[no output]`**, followed by a normal result (`success`, stop reason `end_turn`). None of the four ends on a tool call.
+- That block's message carries the model name `qwen3.8:27b-128k` (Claude Code marks messages it makes itself
+  `<synthetic>`), as do the final text blocks of all 84 question turns. **By the stream's own metadata the student itself
+  emitted the placeholder string as its final text**, after earlier text in the same turn (3, 3, 3 and 2 text blocks in all,
+  counting the placeholder). Why it did is not measured.
+- So these four are the ruling's string-route-only case (term 1: "a student who typed those brackets would be one"), which
+  the ruling logs as a disagreement and does not decide. The mechanism finds **0** tool-ending turns in session 1.
+
+**The answer script**, `tools/p1_answers.py` (this commit; sha256 `2014a2fc...`), implements the ruling's terms as
+written and lists disagreements without resolving them. Its contract tests, `tools/tests/test_p1_answers.py` (this commit),
+were written before it: 11 cells, all passing; three plausible-wrong mutants (deciding by the string instead of the
+mechanism, joining all text blocks, counting thinking blocks as content) are each caught by their own cells while the rest
+stay green. On session 1 it prints: 84 question turns, 0 tool-ending, 0 missing, 4 disagreements (A08, F14, F17, F37, each
+`tool_ending: false, string_route: true`). Its answers file stays unread until grading.
+
+The question goes back to the design owner. Session 2 is still running and is read as counts only.
