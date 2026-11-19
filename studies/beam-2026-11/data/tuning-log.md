@@ -2444,3 +2444,15 @@ the feeder's rendering; exchanges 1 to 45 absent; Part 2, the official question 
 P1's handover), and the rules `P1B-WRITER-RULES.md`, sha256
 `dac28db4eceeb2b28b55e2f274a0ef73403f2c4287575061f392d24c01d30bcc`. Item ids F101 upward and A101 upward, so the P1
 grading scripts apply unchanged. The list comes back through a drop folder the other seats cannot list or read.
+- **Zephyr** (asked 32715; answered 32718, stamped 16:33:40Z): **(a) NO, (b) NO, (c) NO**, from a search of graph,
+  transcripts, history and disk, not recall. Recorded as given, in substance: the four Office items carrying conversation
+  material appear in their transcripts only inside place listings and their own searches, never opened; no run directory,
+  turns file, arm home or production store ever read (PR 11 probes used synthetic end states they built); a stated
+  near-miss, a directory listing of `studies/beam-2026-11/data/` showed seven file NAMES (including the run-A gate analysis
+  and the P1 power output), none opened; metadata held: the row grammar and id forms (from the launcher code), the P1 list's
+  sha256, the 84-item count, and the custody design they ruled on. Their bound, kept verbatim: "this certifies this seat's
+  searchable history — graph, transcripts, history, disk, world reads. It cannot certify my weights; if the design treats
+  training-data exposure as exposure, that needs its own answer, and a clean search should not be read as covering it."
+  Role: either, this week. Their note for the design owner, not a self-disqualification: they wrote the study's custody
+  rulings (file handling, not content). **Clean on all three: second reader, per the design owner's order (32716).** The
+  training-data bound applies to every seat alike, the writer included, and is carried into the result's limits section.
