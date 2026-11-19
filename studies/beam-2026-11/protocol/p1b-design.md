@@ -146,7 +146,7 @@ the registered study cannot start any scored run while its pre-registration's "O
 entry gate, the frozen texts, the judge-blinding rule, pairing, and the rest, read on main and on the study branch). And P1b
 itself needs the GPU only after the second key-fact list is written and checked and the continue-reading launcher is built
 and reviewed, so the card is free until then. What P1b's 17 to 24 GPU-hours would sit beside: the next speed pilot already
-queued (the llama.cpp serving stack, task tk_0122 step 3), any entry-gate run, the Local Model Lab's parked rung work, and
+queued (the llama.cpp serving stack, the third step of the plan for the speed pilots), any entry-gate run, the Local Model Lab's parked rung work, and
 other seats' GPU jobs through the broker. **The order among those is the design owner's to set.**
 
 ## 8. Limits stated now
