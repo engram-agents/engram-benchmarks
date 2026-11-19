@@ -1,7 +1,8 @@
 # P1b: the larger K = 3 against k = 1 instrument, on the later exchanges (DESIGN, for the design owner's read)
 
-Status: **draft for reading** (design owner's GO to design, Office crossing 32699). Nothing in it is built or run until
-it has been read. The registered study stays at k = 1 meanwhile. Study lead: Borges.
+Status: **ACCEPTED as the design** by the design owner (Office crossing 32705, read in full at 46cfb362), with six
+additions, written in below as marked (A1 to A6). Nothing is built until he has read this amendment's diff. The registered
+study stays at k = 1 meanwhile. Study lead: Borges. Key holder for P1b: Kepler.
 
 ## 0. Why, in one paragraph
 
@@ -21,6 +22,21 @@ open questions with one pair of runs: **is K = 3 as good** on new questions, and
   Then one answering session per end state, as in P1. This saves re-reading 1 to 45 and keeps each run continuous with its
   P1 state. **Build needed:** the launcher has no "continue reading" mode; it is specified contract-first and reviewed before
   use, like the P1 launcher.
+- **A1. The continue-reading launcher's contract, stated before any code** (reviewer: Luria, else Zephyr; not the
+  design owner):
+  - (a) **What a run carries from round to round, and whether the preserved end state holds it:** the ENGRAM store
+    (`knowledge.db` with its side files): held, hashed. The built-in auto-memory folder: held, hashed (K = 3 has two
+    files; k = 1 has none). The Claude Code session transcript (the resumed session's JSONL, which carries the context and
+    every compaction): held in the home. NOT held, and named as limits: the model server's in-memory state (the prefix
+    cache; a resume starts cold, which can only slow the first rounds), and the continuity of the process itself: a resume
+    fires the session-start hooks once at exchange 46, which an unbroken run would not do there. The resume's first-turn
+    injection is recorded and reported.
+  - (b) **Equivalence cell:** for the same state, the input the continue mode feeds for exchange 46 is byte-equal to what
+    the full-run feeder would feed there (the plan dump of a full run, cut at exchange 46).
+  - (c) It refuses a start that is not on a K boundary (46 for K = 3 and for k = 1, given rounds end at 45), and a state
+    whose content hash differs from the preserved one.
+  - (d) It works on a disposable copy only; the preserved original's hash is re-checked after each run (the P1 launcher's
+    protected-home guard).
 - **Measures per run,** as in the reading pilots: wall seconds and input tokens per exchange (from `turns.jsonl`, reading
   rounds only), compactions, notes, the co-load sampler line.
 
@@ -60,9 +76,18 @@ and decides nothing.
 
 - **R** = (K = 3 wall seconds per exchange) / (k = 1 wall seconds per exchange) over exchanges 46 to 135, reading rounds
   only, each from its own run's `turns.jsonl`. Input tokens per exchange reported beside it.
+- **A2. R is computed by a script with a written contract:** from each run's `turns.jsonl`, reading rows only; R = (sum of
+  the K = 3 run's reading wall seconds / 90) / (sum of the k = 1 run's reading wall seconds / 90), so a K = 3 round's wall
+  time is divided evenly over its 3 exchanges by construction; compaction time counts wherever it falls (inside a round's
+  wall, or as its own row). Both readings run on the same card under an exclusive GPU lease with no other GPU job, the broker
+  status read at each run's start and end, the co-load sampler line printed per run. **No discretion near the line:** R
+  decides as registered, with its bound stated.
 - **Stop line, fixed now: if R > 0.75** (K = 3 less than 25% faster on the later stretch, the study's existing speed bar),
   the question is closed: the study runs at k = 1 **whatever the answer test says**.
 - **R <= 0.75 and ACCEPTED:** K = 3 is recommended for the study, provisional on one run per k.
+- **A3. What ACCEPTED means, written into the result text:** "not worse by 10 points or more", never "equal". At layout A a
+  true 5-point loss is ACCEPTED 0.22 to 0.36 of the time at D 0.15 to 0.25 (0.17 to 0.36 over all six cells of
+  `data/p1b-power-curve.txt`).
 - **R <= 0.75 and INCONCLUSIVE or WORSE:** k = 1 stays; nothing further is asked of conversation 9.
 - Bound, stated in the result: one run per k; co-load not separated (the sampler line is printed).
 
@@ -72,11 +97,15 @@ Chosen by DECLARATION, never by assumption. Each candidate declares, before seei
 (a) any student record of conversation 9: run A's or the P1 runs' transcripts, notes, stores, answers or judge reasons;
 (b) BEAM's official probing questions or rubrics for conversation 9, including run A's phase-2 packets;
 (c) P1's key-fact list or its answer files. A candidate clean on all three may write. The second reader must be clean on the
-same three, and also must not see the writer's list before doing their own check. They machine-check that every item's span
-occurs exactly once in the stated speaker's text, and read each gold line against its span. **Not eligible:** Clio's seat
-is down; the study lead and the design owner; Sol (run A's phase-2 reader) and Aleph (run A's key holder). **Proposed order
-to ask:** Ariadne, Zephyr, Halley, Mira; the first two clean declarations are writer and second reader. Declarations are
-recorded as given.
+same three. **A4, what is blind and what is on the list:** BLIND, the second reader receives the writer's QUESTIONS
+without their gold lines and spans, and answers each from exchanges 46 to 135 alone, writing the answer and the exchange it
+rests on. ON THE LIST, afterwards: they machine-check that every item's span occurs exactly once in the stated speaker's
+text, compare their blind answer with the writer's gold, and flag any item whose answer depends on exchanges 1 to 45. An
+item where the blind answer and the gold disagree, or that is flagged, is dropped, not mended (as in P1). **Not eligible:** Clio's seat
+is down; the study lead and the design owner; Sol (run A's phase-2 reader) and Aleph (run A's key holder). **A5, order to ask
+(design owner's change):** Mira, Halley, Zephyr, Ariadne last (Lei's 11-17 direction that Ariadne's ENGRAM Manager work
+moves smoothly). The first two clean declarations are writer and second reader; if only Ariadne is clean, she writes.
+Declarations are recorded as given.
 
 ## 6. Answer rules, written in up front (requirement 5)
 
@@ -112,8 +141,18 @@ Each figure from a named measurement; GPU-hours, single card, one job at a time.
 
 Not measured, so not costed: the writer's time for the list, and the second reader's.
 
+**What the card does otherwise (the design owner's question, answered before the first run).** No scored work is displaced:
+the registered study cannot start any scored run while its pre-registration's "OPEN before registration" list stands (the
+entry gate, the frozen texts, the judge-blinding rule, pairing, and the rest, read on main and on the study branch). And P1b
+itself needs the GPU only after the second key-fact list is written and checked and the continue-reading launcher is built
+and reviewed, so the card is free until then. What P1b's 17 to 24 GPU-hours would sit beside: the next speed pilot already
+queued (the llama.cpp serving stack, task tk_0122 step 3), any entry-gate run, the Local Model Lab's parked rung work, and
+other seats' GPU jobs through the broker. **The order among those is the design owner's to set.**
+
 ## 8. Limits stated now
 
 One run per k; conversation 9 only; continuation from P1's states means P1b's arms differ in whatever P1's arms differed in
 at exchange 45 (the k = 1 end state has no built-in-folder writes, the K = 3 end state does), reported as it was for P1.
 INCONCLUSIVE is not evidence of a loss.
+**A6.** The bootstrap is over exchanges within ONE run per k, so it does not carry run-to-run variation; any recommendation
+for K = 3 is provisional on that, and the result says so.
