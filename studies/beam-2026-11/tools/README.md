@@ -212,3 +212,30 @@ asserts byte-equal stdout and equal exit codes (it skips where that unpushed com
 
 Cells: `tests/` (`pytest`; `BEAM_PY` = a python with pyarrow, `P1_ENGRAM_PLUGIN` = an ENGRAM plugin tree for the plant
 cells). Synthetic fixtures only: no student model, no Ollama, no real arm home.
+
+## Session launcher (P1): `p1-question-file.py`, `p1-session.py`
+
+`p1-question-file.py --list F --expect-sha256 H [--exclude ID[,ID]] --seed N --out JSON`: builds the frozen question
+file from the key-fact list (rows `ID | exchange | style | QUESTION || GOLD`). The question text only, never the gold; ids
+sorted, then `random.Random(N).shuffle`; byte-identical for the same inputs; prints the count, the order and the JSON's
+sha256. Exit 2, nothing written, on a wrong list hash, a repeated id, an `--exclude` id not in the list, an unparsable
+row, or an existing `--out`.
+
+`p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F [--plant-builtin T
+--plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]`: answers the question file on a disposable copy of
+a preserved end-state home, placed at the arm-home slot path so the run's session resumes. Environment (all required, no
+host path in the file): `BEAM_PY`, `BEAM_ARM_HOME` (the slot), `BEAM_RUNS_DIR`, `BEAM_PARQUET` (the dataset file feed4.py
+reads; it must be an existing file whose sha256 starts with the prefix `studies/beam-2026-11/PROVENANCE.md` registers, which the launcher checks in step 1 by streaming the file, as the reading runs' `pilot-run.sh` did; `setup.txt` records the full sha256), `P1_PROTECTED` (the preserved homes, one of
+which is `--end-state`). A plant set is either all three of `--plant-builtin --plant-engram --plant-absent` (optionally
+`--plant-question`) or exactly `--plant-engram --plant-absent` (engram-only, for control 2: plant-control.py runs without
+`--builtin-fact` and writes nothing under any built-in memory folder); any other combination, and `--plant-question`
+without `--plant-builtin`, is refused in step 1. `setup.txt` records the plant mode on its own line. Every refusal (exit 2) in step 1 happens before anything is touched: no process killed, no copy,
+no directory made. One refusal comes later: step 4 refuses if the aside path already exists, after the slot processes have
+been stopped; no protected path is touched either way. It never deletes (an existing slot is moved aside),
+hashes the store and the built-in memory files of every protected home before and after, and exits 5 with
+`PROTECTED CHANGED` if any differ. The exit-5 guarantee holds whenever the process gets to decide its exit (including
+KeyboardInterrupt, SystemExit and other exceptions); a SIGKILL, power loss or machine failure between the copy and the
+final check leaves no exit code at all. Outputs under `BEAM_RUNS_DIR/p1-LABEL`: `before-hashes.txt`, `after-hashes.txt`,
+`plan.json`, `run/`, `transcripts/`, `delivery.txt`, `setup.txt`. Exit codes: 0 good, 1 delivery check failed, 2 refused,
+3 copy, plan check or feed4 failed, 4 plant failed, 5 a protected home changed. The step list, the store-hash method and the
+test-only hooks (`P1_FEED4`, `P1_PLANT_CONTROL`, `P1_UTC_STAMP`, `P1_AFTER_COPY_HOOK`, `P1_TEST_RAISE`, `P1_EXPECTED_PARQUET_PREFIX`; the last replaces the registered dataset prefix and `setup.txt` says so on its `dataset check:` line) are in its docstring.
