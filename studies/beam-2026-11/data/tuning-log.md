@@ -2057,3 +2057,33 @@ the folder fact had no automatic route because its index line carries no fact te
 differently in the two sessions is NOT read and is not to be inferred in the write-up. PR 8 (b2d4f710, approved,
 CI green) is HELD for the principal's merge word; the scored speed pilot does not need it and runs from the pinned
 launcher e62f51ac, tomorrow in GPU daylight, pre-run entry first.
+
+## P1 answering pilot, the two answering sessions: pre-run entry (logged 2026-11-19, before either session runs)
+
+**State.** Both controls have a ruling: control 1 (K = 3 copy) and control 2 (k = 1 copy) pass under the final control
+rule, C1 in each as "PASS, hook-delivered" under the 2026-11-15 ruling (entries above). No answering session on the 84
+real questions has run at this commit.
+
+**Launcher.** The pinned commit e62f51ac (entry "the launcher pinned for control 2 and every later session"). Control 2
+ran from a checkout of it in a temporary folder that no longer exists; today's sessions run from a new checkout of the
+same commit, whose seven script hashes were measured today and equal that entry's table. Question file
+`data/p1-questions.json` (84 items, 75 counting and 9 abstention, sha256 `e79290e0...`) and components file
+`data/p1-answering-setup.txt` (sha256 `05828603...`), both measured today and equal to the files the earlier entries name.
+
+**The sessions, in this order, one at a time, each through the host's GPU queue and memory gate:**
+1. **K = 3**: a disposable copy of the K = 3 end state (setup 7b73fe7b), resuming its own session, no plant
+   (`plant mode: none`), all 84 questions in the file's order.
+2. **k = 1**: a disposable copy of the k = 1 end state (setup d18b5d26), the same in every other respect.
+The K = 5 end state is not answered (pre-log). `answer-delivery-check.py` runs on each session; a session that fails it
+is not graded. Each session's facts (times, step exits, compactions, errors) are logged before any answer is read.
+
+**The preserved end states, hashed today before either session** (from temporary copies, in a dry run of each session
+from the new checkout, no student and no GPU; both dry runs exited 0): K = 3 `1ef7610c...` (21 tables, 1,024 rows), K = 5
+`912b004f...` (778 rows), k = 1 `29cac9e6...` (1,725 rows). Each equals its step-1 hash of 2026-11-18. The launcher hashes
+all three again before and after each session; the hashes after the last session are printed beside these.
+
+**Grading** is as fixed in the rule entry ("Speed pilot P1 decided by what the student can answer", part d) and in the
+pre-run entry of 2026-11-18: the question-seeing judge, answers from both sessions shuffled together with k removed,
+the judge settings and the gold lines logged before the first grade. Abstention items are graded and reported apart.
+
+**The rule, the note floor, the stop rules and the bounds** are the pre-log's (commit 80731986), unchanged.
