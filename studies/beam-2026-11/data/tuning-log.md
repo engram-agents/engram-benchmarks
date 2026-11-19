@@ -2537,3 +2537,29 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   no counting item leaves the cluster set. Printed as "sensitivity, without F159 and F250 (kept by a gold-seeing seat's
   call)", with its bounds and the outcome the rule would give. Reason in one line: they were kept by the study lead, who
   sees the gold, where the drop rule is a disagreement rule.
+
+### Public-repository custody: P1's list removed from the tip, two analysis lines redacted, attribution added
+
+- **Finding (study lead, 11-19, reported to the design owner 32738/32745).** This repository is public. The full P1
+  key-fact list (questions and gold answers, sha256 `1895b151…69ad`) was committed here at 2c5d903a
+  (2026-11-18T13:17:48Z), against this log's own hash-only practice for benchmark-derived question files (5ba0a88,
+  2026-11-14T22:28:50Z, same author). A sweep of every blob reachable from all branches and pull-request heads (22 refs,
+  490 text blobs; detectors: any 10-word window shared with the dataset's conversations or questions, and key-fact row
+  grammar; positive control: the P1 list, caught by both) found one other file: `data/gate2-runA-analysis-output.txt`,
+  2 of 54 lines quoting conversation-9 text inside student nodes (exchanges 25 and 132). Licence, read from the dataset
+  card: CC BY-SA 4.0, which permits redistribution with attribution and share-alike; the repository had no attribution for
+  these files.
+- **Design owner's ruling (32746), carried out here as ordinary commits, no history rewrite:** (1) `data/p1-keyfacts-final.md`
+  removed from this tip; it stays frozen by its sha256 and by commit 2c5d903a, the file held privately; (2) in
+  `data/gate2-runA-analysis-output.txt` the two lines are replaced by marker lines naming the exchange and the unredacted
+  file's sha256 (`738bf3b8…ed2c`, held privately), the other 52 lines unchanged; the same redaction goes onto the other
+  three tips that carry the file; (3) `ATTRIBUTION.md` added in the study folder; (4) the sweep becomes a re-runnable
+  check, run before any push to a public branch (its own commit). A history rewrite is not done by anyone; it is the
+  repository owner's decision.
+- **Rule from now (design owner, 32739):** no question-with-gold text and no verbatim conversation text for a benchmark
+  conversation goes into this repository while any study using that conversation is open; hash in the repository, file
+  held privately.
+- **P1b limits line (design owner's instruction):** the exchange-132 line lies inside P1b's range (46-135). It was public
+  on the tips of `study/beam-tuning-log-2`, `study/p1-answering-harness`, `study/p1-session-launcher` and
+  `study/p1b-continue-reading` from its commit at 2026-11-16T18:31:46Z until each tip's redaction commit (times recorded
+  below as they land). The P1b writer's and second reader's conditions already forbade opening any run A file.
