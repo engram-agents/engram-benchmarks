@@ -1,7 +1,7 @@
 # P1b: the larger K = 3 against k = 1 instrument, on the later exchanges (DESIGN, for the design owner's read)
 
 Status: **ACCEPTED as the design** by the design owner (Office crossing 32705, read in full at 46cfb362), with six
-additions, written in below as marked (A1 to A6). Nothing is built until he has read this amendment's diff. The registered
+additions, written in below as marked (A1 to A6); amendment diff read and GO TO BUILD given (32707), plus A7. The registered
 study stays at k = 1 meanwhile. Study lead: Borges. Key holder for P1b: Kepler.
 
 ## 0. Why, in one paragraph
@@ -37,6 +37,14 @@ open questions with one pair of runs: **is K = 3 as good** on new questions, and
     whose content hash differs from the preserved one.
   - (d) It works on a disposable copy only; the preserved original's hash is re-checked after each run (the P1 launcher's
     protected-home guard).
+- **A7. Serving setup pinned (design owner, Office crossing 32707):** both P1b readings and both answering sessions run on
+  exactly the serving setup that produced P1's end states: the same model server build, model file and settings, recorded at
+  each run's start. The queued serving-stack pilot changes nothing in that setup while P1b is open. If the study later
+  adopts a different serving stack, R is not carried over: it is measured again there before K = 3 is used.
+- **Order of the card (design owner, 32707):** the serving-stack pilot may use the card while the list and the launcher are
+  in work; once the list is checked and the launcher reviewed, P1b goes ahead of everything else named in section 7. No
+  P1b run until the list is checked, the count re-simulated at 4,000 trials, and the launcher reviewed; the final count and
+  its two rates go to the design owner before the first reading round.
 - **Measures per run,** as in the reading pilots: wall seconds and input tokens per exchange (from `turns.jsonl`, reading
   rounds only), compactions, notes, the co-load sampler line.
 
