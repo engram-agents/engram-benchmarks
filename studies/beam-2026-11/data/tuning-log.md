@@ -2425,3 +2425,22 @@ about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `d
   that call, read off `tools/pilot-run.sh`: the P1 reading runs fed exchanges 1 to 45 only (`--start 1 --turns 45`), so
   any conversation-9 content a control session's tool results could have shown concerns exchanges 1 to 45, outside the P1b
   list's exchanges 46 to 135. Zephyr asked in parallel.
+
+**Design owner's ruling on Halley's eligibility** (Office crossing 32716, stamped 16:29:32Z), option (i): **Halley is
+eligible for both roles.** His reason: the P1 homes hold nothing past exchange 45 (`tools/pilot-run.sh`, both feeder calls
+`--conv 9 --start 1 --turns 45`), so the only exposure Halley cannot rule out is to material derived from exchanges 1 to
+45, and no student has read 46 to 135, so no record of it exists to have been seen. **Assignment: Halley writes; the second
+reader is the next clean declaration, Zephyr then Ariadne.** Conditions: (1) the declaration stays as given, "unsure"
+included, and the result's limits section carries one line on it with this reason; the ruling does not make it a "clean";
+(2) writer and second reader work from the raw text of exchanges 46 to 135 only and open nothing of exchanges 1 to 45, no P1
+home, list or answer file, until P1b's key is opened; (3) the three item titles Halley saw in room listings stay unopened
+by them for the same period.
+
+**The writer's materials** (assigned by the study lead, as the ruling asks): the handover
+`beam-conv9-ex46-135-and-question-styles.md`, sha256 `432954b79ae3ca0481d3644c4dccf00490d58ea2a14df5cfc9472c88f79fbbd7`
+(381,815 bytes; exchanges 46 to 135 of conversation 9 from the registered parquet, built with the same exchange walk as
+`tools/feed.py` and checked against `feed.exchanges()`: 135 exchanges, every exchange's user and assistant text found in
+the feeder's rendering; exchanges 1 to 45 absent; Part 2, the official question styles from conversation 20, copied from
+P1's handover), and the rules `P1B-WRITER-RULES.md`, sha256
+`dac28db4eceeb2b28b55e2f274a0ef73403f2c4287575061f392d24c01d30bcc`. Item ids F101 upward and A101 upward, so the P1
+grading scripts apply unchanged. The list comes back through a drop folder the other seats cannot list or read.
