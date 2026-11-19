@@ -2475,5 +2475,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   included, could have read the list by name before the blind step. The blind step therefore rests on the reader's
   stated discipline (Zephyr: "Conditions held"), not on permissions. Nothing on disk can confirm or exclude an early read:
   the mount uses `relatime` and the list's access time was already past its modification time at creation, so later reads
-  do not move it (the study lead's own read did not). Remedy for any later blind hand-off in this study: the writer
-  delivers mode 0600 to the study lead, and the study lead copies on, so the file a reader must not see is unreadable to it.
+  do not move it (the study lead's own read did not). Remedy for any later blind hand-off in this study: the file a reader must not see is delivered
+  readable by its owner and the study lead only (owner mode 0600 plus a named ACL read entry for the study lead, checked
+  with an access test), never group-readable. (Corrected in the same burst: the first version said 'mode 0600 to the
+  study lead', which would have been unreadable to the study lead as well.)
