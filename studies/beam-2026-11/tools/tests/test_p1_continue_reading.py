@@ -1,0 +1,463 @@
+"""p1-session.py --continue-reading cells (P1b contract C1 to C8). Contract-first: written before the mode existed.
+Synthetic homes and stub scripts only: no student model, no real model server, no real preserved home. The serving
+record is read from a stub HTTP server on a loopback port the OS picks; the real-feeder cells (C3) run the real
+feed4.py --dump-plan on the synthetic parquet and need a python with pyarrow ($BEAM_PY), else they skip.
+
+Test-only hooks used (documented in the tool's docstring, refused unless P1_TEST_HOOKS=1): P1_FEED4, P1_UTC_STAMP,
+P1_EXPECTED_PARQUET_PREFIX. The stub feeder below honours feed4's --turns semantics (an INCLUSIVE END INDEX: it
+slices exchanges[start - 1: turns]) and a few mutant behaviours chosen by STUB_PLAN / STUB_DROP / STUB_RC / STUB_ACTION."""
+import hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import pytest
+from conftest import TOOLS
+from test_p1_session import (P1S, TOOL, SESSION, STAMP, World, bytes_and_mtimes, make_home, tree)
+
+K_DEFAULT = dict(start="4", through="9", per_round="3")  # exchanges 4..9 = 2 rounds of 3; (4-1)%3 == 0, 6%3 == 0
+MODEL = "qwen3.8:27b-128k"  # feed4's default --model; a cell below reads feed4.py to keep this equal
+
+STUB_FEED4_CR = r'''
+import json, os, sys
+a = sys.argv[1:]
+def arg(n): return a[a.index(n) + 1]
+with open(os.environ["STUB_ARGV"], "a") as f:
+    f.write(json.dumps(a) + "\n")
+start, turns, K = int(arg("--start")), int(arg("--turns")), int(arg("--per-round"))  # turns = inclusive END index
+resume = "--resume" in a
+def plan():
+    exs = list(range(start, turns + 1))  # the same slice feed4 takes: exchanges[start - 1: turns]
+    out = []
+    for r in range(0, len(exs), K):
+        grp = exs[r: r + K]
+        body = "\n\n".join(f"EX{n}" for n in grp)
+        if r == 0 and start == 1:
+            body = "BRIEF\n\n" + body
+        out.append({"kind": "exchange", "exchanges": grp, "text": body})
+    return out
+if "--dump-plan" in a:
+    p = plan(); mode = os.environ.get("STUB_PLAN") if resume else None
+    if mode == "preamble":
+        p[0]["text"] = "RESUMED SESSION NOTE\n\n" + p[0]["text"]
+    elif mode == "compact":
+        p.append({"kind": "compact", "exchanges": [], "text": "/compact"})
+    elif mode == "question":
+        p.append({"kind": "question", "exchanges": [], "text": "Q", "id": "x"})
+    elif mode == "short":
+        p = p[:-1]
+    elif mode == "shifted":  # same texts, exchanges labelled one too high
+        for m in p:
+            m["exchanges"] = [e + 1 for e in m["exchanges"]]
+    elif mode == "reordered":
+        p.reverse()
+    json.dump(p, sys.stdout); sys.exit(0)
+with open(os.environ["STUB_MARK"], "a") as f:
+    f.write("student run\n")
+out = arg("--out"); os.makedirs(out, exist_ok=True)
+p = plan()
+rows = [{"i": n + 1, "kind": "exchange", "session_id": arg("--resume"), "is_error": False, "exchanges": m["exchanges"],
+         "per_round": K} for n, m in enumerate(p)]
+if os.environ.get("STUB_DROP"):
+    rows = rows[:-1]
+with open(os.path.join(out, "turns.jsonl"), "w") as f:
+    f.write("".join(json.dumps(r) + "\n" for r in rows))
+with open(os.path.join(out, "events.jsonl"), "w") as f:
+    for r in rows:
+        f.write(json.dumps({"type": "assistant"}) + "\n" + json.dumps({"type": "result"}) + "\n")
+act = os.environ.get("STUB_ACTION")
+if act == "protected":
+    import sqlite3
+    c = sqlite3.connect(os.environ["STUB_TARGET"] + "/.engram/knowledge.db")
+    c.execute("insert into nodes values ('stub', 'a stub row')"); c.commit(); c.close()
+sys.exit(int(os.environ.get("STUB_RC", "0")))
+'''
+
+
+# ------------------------------------------------------------------------------------------- a stub model server
+@pytest.fixture
+def ollama():
+    state = {"version": "0.9.9", "models": [{"name": MODEL, "digest": "sha256:abc123def456"},
+                                            {"name": "other:1b", "digest": "sha256:ffff"}], "hits": []}
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state["hits"].append(self.path)
+            if self.path == "/api/version":
+                body = {"version": state["version"]}
+            elif self.path == "/api/tags":
+                body = {"models": state["models"]}
+            else:
+                self.send_response(404); self.end_headers(); return
+            data = json.dumps(body).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    host, port = srv.server_address
+    state["url"] = f"http://{host}:{port}"
+    yield state
+    srv.shutdown(); srv.server_close()
+
+
+def dead_url():
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); host, port = s.getsockname(); s.close()
+    return f"http://{host}:{port}"
+
+
+# ----------------------------------------------------------------------------------------------------- the world
+@pytest.fixture
+def w(tmp_path):
+    world = World(tmp_path)
+    world.cr_stub = tmp_path / "stub-feed4-cr.py"; world.cr_stub.write_text(STUB_FEED4_CR)
+    world.saved = tmp_path / "saved-end"
+    yield world
+    if world.proc is not None and world.proc.poll() is None:
+        world.proc.kill()
+    if world.proc is not None:
+        world.proc.wait()
+
+
+def store_sha(home):
+    return P1S.protected_store_hash(str(home))[0]
+
+
+def cr_args(w, over=None):
+    d = {"--end-state": str(w.pres), "--session": SESSION, "--label": "t1", "--components": str(w.comps),
+         "--continue-reading": True, "--start": K_DEFAULT["start"], "--through": K_DEFAULT["through"],
+         "--per-round": K_DEFAULT["per_round"], "--save-end-state": str(w.saved),
+         "--expect-store-sha256": store_sha(w.pres)}
+    for k, v in (over or {}).items():
+        if v is None:
+            d.pop(k, None)
+        else:
+            d[k] = v
+    out = []
+    for k, v in d.items():
+        out += [k] if v is True else [k, v]
+    return out
+
+
+def cr_run(w, over=None, extra=(), ollama_url=None, **envover):
+    e = w.env(P1_FEED4=str(w.cr_stub), **envover)
+    if ollama_url:
+        e["BEAM_OLLAMA_URL"] = ollama_url
+    return subprocess.run([sys.executable, TOOL, *cr_args(w, over), *extra], capture_output=True, text=True, env=e)
+
+
+def cr_refusal(w, over=None, extra=(), expect=None, ollama_url=None, pre_existing=False, **envover):
+    """Exit 2, the expected words, and NOTHING touched: protected homes and the end state byte-equal (bytes and mtimes)."""
+    w.start_fake_process()
+    before = w.snapshot()
+    bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
+    r = cr_run(w, over, extra, ollama_url=ollama_url, **envover)
+    assert r.returncode == 2, (r.returncode, r.stdout, r.stderr)
+    if expect:
+        assert expect in r.stdout + r.stderr, (expect, r.stdout, r.stderr)
+    w.assert_untouched(before)
+    assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm
+    if not pre_existing:  # the cells that plant the save path / hashes file themselves expect them to stay as planted
+        assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
+    return r
+
+
+def setup_lines(w, label="t1"):
+    return open(w.runs / f"p1-{label}" / "setup.txt").read().splitlines()
+
+
+def argv_calls(w):
+    return [json.loads(l) for l in open(w.argv_log)]
+
+
+# =============================================================================================================== C1
+def test_c1_continue_reading_is_refused_with_a_question_file(w):
+    cr_refusal(w, extra=("--question-file", str(w.qfile)), expect="--continue-reading cannot be combined with --question-file")
+
+
+@pytest.mark.parametrize("flags", [["--plant-builtin", "x"], ["--plant-engram", "x"], ["--plant-absent", "x"],
+                                   ["--plant-question", "x"]])
+def test_c1_continue_reading_is_refused_with_every_plant_flag(w, flags):
+    cr_refusal(w, extra=flags, expect=f"--continue-reading cannot be combined with {flags[0]}")
+
+
+@pytest.mark.parametrize("flag", ["--start", "--through", "--per-round", "--save-end-state", "--expect-store-sha256"])
+def test_c1_continue_reading_requires_each_of_its_flags_naming_it(w, flag):
+    cr_refusal(w, over={flag: None}, expect=f"--continue-reading requires {flag}")
+
+
+@pytest.mark.parametrize("flag,val", [("--start", "4"), ("--through", "9"), ("--per-round", "3"),
+                                      ("--save-end-state", "x"), ("--expect-store-sha256", "x"),
+                                      ("--expect-serving", "x")])
+def test_c1_the_continue_flags_are_refused_without_continue_reading(w, flag, val):
+    w.start_fake_process(); before = w.snapshot()
+    r = w.run(flag, val)
+    assert r.returncode == 2 and f"{flag} is only valid with --continue-reading" in r.stderr + r.stdout, (r.returncode, r.stderr)
+    w.assert_untouched(before)
+
+
+def test_c1_without_continue_reading_the_question_file_is_still_required(w):
+    args = ["--end-state", str(w.pres), "--session", SESSION, "--label", "t1", "--components", str(w.comps)]
+    r = subprocess.run([sys.executable, TOOL, *args], capture_output=True, text=True, env=w.env())
+    assert r.returncode == 2 and "the following arguments are required: --question-file" in r.stderr
+
+
+# =============================================================================================================== C2
+@pytest.mark.parametrize("start,through,k,words", [
+    ("5", "10", "3", "round boundary"),          # (5-1) % 3 != 0
+    ("4", "8", "3", "partial last round"),       # (8-4+1) % 3 != 0
+    ("1", "9", "3", "start must be at least 2"),
+    ("0", "9", "3", "start must be at least 2"),
+    ("4", "3", "1", "through must not be below start"),
+    ("4", "9", "0", "per-round must be at least 1"),
+    ("4", "9", "-3", "per-round must be at least 1")])
+def test_c2_refuses_a_bad_range_with_its_own_reason(w, start, through, k, words):
+    cr_refusal(w, over={"--start": start, "--through": through, "--per-round": k}, expect=words)
+
+
+def test_c2_refuses_a_store_hash_that_differs_from_expected(w):
+    r = cr_refusal(w, over={"--expect-store-sha256": "0" * 64}, expect="--expect-store-sha256")
+    assert store_sha(w.pres) in r.stdout + r.stderr  # both hashes are shown
+
+
+def test_c2_refuses_a_save_path_that_exists(w):
+    w.saved.mkdir()
+    cr_refusal(w, expect="already exists", pre_existing=True)
+
+
+def test_c2_refuses_a_hashes_file_that_exists(w):
+    open(str(w.saved) + ".hashes.txt", "w").write("x")
+    cr_refusal(w, expect="hashes", pre_existing=True)
+
+
+def test_c2_refuses_a_save_path_inside_a_protected_home(w):
+    cr_refusal(w, over={"--save-end-state": str(w.pres2) + "/work/saved"}, expect="protected")
+
+
+def test_c2_refuses_a_save_path_inside_the_end_state(w):
+    cr_refusal(w, over={"--save-end-state": str(w.pres) + "/work/saved"}, expect="protected")
+
+
+def test_c2_refuses_a_save_path_through_a_symlink_into_a_protected_home(w):
+    link = w.root / "lnk"; link.symlink_to(w.pres2)
+    cr_refusal(w, over={"--save-end-state": str(link) + "/saved"}, expect="protected")
+
+
+def test_c2_refuses_a_save_path_inside_the_slot(w):
+    cr_refusal(w, over={"--save-end-state": str(w.slot) + "/saved"}, expect="slot")
+
+
+def test_c2_refuses_a_save_path_whose_parent_does_not_exist(w):
+    cr_refusal(w, over={"--save-end-state": str(w.root / "no-dir" / "saved")}, expect="parent")
+
+
+def test_c2_refuses_an_expect_serving_file_that_differs(w, ollama):
+    exp = w.root / "expect-serving.txt"
+    exp.write_text("serving: ollama version 0.1.0\nserving: model " + MODEL + "\nserving: model digest sha256:abc123def456\n")
+    cr_refusal(w, over={"--expect-serving": str(exp)}, ollama_url=ollama["url"], expect="--expect-serving")
+
+
+# =============================================================================================================== C3
+def test_c3_an_honest_feeder_passes_the_plan_check_and_the_plan_is_kept(w, ollama):
+    r = cr_run(w, extra=("--dry-run",), ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    plan = json.load(open(w.runs / "p1-t1" / "plan.json"))
+    assert [m["exchanges"] for m in plan] == [[4, 5, 6], [7, 8, 9]] and all(m["kind"] == "exchange" for m in plan)
+    assert "step 7 plan check: exit 0" in setup_lines(w)
+
+
+def test_c3_the_dumps_use_the_inclusive_end_index_and_a_full_run_comparison(w, ollama):
+    cr_run(w, extra=("--dry-run",), ollama_url=ollama["url"])
+    dumps = [c for c in argv_calls(w) if "--dump-plan" in c]
+    assert len(dumps) == 2
+    cont = next(c for c in dumps if "--resume" in c); full = next(c for c in dumps if "--resume" not in c)
+    def val(c, f): return c[c.index(f) + 1]
+    assert (val(cont, "--resume"), val(cont, "--start"), val(cont, "--turns"), val(cont, "--per-round")) == (SESSION, "4", "9", "3")
+    assert (val(full, "--start"), val(full, "--turns"), val(full, "--per-round")) == ("1", "9", "3")
+    for c in dumps:
+        assert "--force-compact" not in c and "--question-file" not in c and "--questions" not in c
+
+
+@pytest.mark.parametrize("mode", ["preamble", "compact", "question", "short", "shifted", "reordered"])
+def test_c3_a_mutant_feeder_fails_the_plan_check_with_exit_3_and_no_student_run(w, ollama, mode):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_PLAN=mode)
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "STOP: the continue plan" in r.stdout
+    assert not w.mark.exists(), "a student run started after a failed plan check"
+    assert "step 7 plan check: exit 3" in setup_lines(w)
+    assert not w.saved.exists()
+
+
+# the real feeder: feed4.py --dump-plan on the synthetic parquet (8 exchanges: 2 sessions of 4), conv 9
+def comps_for_real(w):
+    lines = [f"{hashlib.sha256(open(os.path.join(TOOLS, n), 'rb').read()).hexdigest()}  {label}"
+             for n, label in (("feed4.py", "feed4.py"), ("feed.py", "imported module: feed.py"))]
+    p = w.root / "real-components.txt"; p.write_text("\n".join(lines) + "\n")
+    return str(p)
+
+
+def real_dump(arrow_python, parquet, *extra):
+    env = {"PATH": os.environ["PATH"], "BEAM_PARQUET": parquet, "BEAM_OLLAMA_URL": dead_url()}
+    out = tempfile.mkdtemp(prefix="p1c-dump-")
+    r = subprocess.run([arrow_python, "-I", os.path.join(TOOLS, "feed4.py"), "--arm-home", out + "/slot", "--out", out + "/out",
+                        "--conv", "9", *extra, "--dump-plan"], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def real_world(w, arrow_python, synthetic_parquet):
+    """The launcher over the REAL feed4.py (no P1_FEED4) and the synthetic parquet."""
+    prefix = P1S.file_sha256(synthetic_parquet)[:12]
+    return dict(BEAM_PY=arrow_python, BEAM_PARQUET=synthetic_parquet, P1_EXPECTED_PARQUET_PREFIX=prefix, P1_FEED4=None)
+
+
+def real_run(w, arrow_python, synthetic_parquet, ollama, over=None, extra=("--dry-run",)):
+    over = dict(over or {}); over.setdefault("--components", comps_for_real(w))
+    e = w.env(**real_world(w, arrow_python, synthetic_parquet)); e["BEAM_OLLAMA_URL"] = ollama["url"]
+    return subprocess.run([sys.executable, TOOL, *cr_args(w, over), *extra], capture_output=True, text=True, env=e)
+
+
+@pytest.mark.parametrize("start,through,k", [(3, 8, 2), (5, 8, 4), (2, 7, 1)])
+def test_c3_the_real_feeder_continue_plan_equals_the_full_plans_exchanges_n_to_m(w, ollama, arrow_python, synthetic_parquet,
+                                                                                 start, through, k):
+    over = {"--start": str(start), "--through": str(through), "--per-round": str(k)}
+    r = real_run(w, arrow_python, synthetic_parquet, ollama, over)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    cont = json.load(open(w.runs / "p1-t1" / "plan.json"))
+    full = real_dump(arrow_python, synthetic_parquet, "--start", "1", "--turns", str(through), "--per-round", str(k))
+    resumed = real_dump(arrow_python, synthetic_parquet, "--resume", SESSION, "--start", str(start), "--turns", str(through),
+                        "--per-round", str(k))
+    assert cont == resumed
+    assert len(cont) == (through - start + 1) // k
+    assert [e for m in cont for e in m["exchanges"]] == list(range(start, through + 1))
+    assert cont == full[(start - 1) // k: through // k]          # byte-equal messages, same rounds
+    assert all(m["kind"] == "exchange" for m in cont)
+
+
+def test_c3_a_wrong_turns_count_instead_of_the_end_index_is_visible_on_the_real_feeder(arrow_python, synthetic_parquet):
+    """The mistake the first spec made: --turns (M-N+1) with --start N selects nothing (feed4 slices [N-1:turns])."""
+    wrong = real_dump(arrow_python, synthetic_parquet, "--resume", SESSION, "--start", "5", "--turns", "4", "--per-round", "2")
+    right = real_dump(arrow_python, synthetic_parquet, "--resume", SESSION, "--start", "5", "--turns", "8", "--per-round", "2")
+    assert wrong == [] and [m["exchanges"] for m in right] == [[5, 6], [7, 8]]
+
+
+# =============================================================================================================== C4
+def test_c4_the_run_is_feed4_with_exactly_the_contract_arguments(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    runs = [c for c in argv_calls(w) if "--dump-plan" not in c]
+    assert len(runs) == 1
+    assert runs[0] == ["--arm-home", str(w.slot), "--out", str(w.runs / "p1-t1" / "run"), "--conv", "9", "--resume", SESSION,
+                       "--start", "4", "--turns", "9", "--per-round", "3", "--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072",
+                       "--expect-components", str(w.comps)]
+    assert w.mark.read_text() == "student run\n"
+
+
+def test_c4_the_slot_is_a_copy_of_the_end_state_and_the_end_state_is_not_opened_for_writing(w, ollama):
+    before = bytes_and_mtimes(w.pres)
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert os.path.exists(w.slot / ".disposable-copy") and bytes_and_mtimes(w.pres) == before
+
+
+# =============================================================================================================== C5
+def test_c5_setup_txt_records_the_server_version_the_model_and_its_digest(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = setup_lines(w)
+    assert "serving: ollama version 0.9.9" in lines
+    assert f"serving: model {MODEL}" in lines
+    assert f"serving: model digest sha256:abc123def456" in lines   # the entry whose name matches, not the other one
+
+
+def test_c5_the_default_model_recorded_is_the_one_feed4_uses():
+    src = open(os.path.join(TOOLS, "feed4.py")).read()
+    m = re.search(r'"--model", default="([^"]+)"', src)
+    assert m and m.group(1) == P1S.SERVING_MODEL == MODEL
+
+
+def test_c5_an_expect_serving_file_equal_to_the_record_is_accepted(w, ollama):
+    exp = w.root / "expect-serving.txt"
+    exp.write_text("serving: ollama version 0.9.9\nserving: model " + MODEL + "\nserving: model digest sha256:abc123def456\n")
+    r = cr_run(w, over={"--expect-serving": str(exp)}, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+
+
+def test_c5_a_server_that_does_not_answer_is_exit_3_with_a_named_line_and_nothing_touched(w):
+    w.start_fake_process(); before = w.snapshot()
+    r = cr_run(w, ollama_url=dead_url())
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "SERVING RECORD FAILED" in r.stdout + r.stderr
+    w.assert_untouched(before)
+    assert not w.saved.exists()
+
+
+def test_c5_a_model_missing_from_the_tags_is_exit_3_with_a_named_line(w, ollama):
+    ollama["models"] = [{"name": "other:1b", "digest": "sha256:ffff"}]
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 3 and "SERVING RECORD FAILED" in r.stdout + r.stderr and MODEL in r.stdout + r.stderr
+    assert not w.mark.exists()
+
+
+# =============================================================================================================== C6
+def test_c6_a_good_run_saves_a_copy_of_the_slot_and_hashes_it(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert w.saved.is_dir() and w.slot.is_dir(), "the slot must still exist: the save is a copy, never a move"
+    assert tree(w.saved) == tree(w.slot)
+    sha_saved = P1S.protected_store_hash(str(w.saved))[0]
+    hashes = open(str(w.saved) + ".hashes.txt").read()
+    assert hashes == P1S.home_record(str(w.saved)) and f"sha256={sha_saved}" in hashes
+    assert "a.md" in hashes  # the auto-memory file hashes ride along
+    sl = open(w.runs / "p1-t1" / "setup.txt").read()
+    assert f"saved end state: {w.saved}" in sl and hashes in sl
+
+
+@pytest.mark.parametrize("name,envover,code", [("feed4 failed", {"STUB_RC": "1"}, 3), ("delivery failed", {"STUB_DROP": "1"}, 1)])
+def test_c6_a_failed_run_creates_no_saved_end_state(w, ollama, name, envover, code):
+    r = cr_run(w, ollama_url=ollama["url"], **envover)
+    assert r.returncode == code, (r.returncode, r.stdout, r.stderr)
+    assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
+
+
+def test_c6_a_dry_run_saves_nothing(w, ollama):
+    assert cr_run(w, extra=("--dry-run",), ollama_url=ollama["url"]).returncode == 0
+    assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
+
+
+def test_c6_a_saved_end_state_is_removed_with_a_line_when_a_protected_home_changed(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_ACTION="protected", STUB_TARGET=str(w.pres2))
+    assert r.returncode == 5, (r.stdout, r.stderr)
+    assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
+    assert f"saved end state removed: {w.saved}" in r.stdout and f"saved end state removed: {w.saved}" in setup_lines(w)
+
+
+# =============================================================================================================== C7
+def test_c7_after_equals_before_and_the_saved_end_state_is_not_in_the_before_set(w, ollama):
+    bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    run = w.runs / "p1-t1"
+    before, after = (run / "before-hashes.txt").read_text(), (run / "after-hashes.txt").read_text()
+    assert before == after and f"home {w.pres}\n" in before and f"home {w.pres2}\n" in before
+    assert str(w.saved) not in before and str(w.saved) not in after
+    assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm
+
+
+def test_c7_a_write_into_the_end_state_during_a_continue_run_is_exit_5_naming_it(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_ACTION="protected", STUB_TARGET=str(w.pres))
+    assert r.returncode == 5, (r.stdout, r.stderr)
+    assert f"changed home: {w.pres}" in r.stdout and "PROTECTED CHANGED: 1 home(s)" in r.stdout
+
+
+# =============================================================================================================== C8
+def test_c8_a_reading_run_that_dropped_a_round_is_exit_1_from_the_reading_delivery_check(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_DROP="1")
+    assert r.returncode == 1 and "FAIL" in (w.runs / "p1-t1" / "delivery.txt").read_text()
+    assert any("reading-delivery-check.py" in l for l in setup_lines(w))
+    assert any("step 9 after the run (delivery check): exit 1" == l for l in setup_lines(w))
+
+
+def test_c8_the_question_delivery_check_is_unchanged_and_still_refuses_reading_turns():
+    src = open(os.path.join(TOOLS, "answer-delivery-check.py")).read()
+    assert "no reading turns" in src and 'r.get("kind") in ("exchange", "setup")' in src

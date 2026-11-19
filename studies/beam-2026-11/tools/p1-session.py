@@ -56,6 +56,29 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
    the components file, answer-delivery-check.py and plant-control.py, the plant mode on its own line (`plant mode: none`,
    `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), the FULL sha256 of BEAM_PARQUET (`<sha256>  BEAM_PARQUET`), which dataset check ran (`dataset check: registered
    prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), start/end UTC, and each step's exit code.
+CONTINUE READING (--continue-reading): the same launcher, steps and protected-home proof, but it feeds READING rounds instead
+of asking questions, then saves the resulting home as a new preserved end state:
+  p1-session.py --end-state PATH --session ID --label NAME --components F --continue-reading --start N --through M
+                --per-round K --save-end-state PATH --expect-store-sha256 H [--expect-serving FILE] [--dry-run]
+  Mutually exclusive with --question-file and every plant flag; --start --through --per-round --save-end-state and
+  --expect-store-sha256 are then required, and none of the continue flags is accepted without it. Feeds exchanges N..M of
+  conversation 9 through feed4.py --resume ID --start N --turns M --per-round K (feed4's --turns is an INCLUSIVE END INDEX).
+  Step 1 also refuses (exit 2): K < 1; N < 2; M < N; (N - 1) % K != 0; (M - N + 1) % K != 0; the end state's store content
+  hash (protected_store_hash) differs from --expect-store-sha256; --save-end-state, or PATH.hashes.txt, already exists, or
+  PATH lies inside a protected home or the slot, or its parent directory is missing; --expect-serving FILE differs from the
+  recorded serving lines. Then it records the serving setup (GET <BEAM_OLLAMA_URL, else the default>/api/version, and
+  /api/tags for the digest of feed4's default model) as three `serving:` lines in setup.txt; a server that does not answer, or
+  does not list the model, is exit 3 with `SERVING RECORD FAILED` and nothing touched. Optional env: BEAM_OLLAMA_URL.
+  Step 7 dumps the continue plan and a FULL run's plan (--start 1 --turns M --per-round K, no resume): the continue plan
+  must hold exactly (M - N + 1) / K reading messages carrying exchanges N..M in order, no compaction, no question, and be
+  byte-equal to the full plan's messages for those exchanges (a resume must add nothing); else exit 3, no student run.
+  Step 8 is feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --resume ID --start N --turns M --per-round K --env
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C (no --force-compact, no questions). Step 9's delivery check
+  is reading-delivery-check.py (answer-delivery-check.py refuses reading turns by design). After a run with feed4 exit 0
+  and the delivery check passing, the slot is COPIED (cp -a, never moved) to --save-end-state, hashed the way the protected
+  homes are (store content hash from a temporary copy, memory files), and the hashes go to setup.txt and PATH.hashes.txt;
+  on any failure the saved end state is removed with a `saved end state removed:` line. The saved end state is not in the
+  before set; steps 10 and 11 are unchanged, so the originals (the end state included) are proved byte-equal as before.
 Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
 5 a protected home changed (overrides every other code).
 
@@ -72,7 +95,8 @@ P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never sil
   P1_EXPECTED_PARQUET_PREFIX  the sha256 prefix BEAM_PARQUET must have, in place of the registered one (setup.txt says so)
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
 """
-import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
+import argparse, datetime, hashlib, http.client, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
@@ -83,12 +107,22 @@ TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOO
 REGISTERED_PARQUET_PREFIX = "c0519be25907"
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
+# The model server feed4.py talks to (feed.py's OLLAMA_URL) and the model it runs when --model is not given (feed4.py's
+# --model default); the continue-reading mode records the server's version and this model's digest. A test reads
+# feed4.py and requires SERVING_MODEL to equal its default.
+OLLAMA_DEFAULT = "http://localhost:11434"  # privacy-scan: allow (Ollama's documented default endpoint, as in feed.py)
+SERVING_MODEL = "qwen3.8:27b-128k"
+CONTINUE_ONLY = ("start", "through", "per_round", "save_end_state", "expect_store_sha256", "expect_serving")
 PLANT_SETS = ("the valid plant sets are --plant-builtin --plant-engram --plant-absent (both channels), or exactly "
               "--plant-engram --plant-absent (engram-only)")
 
 
 class Refusal(Exception):
     pass
+
+
+class ServingFailed(Exception):
+    """The model server did not give the serving record (exit 3, before anything is touched)."""
 
 
 # --------------------------------------------------------------------------------------------- the store content hash
@@ -284,6 +318,73 @@ def check_end_state_links(end, prot):
     return outside
 
 
+def fetch_json(url):
+    with urllib.request.urlopen(url, timeout=15) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def serving_record(env):
+    """The serving setup the run will use (design A7): the model server's version (GET <url>/api/version, the URL feed4.py
+    uses: BEAM_OLLAMA_URL, else the default), the model name feed4.py runs by default, and that model's digest (GET
+    <url>/api/tags, the entry whose name equals it). Three `serving: ...` lines. A server that does not answer, or that
+    does not list the model, is ServingFailed, never a silent skip."""
+    base = (env.get("BEAM_OLLAMA_URL") or OLLAMA_DEFAULT).rstrip("/")
+    try:
+        version = fetch_json(base + "/api/version")["version"]
+        models = fetch_json(base + "/api/tags")["models"]
+        digest = next((m["digest"] for m in models if m.get("name") == SERVING_MODEL), None)
+    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ServingFailed(f"cannot read the model server at {base}: {type(e).__name__}: {e}")
+    if not isinstance(version, str) or not version:
+        raise ServingFailed(f"the model server at {base} gave no version string")
+    if not isinstance(digest, str) or not digest:
+        raise ServingFailed(f"the model {SERVING_MODEL} is not listed (with a digest) by {base}/api/tags")
+    return [f"serving: ollama version {version}", f"serving: model {SERVING_MODEL}", f"serving: model digest {digest}"]
+
+
+def continue_step1(a, env, prot, end, slot_real):
+    """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
+    also before anything is touched). Returns the fields the later steps need."""
+    if a.per_round < 1:
+        raise Refusal(f"--per-round must be at least 1 (got {a.per_round})")
+    if a.start < 2:
+        raise Refusal(f"--start must be at least 2 (got {a.start}): exchange 1 carries the brief, which only a full run sends")
+    if a.through < a.start:
+        raise Refusal(f"--through must not be below start (--through {a.through}, --start {a.start})")
+    if (a.start - 1) % a.per_round:
+        raise Refusal(f"--start {a.start} is not on a round boundary: (start - 1) must be a multiple of --per-round {a.per_round}")
+    if (a.through - a.start + 1) % a.per_round:
+        raise Refusal(f"exchanges {a.start}..{a.through} would end in a partial last round at --per-round {a.per_round}: "
+                      "(through - start + 1) must be a multiple of --per-round")
+    got = protected_store_hash(end)[0]
+    if got != a.expect_store_sha256:
+        raise Refusal(f"the end state's store content hash {got} differs from --expect-store-sha256 {a.expect_store_sha256}")
+    save = os.path.abspath(a.save_end_state)
+    hashes = save + ".hashes.txt"
+    if os.path.lexists(save):
+        raise Refusal(f"--save-end-state {save} already exists (a saved end state is never overwritten)")
+    if os.path.lexists(hashes):
+        raise Refusal(f"the hashes file {hashes} already exists (it is written beside --save-end-state and never overwritten)")
+    save_real = os.path.realpath(save)
+    for p in prot:
+        if under(save_real, p):
+            raise Refusal(f"--save-end-state {save} is inside the protected path {p}")
+    if under(save_real, slot_real) or under(slot_real, save_real):
+        raise Refusal(f"--save-end-state {save} is equal to, inside, or containing the slot {slot_real}")
+    if not os.path.isdir(os.path.dirname(save)):
+        raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
+    expect_serving = None
+    if a.expect_serving is not None:
+        try:
+            expect_serving = [l for l in open(a.expect_serving, encoding="utf-8").read().splitlines() if l.strip()]
+        except OSError as e:
+            raise Refusal(f"--expect-serving {a.expect_serving} cannot be read: {e}")
+    serving = serving_record(env)
+    if expect_serving is not None and expect_serving != serving:
+        raise Refusal(f"the recorded serving setup differs from --expect-serving {a.expect_serving}\n  recorded: {serving}\n  expected: {expect_serving}")
+    return {"save": save, "hashes": hashes, "serving": serving}
+
+
 def step1(a):
     env = os.environ
     for v in REQUIRED_ENV:
@@ -332,9 +433,12 @@ def step1(a):
     if not os.path.isdir(os.path.join(end, ".claude")):
         raise Refusal("the end state has no .claude/ folder")
     outside = check_end_state_links(end, prot)
-    if not os.path.isfile(a.question_file):
-        raise Refusal(f"the question file {a.question_file} is missing")
-    qids = load_questions(a.question_file)
+    if a.continue_reading:
+        qids = []
+    else:
+        if not os.path.isfile(a.question_file):
+            raise Refusal(f"the question file {a.question_file} is missing")
+        qids = load_questions(a.question_file)
     if not os.path.isfile(a.components):
         raise Refusal(f"the components file {a.components} is missing")
     facts = (a.plant_builtin, a.plant_engram, a.plant_absent)
@@ -356,22 +460,86 @@ def step1(a):
     for hook in ("P1_FEED4", "P1_PLANT_CONTROL", "P1_AFTER_COPY_HOOK"):
         if env.get(hook) and not os.path.isfile(env[hook]):
             raise Refusal(f"{hook} is set to a file that does not exist")
-    for need in ("feed4.py", "feed.py", "answer-delivery-check.py", "plant-control.py"):
+    for need in ("feed4.py", "feed.py", "answer-delivery-check.py", "plant-control.py") + (
+            ("reading-delivery-check.py",) if a.continue_reading else ()):
         if not os.path.isfile(os.path.join(HERE, need)):
             raise Refusal(f"{need} is missing beside this script")
     stamp = env.get("P1_UTC_STAMP") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     aside = f"{slot}.aside-{a.label}-{stamp}"
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
-    return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
-            "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
+    c = {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
+         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
+    if a.continue_reading:
+        c.update(continue_step1(a, env, prot, end, slot_real))
+    return c
 
 
 # ----------------------------------------------------------------------------------------------------------- the run
 def feed4_args(a, c, out):
+    if a.continue_reading:
+        return ["--arm-home", c["slot"], "--out", out, "--conv", "9", "--resume", a.session, "--start", str(a.start),
+                "--turns", str(a.through), "--per-round", str(a.per_round), "--env", WINDOW, "--expect-components", a.components]
     return ["--arm-home", c["slot"], "--out", out, "--conv", "9", "--turns", "0", "--resume", a.session,
             "--force-compact", "--question-file", a.question_file, "--env", WINDOW,
             "--expect-components", a.components]
+
+
+def check_continue_plan(cont, full, a):
+    """None if the continue plan is right, else the reason. --turns is feed4's INCLUSIVE END INDEX, so the plan must hold
+    exactly (through - start + 1) / per-round reading messages carrying exchanges start..through in order, no compaction and
+    no question, and each must be byte-equal to the message a FULL run (same per-round, from exchange 1, no resume) sends
+    for the same exchanges (design A1 b): a resume must add nothing."""
+    N, M, K = a.start, a.through, a.per_round
+    if not (isinstance(cont, list) and all(isinstance(m, dict) for m in cont)):
+        return "the continue plan is not a list of messages"
+    for m in cont:
+        if m.get("kind") != "exchange":
+            return f"the continue plan holds a {m.get('kind')!r} message (only reading messages are allowed: no compaction, no question)"
+    if len(cont) != (M - N + 1) // K:
+        return f"the continue plan has {len(cont)} messages, expected {(M - N + 1) // K}"
+    want = [list(range(N + i * K, N + (i + 1) * K)) for i in range((M - N + 1) // K)]
+    if [m.get("exchanges") for m in cont] != want:
+        return f"the continue plan's exchanges are {[m.get('exchanges') for m in cont]}, expected {want}"
+    if not (isinstance(full, list) and all(isinstance(m, dict) for m in full)):
+        return "the full-run plan is not a list of messages"
+    ref = full[(N - 1) // K: M // K]
+    if cont != ref:
+        return f"the continue plan is not byte-equal to the full run's messages for exchanges {N}..{M} (a resume must add nothing)"
+    return None
+
+
+def remove_saved(c):
+    """Remove a saved end state (and its hashes file) after any failure, saying so."""
+    gone = False
+    for path in (c["save"], c["hashes"]):
+        if os.path.lexists(path):
+            shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
+            gone = True
+    if gone:
+        c["saved_removed"] = f"saved end state removed: {c['save']}"
+        print(c["saved_removed"])
+
+
+def save_end_state(a, c, steps):
+    """C6: copy (cp -a, never a move) the slot to --save-end-state, hash the copy the way the protected homes are hashed,
+    write the hashes to PATH.hashes.txt and keep the lines for setup.txt. Any failure removes what was created."""
+    c["save_started"] = True
+    r = subprocess.run(["cp", "-a", "--", c["slot"], c["save"]])
+    if r.returncode:
+        steps.append(("9b save the end state", r.returncode)); print("STOP: copying the slot to --save-end-state failed")
+        remove_saved(c); return 3
+    try:
+        rec = home_record(c["save"])
+        with open(c["hashes"], "w") as f:
+            f.write(rec)
+    except Exception as e:  # noqa: BLE001
+        steps.append(("9b save the end state", 3)); print(f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
+        remove_saved(c); return 3
+    c["saved_lines"] = [f"saved end state: {c['save']}"] + rec.splitlines()
+    print("".join(l + "\n" for l in c["saved_lines"]), end="")
+    steps.append(("9b save the end state", 0))
+    return 0
 
 
 def work(a, c, steps):
@@ -428,15 +596,31 @@ def work(a, c, steps):
                             stdout=f).returncode
     if pr:
         steps.append(("7 plan dump", pr)); print(f"STOP: the plan dump exited {pr}"); return 3
-    try:
-        plan = json.load(open(plan_path))
-        ok = (isinstance(plan, list) and len(plan) == 1 + len(c["qids"]) and plan[0].get("kind") == "compact"
-              and [p.get("kind") for p in plan[1:]] == ["question"] * len(c["qids"])
-              and [p.get("id") for p in plan[1:]] == c["qids"])
-    except (OSError, ValueError, AttributeError):
-        ok = False
-    if not ok:
-        steps.append(("7 plan check", 3)); print("STOP: the plan is not exactly [compact, q1..qN] in the question file's order"); return 3
+    if a.continue_reading:
+        full_path = os.path.join(rundir, "plan-full.json")
+        with open(full_path, "w") as f:  # a FULL run's plan for the same K, from exchange 1, no resume: the comparison
+            pr = subprocess.run([py, "-I", feed4, "--arm-home", slot, "--out", os.path.join(rundir, "plan-dump-full"),
+                                 "--conv", "9", "--start", "1", "--turns", str(a.through), "--per-round", str(a.per_round),
+                                 "--expect-components", a.components, "--dump-plan"], stdout=f).returncode
+        if pr:
+            steps.append(("7 plan dump", pr)); print(f"STOP: the full-run plan dump exited {pr}"); return 3
+        try:
+            why = check_continue_plan(json.load(open(plan_path)), json.load(open(full_path)), a)
+        except (OSError, ValueError) as e:
+            why = f"a plan dump is not readable JSON ({e})"
+        if why:
+            steps.append(("7 plan check", 3)); print(f"STOP: the continue plan is wrong: {why}"); return 3
+        ok = True
+    else:
+        try:
+            plan = json.load(open(plan_path))
+            ok = (isinstance(plan, list) and len(plan) == 1 + len(c["qids"]) and plan[0].get("kind") == "compact"
+                  and [p.get("kind") for p in plan[1:]] == ["question"] * len(c["qids"])
+                  and [p.get("id") for p in plan[1:]] == c["qids"])
+        except (OSError, ValueError, AttributeError):
+            ok = False
+        if not ok:
+            steps.append(("7 plan check", 3)); print("STOP: the plan is not exactly [compact, q1..qN] in the question file's order"); return 3
     steps.append(("7 plan check", 0))
     if a.dry_run:
         steps.append(("8 student run", "skipped (--dry-run)")); steps.append(("9 after the run", "skipped (--dry-run)"))
@@ -448,32 +632,55 @@ def work(a, c, steps):
     if os.path.isdir(proj):
         shutil.copytree(proj, os.path.join(rundir, "transcripts"), symlinks=True)
     with open(os.path.join(rundir, "delivery.txt"), "w") as f:
-        drc = subprocess.run([py, "-I", os.path.join(HERE, "answer-delivery-check.py"), "--turns",
-                              os.path.join(rundir, "run", "turns.jsonl"), "--questions", a.question_file,
-                              "--session", a.session], stdout=f, stderr=subprocess.STDOUT).returncode
+        if a.continue_reading:  # answer-delivery-check.py refuses reading turns by design, so reading has its own check
+            drc = subprocess.run([py, "-I", os.path.join(HERE, "reading-delivery-check.py"), "--turns",
+                                  os.path.join(rundir, "run", "turns.jsonl"), "--plan", plan_path, "--events",
+                                  os.path.join(rundir, "run", "events.jsonl"), "--session", a.session],
+                                 stdout=f, stderr=subprocess.STDOUT).returncode
+        else:
+            drc = subprocess.run([py, "-I", os.path.join(HERE, "answer-delivery-check.py"), "--turns",
+                                  os.path.join(rundir, "run", "turns.jsonl"), "--questions", a.question_file,
+                                  "--session", a.session], stdout=f, stderr=subprocess.STDOUT).returncode
     print(open(os.path.join(rundir, "delivery.txt")).read(), end="")
     steps.append(("9 after the run (delivery check)", drc))
+    if a.continue_reading and not frc and not drc:
+        return save_end_state(a, c, steps)
     return 3 if frc else (1 if drc else 0)
 
 
 def write_setup(a, c, steps, start, rc):
+    cont = getattr(a, "continue_reading", False)  # a bare namespace from an older caller has no such field
     r = subprocess.run(["git", "-C", HERE, "rev-parse", "HEAD"], capture_output=True, text=True)
     lines = [r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "unknown (no git commit id)"]
+    qfile = [] if cont else [(os.path.basename(a.question_file), a.question_file)]  # no question file when continuing
     for label, path in (("p1-session.py", os.path.abspath(__file__)), ("feed4.py", os.path.join(HERE, "feed4.py")),
-                        ("feed.py", os.path.join(HERE, "feed.py")), (os.path.basename(a.question_file), a.question_file),
+                        ("feed.py", os.path.join(HERE, "feed.py")), *qfile,
                         (os.path.basename(a.components), a.components),
                         ("answer-delivery-check.py", os.path.join(HERE, "answer-delivery-check.py")),
                         ("plant-control.py", os.path.join(HERE, "plant-control.py"))):
         lines.append(f"{file_sha256(path)}  {label}")
+    if cont:
+        lines.append(f"{file_sha256(os.path.join(HERE, 'reading-delivery-check.py'))}  reading-delivery-check.py")
     for hook, label in (("P1_FEED4", "feed4 override"), ("P1_PLANT_CONTROL", "plant-control override")):
         if os.environ.get(hook):
             lines.append(f"{file_sha256(os.environ[hook])}  {label} ({hook}): {os.path.basename(os.environ[hook])}")
     lines.append(f"plant mode: {c['plant_mode']}")
     lines.append(f"{c['parquet_sha256']}  BEAM_PARQUET")
     lines.append(dataset_check_line(os.environ))
+    if cont:
+        lines.append("mode: continue-reading")
+        lines.append(f"continue range: exchanges {a.start}..{a.through} at per-round {a.per_round}")
+        lines.append(f"expect-store-sha256: {a.expect_store_sha256} (matched the end state)")
+        lines += c["serving"]
+        if a.expect_serving is not None:
+            lines.append(f"{file_sha256(a.expect_serving)}  expect-serving file {os.path.basename(a.expect_serving)} (matched)")
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]
+    if cont:
+        lines += c.get("saved_lines", [])
+        if c.get("saved_removed"):
+            lines.append(c["saved_removed"])
     lines.append(f"final exit {rc}")
     with open(os.path.join(c["rundir"], "setup.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -482,17 +689,39 @@ def write_setup(a, c, steps, start, rc):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--end-state", required=True); ap.add_argument("--session", required=True)
-    ap.add_argument("--label", required=True); ap.add_argument("--question-file", required=True)
+    ap.add_argument("--label", required=True); ap.add_argument("--question-file")  # required unless --continue-reading
     ap.add_argument("--components", required=True)
     ap.add_argument("--plant-builtin"); ap.add_argument("--plant-engram"); ap.add_argument("--plant-absent")
     ap.add_argument("--plant-question"); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--continue-reading", action="store_true")
+    ap.add_argument("--start", type=int); ap.add_argument("--through", type=int); ap.add_argument("--per-round", type=int)
+    ap.add_argument("--save-end-state"); ap.add_argument("--expect-store-sha256"); ap.add_argument("--expect-serving")
     a = ap.parse_args(argv)
+    if a.continue_reading:
+        for flag, val in (("--question-file", a.question_file), ("--plant-builtin", a.plant_builtin),
+                          ("--plant-engram", a.plant_engram), ("--plant-absent", a.plant_absent),
+                          ("--plant-question", a.plant_question)):
+            if val is not None:
+                ap.error(f"--continue-reading cannot be combined with {flag}")
+        for flag, val in (("--start", a.start), ("--through", a.through), ("--per-round", a.per_round),
+                          ("--save-end-state", a.save_end_state), ("--expect-store-sha256", a.expect_store_sha256)):
+            if val is None:
+                ap.error(f"--continue-reading requires {flag}")
+    else:
+        if a.question_file is None:
+            ap.error("the following arguments are required: --question-file")
+        for name in CONTINUE_ONLY:
+            if getattr(a, name) is not None:
+                ap.error(f"--{name.replace('_', '-')} is only valid with --continue-reading")
     start = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     steps = []
     try:
         c = step1(a)
         before = records(c["protected"], tolerant=False)
         c["before_store"] = protected_store_hash(c["end"])
+    except ServingFailed as e:  # nothing has been touched yet: the serving record is read in step 1
+        print(f"SERVING RECORD FAILED: {e}", file=sys.stderr)
+        return 3
     except (Refusal, sqlite3.Error, OSError) as e:  # nothing has been touched yet: an unreadable input is a refusal
         print(f"REFUSE: {e}", file=sys.stderr)
         return 2
@@ -529,6 +758,11 @@ def main(argv=None):
             print(f"changed home: {h}")
         print(f"PROTECTED CHANGED: {len(changed)} home(s)")
         rc = 5
+    if rc and a.continue_reading and c.get("save_started"):  # a saved end state exists only after a fully good run
+        try:
+            remove_saved(c)
+        except BaseException as e:  # noqa: BLE001
+            print(f"ERROR: the saved end state {c['save']} could not be removed ({type(e).__name__}: {e})", file=sys.stderr)
     try:
         write_setup(a, c, steps, start, rc)
     except BaseException as e:  # noqa: BLE001
