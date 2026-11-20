@@ -31,7 +31,7 @@ socket, and nothing else crosses:
           an account with uid >= 1000, as a whole word, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
-                        --max-request N --max-total N --max-conns N
+                        --max-request N --max-total N --max-conns N [--scope-unit NAME]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
@@ -579,6 +579,75 @@ def alive(pid):
     return True
 
 
+CGROUP_ROOT = "/sys/fs/cgroup"
+CGROUP_POLL_S = 1.0
+
+
+class CgroupWatch:
+    """Reads the box's cgroup counters while the box runs (R7-2). The forwarder lives outside the box for the whole run, and
+    the box's scope is collected the moment the box exits, so the counters have to be read before that. The cgroup is found
+    from /proc/<watched pid>/cgroup once that pid has moved into the NAMED scope; memory.events (oom_kill, max) and
+    pids.events (max) are then read about once a second, and the last values read are kept for the line written at exit.
+    An event in the last interval before exit can be missed by the counters (the journal for the unit still records an OOM
+    kill)."""
+
+    def __init__(self, unit, pid):
+        self.unit, self.pid = unit, pid
+        self.base = None
+        self.reason = "the watched process never entered the scope %s.scope" % unit
+        self.polls = 0
+        self.last_poll = None
+        self.vals = {"oom_kill": 0, "memory_max_events": 0, "pids_max_events": 0}
+        self.next_poll = 0.0
+
+    def find(self):
+        try:
+            with open("/proc/%d/cgroup" % self.pid) as f:
+                for line in f.read().splitlines():
+                    path = line.split(":", 2)[-1]
+                    if path.rsplit("/", 1)[-1] == self.unit + ".scope":
+                        self.base = CGROUP_ROOT + path
+                        return
+        except OSError as e:
+            self.reason = "cannot read the watched process's cgroup: %s" % e.strerror
+
+    @staticmethod
+    def counters(path):
+        out = {}
+        with open(path) as f:
+            for line in f:
+                k, _, v = line.partition(" ")
+                out[k] = int(v)
+        return out
+
+    def tick(self):
+        now = time.monotonic()
+        if self.base is None:
+            self.find()
+            if self.base is None:
+                return
+        if now < self.next_poll:
+            return
+        self.next_poll = now + CGROUP_POLL_S
+        try:
+            mem = self.counters(self.base + "/memory.events")
+            pids = self.counters(self.base + "/pids.events")
+        except (OSError, ValueError) as e:
+            self.reason = "cannot read the scope's event files: %s" % e
+            return
+        self.vals = {"oom_kill": mem.get("oom_kill", 0), "memory_max_events": mem.get("max", 0),
+                     "pids_max_events": pids.get("max", 0)}
+        self.polls += 1
+        self.last_poll = now
+
+    def final_line(self):
+        if not self.polls:
+            return "box-cgroup unavailable reason=%s" % self.reason.replace("\n", " ")
+        return "box-cgroup scope=%s oom_kill=%d memory_max_events=%d pids_max_events=%d polls=%d last_poll_age_s=%.1f" % (
+            self.unit, self.vals["oom_kill"], self.vals["memory_max_events"], self.vals["pids_max_events"], self.polls,
+            time.monotonic() - self.last_poll)
+
+
 def run_outer(a):
     rules = []
     if not a.learn:
@@ -612,11 +681,17 @@ def run_outer(a):
             budget.close_conn()
 
     threading.Thread(target=serve, args=(listener, handler, admit), daemon=True).start()
+    watcher = CgroupWatch(a.scope_unit, a.watch) if a.scope_unit else None
     try:
         while alive(a.watch):
+            if watcher:
+                watcher.tick()
             time.sleep(0.2)
     finally:
+        if watcher:
+            write_log(a.log, watcher.final_line())     # one line per run, whatever happened: never silent
         for fn, arg in ((os.unlink, a.sock), (os.unlink, os.path.join(os.path.dirname(a.sock), "watch.pid")),
+                        (os.unlink, os.path.join(os.path.dirname(a.sock), "sandbox-forward.py")),
                         (os.rmdir, os.path.dirname(a.sock))):
             try:
                 fn(arg)
@@ -853,6 +928,7 @@ def main(argv):
     o.add_argument("--sock", required=True); o.add_argument("--host", required=True)
     o.add_argument("--port", type=int, required=True); o.add_argument("--watch", type=int, required=True)
     o.add_argument("--log"); o.add_argument("--allow"); o.add_argument("--learn", action="store_true")
+    o.add_argument("--scope-unit")    # the box's systemd scope name: its cgroup counters are logged at exit
     for flag in ("--max-request", "--max-total", "--max-conns"):   # the caps are the wrapper's: no default lives here
         o.add_argument(flag, type=int, required=True)
     i = sub.add_parser("inner")

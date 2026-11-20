@@ -3392,3 +3392,200 @@ def test_h_the_hashes_are_of_the_files_the_wrapper_resolved_not_of_a_name(cfg, f
     assert f["wrapper_sha256"] == sha256_of(str(real / "student-sandbox.sh")), f
     assert f["forwarder_sha256"] == sha256_of(str(real / "sandbox-forward.py")), f
     _wait_clean(cfg)
+
+
+# ---------------------------------------------------------------- round 7 (R7-1): the forwarder that is hashed is the forwarder that runs
+
+def _bound_forwarder_source(toks):
+    """The host-side source of the bind whose in-box destination is /run/sandbox-forward.py."""
+    hits = [toks[i + 1] for i, t in enumerate(toks) if t == "--ro-bind" and toks[i + 2:i + 3] == ["/run/sandbox-forward.py"]]
+    assert len(hits) == 1, toks
+    return hits[0]
+
+
+def test_r7_1_the_box_is_given_a_private_copy_of_the_forwarder_not_the_source_path(cfg, fake_bwrap):
+    src = _bound_forwarder_source(_launch_argv(cfg, fake_bwrap))
+    assert os.path.realpath(src) != os.path.realpath(FWD), "the source path itself is bound"
+    assert os.path.realpath(src).startswith(os.path.realpath(cfg.tmpd) + os.sep), src
+
+
+def test_r7_1_replacing_the_source_after_the_hash_changes_nothing_that_is_bound(cfg, tmp_path):
+    """The hash-then-run gap: a stand-in bwrap replaces the source file, at the moment the box would start, and then
+    hashes what it was told to bind. That must still be the file whose hash is on the launch line."""
+    d = tmp_path / "gap"
+    d.mkdir()
+    shutil.copy(WRAPPER, str(d / "student-sandbox.sh"))
+    shutil.copy(FWD, str(d / "sandbox-forward.py"))
+    b = tmp_path / "gapbin"
+    b.mkdir()
+    out = str(tmp_path / "gap-out")
+    make_exe(str(b / "bwrap"), '#!/bin/sh\n' + FAKE_PROBE_PASS +
+             'src=\nwhile [ $# -gt 0 ]; do if [ "$1" = --ro-bind ] && [ "$3" = /run/sandbox-forward.py ]; then src=$2; fi; shift; done\n'
+             'printf swapped > "$FAKE_REPLACE.new" && mv "$FAKE_REPLACE.new" "$FAKE_REPLACE"\n'
+             'echo "SHA=$(sha256sum < "$src" | cut -d" " -f1)" > "$FAKE_BWRAP_OUT"\nexit 99\n')
+    r = subprocess.run(["/bin/bash", str(d / "student-sandbox.sh")],
+                       env=cfg.env(exec_="true", PATH=str(b) + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out,
+                                   FAKE_REPLACE=str(d / "sandbox-forward.py"), SANDBOX_LOG=cfg.log),
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 99, r.stderr
+    f = dict(kv.split("=", 1) for kv in [l for l in open(cfg.log).read().splitlines()
+                                         if l.startswith("wrapper-launch ")][0].split()[1:])
+    assert open(str(d / "sandbox-forward.py")).read() == "swapped", "the stand-in did not replace the source"
+    assert open(out).read().strip() == "SHA=" + f["forwarder_sha256"], (open(out).read(), f["forwarder_sha256"])
+    _wait_clean(cfg)
+
+
+@needs_box
+def test_r7_1_the_file_the_box_sees_has_the_hash_on_the_launch_line(cfg):
+    r = cfg.run(exec_="%s -I -c %s" % (PY, shlex.quote("import hashlib; print(hashlib.sha256(open('/run/sandbox-forward.py','rb')"
+                                                      ".read()).hexdigest())")), SANDBOX_LOG=cfg.log)
+    assert r.returncode == 0, r.stderr
+    f = dict(kv.split("=", 1) for kv in [l for l in open(cfg.log).read().splitlines()
+                                         if l.startswith("wrapper-launch ")][0].split()[1:])
+    assert r.stdout.strip() == f["forwarder_sha256"] == sha256_of(FWD), (r.stdout, f["forwarder_sha256"])
+
+
+def _outer_forwarder_argv(cfg, p):
+    end = time.time() + 10
+    while time.time() < end:
+        for pid in procs_with(cfg.tmpd):
+            try:
+                parts = open("/proc/%d/cmdline" % pid, "rb").read().split(b"\0")
+            except OSError:
+                continue
+            if b"outer" in parts and any(x.endswith(b"sandbox-forward.py") for x in parts):
+                return pid, [x.decode() for x in parts]
+        time.sleep(0.05)
+    raise AssertionError("no outer forwarder found")
+
+
+@needs_box
+def test_r7_1_the_outer_forwarder_runs_the_copy_not_the_source(cfg):
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 4"), stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True)
+    try:
+        _, argv = _outer_forwarder_argv(cfg, p)
+        script = [x for x in argv if x.endswith("sandbox-forward.py")][0]
+        assert os.path.realpath(script) != os.path.realpath(FWD), argv
+        assert os.path.realpath(script).startswith(os.path.realpath(cfg.tmpd) + os.sep), argv
+    finally:
+        p.kill()
+        p.wait()
+
+
+@needs_box
+def test_r7_1_the_copy_is_gone_when_the_run_ends(cfg):
+    r = cfg.run(exec_="true")
+    assert r.returncode == 0, r.stderr
+    _wait_clean(cfg)
+
+
+# ---------------------------------------------------------------- round 7 (R7-2): cap hits are visible after the run
+
+def _box_cgroup_line(cfg, secs=15):
+    end = time.time() + secs
+    while time.time() < end:
+        if os.path.exists(cfg.log):
+            lines = [l for l in open(cfg.log).read().splitlines() if l.startswith("box-cgroup ")]
+            if lines:
+                assert len(lines) == 1, lines
+                return dict(kv.split("=", 1) for kv in lines[0].split()[1:]), lines[0]
+        time.sleep(0.1)
+    raise AssertionError("no box-cgroup line in the log: %r" % (open(cfg.log).read() if os.path.exists(cfg.log) else None))
+
+
+def _launch_line_fields(cfg):
+    return dict(kv.split("=", 1) for kv in [l for l in open(cfg.log).read().splitlines()
+                                            if l.startswith("wrapper-launch ")][0].split()[1:])
+
+
+CG_HOG = ("import os\n"
+          "pid = os.fork()\n"
+          "if pid == 0:\n"
+          "    b = bytearray(b'x') * (300 << 20)\n"
+          "    os._exit(0)\n"
+          "os.waitpid(pid, 0)\n")
+CG_BOMB = ("import os, time\n"
+           "for i in range(200):\n"
+           "    try:\n"
+           "        pid = os.fork()\n"
+           "    except OSError:\n"
+           "        break\n"
+           "    if pid == 0:\n"
+           "        time.sleep(2)\n"
+           "        os._exit(0)\n")
+
+
+def test_r7_2_the_launch_line_names_the_scope_unit(cfg, fake_bwrap):
+    f, _ = _launch_fields(cfg, fake_bwrap)
+    assert re.fullmatch(r"student-sandbox-[0-9]+-[0-9a-f]{4,}", f.get("scope_unit", "")), f
+
+
+@needs_box
+def test_r7_2_a_quiet_run_logs_zero_events_and_at_least_one_poll(cfg):
+    r = cfg.run(exec_="sleep 3", SANDBOX_LOG=cfg.log)
+    assert r.returncode == 0, r.stderr
+    f, line = _box_cgroup_line(cfg)
+    assert f["scope"] == _launch_line_fields(cfg)["scope_unit"], (f, line)
+    assert (f["oom_kill"], f["memory_max_events"], f["pids_max_events"]) == ("0", "0", "0"), line
+    assert int(f["polls"]) >= 1 and float(f["last_poll_age_s"]) >= 0, line
+
+
+@needs_box
+def test_r7_2_a_memory_hog_shows_an_oom_kill_on_the_line(cfg):
+    r = cfg.run(exec_="%s -I -c %s; sleep 3" % (PY, shlex.quote(CG_HOG)), SANDBOX_LOG=cfg.log,
+                SANDBOX_TEST_MEMORY_MAX=str(64 << 20))
+    assert r.returncode == 0, r.stderr
+    f, line = _box_cgroup_line(cfg)
+    assert int(f["oom_kill"]) >= 1 and int(f["memory_max_events"]) >= 1, line
+
+
+@needs_box
+def test_r7_2_a_fork_bomb_shows_a_pids_max_event_on_the_line(cfg):
+    r = cfg.run(exec_="%s -I -c %s; sleep 3" % (PY, shlex.quote(CG_BOMB)), SANDBOX_LOG=cfg.log,
+                SANDBOX_TEST_TASKS_MAX="40")
+    assert r.returncode == 0, r.stderr
+    f, line = _box_cgroup_line(cfg)
+    assert int(f["pids_max_events"]) >= 1, line
+
+
+def test_r7_2_a_forwarder_that_never_finds_the_cgroup_says_so(tmp_path):
+    """Never silent: a scope that does not exist gives one line that names why."""
+    sock_dir = tmp_path / "sd"
+    sock_dir.mkdir()
+    log = str(tmp_path / "unavail.log")
+    watched = subprocess.Popen(["sleep", "2"])
+    threading.Thread(target=watched.wait, daemon=True).start()   # reaped at exit: an unreaped child still counts as alive
+    try:
+        o = subprocess.run([PY, "-I", FWD, "outer", "--sock", str(sock_dir / "bridge.sock"), "--host", "127.0.0.1",
+                            "--port", "9", "--watch", str(watched.pid), "--allow", "GET /*", "--max-request", "1000",
+                            "--max-total", "1000", "--max-conns", "2", "--scope-unit", "student-sandbox-none-0000",
+                            "--log", log], capture_output=True, text=True, timeout=30)
+    finally:
+        watched.kill()
+        watched.wait()
+    lines = [l for l in open(log).read().splitlines() if l.startswith("box-cgroup ")]
+    assert len(lines) == 1 and lines[0].startswith("box-cgroup unavailable reason="), (lines, o.stderr)
+
+
+# ---------------------------------------------------------------- round 7 (R7-3): the /proc mask descriptors do not reach the forwarder
+
+@needs_box
+def test_r7_3_the_outer_forwarder_holds_no_descriptor_of_the_proc_masks(cfg):
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 4", SANDBOX_LOG=cfg.log),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        pid, _ = _outer_forwarder_argv(cfg, p)
+        end = time.time() + 10
+        while time.time() < end and not (os.path.exists(cfg.log) and "wrapper-launch " in open(cfg.log).read()):
+            time.sleep(0.05)
+        masked = int(_launch_line_fields(cfg)["etc_masked"])
+        held = 0
+        for fd in os.listdir("/proc/%d/fd" % pid):
+            if int(fd) > 2 and os.path.realpath("/proc/%d/fd/%s" % (pid, fd)) == os.devnull:
+                held += 1
+        # the /etc masks (one /dev/null descriptor each) are not this item; the two /proc masks must not be added to them
+        assert held <= masked, "the forwarder holds %d /dev/null descriptors with %d /etc masks" % (held, masked)
+    finally:
+        p.kill()
+        p.wait()

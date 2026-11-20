@@ -57,7 +57,20 @@ fi
 [ -x "$PY" ] || refuse "$PY not found"
 [ -f "$FWD" ] || refuse "sandbox-forward.py not found next to the wrapper"
 BWRAP=$(command -v bwrap) || refuse "bwrap not found on PATH"
-# (H) What ran, for the launch line: the sha256 of this wrapper file and of the forwarder file, each taken now from the
+# (R7-1) The forwarder is COPIED, once, into a private directory (mode 700, the same directory as the bridge socket, so it
+# has the socket's lifetime and cleanup), and every later use is of the copy: the helper subcommands below, the outer
+# forwarder and the file the box is given. The hash on the launch line is of that copy, so the file hashed is the file that
+# runs; replacing the source after this point changes nothing. Until the forwarder has started, the EXIT trap removes the
+# directory on any refusal.
+SOCKBASE=${TMPDIR:-/tmp}
+SOCKDIR=$(mktemp -d "$SOCKBASE/student-sandbox.XXXXXX") || refuse "cannot create the bridge socket directory"
+sockdir_cleanup() { rm -f -- "$SOCKDIR/bridge.sock" "$SOCKDIR/watch.pid" "$SOCKDIR/sandbox-forward.py"; rmdir -- "$SOCKDIR" 2>/dev/null; }
+trap sockdir_cleanup EXIT
+chmod 700 "$SOCKDIR"
+printf '%s\n' "$$" > "$SOCKDIR/watch.pid"
+cp -- "$FWD" "$SOCKDIR/sandbox-forward.py" && chmod 400 "$SOCKDIR/sandbox-forward.py" || refuse "cannot copy sandbox-forward.py"
+FWD=$SOCKDIR/sandbox-forward.py
+# (H) What ran, for the launch line: the sha256 of this wrapper file and of the forwarder copy, each taken now from the
 # resolved path the wrapper actually uses. Bash reads a script as it runs, so the wrapper hash is of the file on disk at
 # launch: it records what was there when this run started.
 sha_of_file() { "$PY" -I -c '
@@ -146,7 +159,7 @@ BOX_HIDDEN_EMPTY=(/usr/local)
 # Kernel key listings (round 6, K2): files in the box's own /proc that name keys without any syscall; each is masked
 # with an empty file where the host has it.
 BOX_PROC_KEY_FILES=(/proc/keys /proc/key-users)
-SOCKBASE=${TMPDIR:-/tmp}
+# SOCKBASE (where the bridge socket directory is created) is set near the top, with the forwarder copy.
 # Classes of refusal. SYSTEM: equal, inside or an ancestor. FRESH (a fresh tmpfs whose host content is never shown, and the
 # socket base): equal or an ancestor only, because a bind placed under a fresh tmpfs shows only what the caller named.
 BOX_SYSTEM=("${BOX_RO[@]}" "${BOX_PSEUDO[@]}" "$BOX_SHM" "$BOX_RUN" "${BOX_ABSENT[@]}")
@@ -334,9 +347,13 @@ fi
 # is built from the block bash was started with, so it does not reach the student).
 command -v systemd-run >/dev/null || refuse "systemd-run not found: the box's process and memory caps cannot be applied"
 SCOPE_RT=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-SCOPE=(systemd-run --user --scope --quiet --collect -p "TasksMax=$BOX_TASKS" -p "MemoryMax=$BOX_MEM" -p MemorySwapMax=0
-       -p OOMPolicy=continue)   # continue: the kernel kills the hog alone; the default (stop) would SIGTERM the whole box
-XDG_RUNTIME_DIR=$SCOPE_RT "${SCOPE[@]}" -- "$PY" -I -c pass >/dev/null 2>&1 \
+SCOPE_PROPS=(-p "TasksMax=$BOX_TASKS" -p "MemoryMax=$BOX_MEM" -p MemorySwapMax=0
+             -p OOMPolicy=continue)   # continue: the kernel kills the hog alone; the default (stop) would SIGTERM the whole box
+# R7-2: the box's scope has a NAME (this wrapper's pid and a short random suffix), on the launch line, so the run's cap hits
+# can be found afterwards: by the outer forwarder's box-cgroup line, and by the journal for the named unit.
+SCOPE_UNIT=$(printf 'student-sandbox-%s-%04x%04x' "$$" "$RANDOM" "$RANDOM")
+SCOPE=(systemd-run --user --scope --quiet --collect --unit "$SCOPE_UNIT" "${SCOPE_PROPS[@]}")
+XDG_RUNTIME_DIR=$SCOPE_RT systemd-run --user --scope --quiet --collect "${SCOPE_PROPS[@]}" -- "$PY" -I -c pass >/dev/null 2>&1 \
   || refuse "systemd-run could not start a user scope with TasksMax and MemoryMax: the box's process and memory caps cannot be applied (needs a user systemd manager with the pids and memory controllers delegated)"
 
 # ---- L, K2: the mount arguments that hide host content (decided here, so a refusal happens before anything is started).
@@ -351,10 +368,11 @@ done
 # K2: the key listings in the box's own /proc, masked read-only after --proc has mounted it. The mask is an EMPTY FILE
 # from /dev/null's content (--ro-bind-data, as the /etc masks do), not a bind of the /dev/null device: the box's /proc is
 # a nodev mount, so a bound device file would answer every read with EACCES (measured) instead of zero bytes.
-PROCKEYARGS=()
+PROCKEYARGS=(); KFDS=()
 for f in "${BOX_PROC_KEY_FILES[@]}"; do
   [ -e "$f" ] || continue
   exec {KFD}</dev/null || refuse "cannot open /dev/null to mask $f"
+  KFDS+=("$KFD")   # closed again for the outer forwarder below, as BINFD and SECFD are
   PROCKEYARGS+=(--ro-bind-data "$KFD" "$f")
 done
 
@@ -379,30 +397,32 @@ rm -f -- "$SECFILE"
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
 # watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
-# whose watched pid is gone, touching only the two files the launcher itself puts there.
+# whose watched pid is gone, touching only the three files the launcher itself puts there (this run's own directory
+# was made above, and its watch.pid is this live pid, so it is skipped).
 for d in "$SOCKBASE"/student-sandbox.*; do
   [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && [ -f "$d/watch.pid" ] && [ ! -L "$d/watch.pid" ] || continue
   wp=$(head -c 20 "$d/watch.pid" 2>/dev/null)
   wp=${wp//[$'\n\r ']/}
   [[ $wp =~ ^[0-9]{1,10}$ ]] || continue
   [ -d "/proc/$wp" ] && continue
-  rm -f -- "$d/bridge.sock" "$d/watch.pid"
+  rm -f -- "$d/bridge.sock" "$d/watch.pid" "$d/sandbox-forward.py"
   rmdir -- "$d" 2>/dev/null
 done
-SOCKDIR=$(mktemp -d "$SOCKBASE/student-sandbox.XXXXXX") || refuse "cannot create the bridge socket directory"
-chmod 700 "$SOCKDIR"
-printf '%s\n' "$$" > "$SOCKDIR/watch.pid"
 SOCK="$SOCKDIR/bridge.sock"
 FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$"
-         --max-request "$REQ_CAP" --max-total "$TOTAL_CAP" --max-conns "$CONN_CAP")
+         --max-request "$REQ_CAP" --max-total "$TOTAL_CAP" --max-conns "$CONN_CAP" --scope-unit "$SCOPE_UNIT")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
-# It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone.
-"$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- {SECFD}<&- &
+# It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone. It runs the
+# COPY of the forwarder, and holds none of the descriptors meant for bwrap (the binary, the seccomp program, the /proc masks).
+(
+  for k in "${KFDS[@]}"; do eval "exec $k<&-"; done
+  exec "$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- {SECFD}<&-
+) &
 FPID=$!
 for ((i = 0; i < 250; i++)); do [ -S "$SOCK" ] && break; sleep 0.02; done
 if [ ! -S "$SOCK" ]; then
-  kill "$FPID" 2>/dev/null; rm -f -- "$SOCKDIR/watch.pid"; rmdir "$SOCKDIR" 2>/dev/null
+  kill "$FPID" 2>/dev/null
   printf '%s: the bridge forwarder did not start\n' "$PROG" >&2; exit 3
 fi
 disown "$FPID" 2>/dev/null
@@ -417,7 +437,7 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
