@@ -81,10 +81,53 @@ def sha(path):
 
 STUB_FEED4 = r'''
 import json, os, sqlite3, sys
+
+# What the module appends to a feeder's argv for a student session: `--env SANDBOX_*=...` pairs. The cells that pin "the
+# caller's arguments" see the argv WITHOUT them (the pairs are recorded separately, in STUB_SBX_LOG, and pinned by the
+# sandbox cells below).
+def caller_argv(a):
+    out, i = [], 0
+    while i < len(a):
+        if a[i] == "--env" and i + 1 < len(a) and a[i + 1].startswith("SANDBOX_"):
+            i += 2
+            continue
+        out.append(a[i]); i += 1
+    return out
+
+
+def emulate_wrapper(a):
+    """A stub starts no student, so it writes what the real wrapper would log: ONE launch line carrying the sha256 of the
+    `claude` and sandbox-forward.py that sit first on its PATH (the files the module prepared), plus the marker. The
+    module's pre-launch and post-session checks run for real on it. STUB_SANDBOX picks a variant."""
+    import hashlib
+    pairs = {}
+    for i, x in enumerate(a):
+        if x == "--env":
+            k, _, v = a[i + 1].partition("="); pairs[k] = v
+    if os.environ.get("STUB_SBX_LOG"):
+        with open(os.environ["STUB_SBX_LOG"], "a") as f:
+            f.write(json.dumps(pairs) + "\n")
+    log = pairs.get("SANDBOX_LOG")
+    mode = os.environ.get("STUB_SANDBOX", "ok")
+    if not log or mode == "nolaunch":
+        return
+    first = os.environ["PATH"].split(":")[0]
+    sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+    W, F = sha(os.path.join(first, "claude")), sha(os.path.join(first, "sandbox-forward.py"))
+    if mode == "badwrapper":
+        W = "0" * 64
+    line = f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} model=h:1"
+    CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
+    body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
+    with open(log, "a") as f:
+        f.write("".join(l + "\n" for l in body))
+
 a = sys.argv[1:]
 def arg(n): return a[a.index(n) + 1]
 with open(os.environ["STUB_ARGV"], "a") as f:
-    f.write(json.dumps(a) + "\n")
+    f.write(json.dumps(caller_argv(a)) + "\n")
+if os.environ.get("STUB_RAW"):
+    open(os.environ["STUB_RAW"], "a").write(json.dumps(a) + "\n")
 qs = json.load(open(arg("--question-file")))
 sess = arg("--resume")
 if "--dump-plan" in a:
@@ -101,6 +144,7 @@ if "--dump-plan" in a:
     sys.exit(0)
 with open(os.environ["STUB_MARK"], "a") as f:
     f.write("student run\n")
+emulate_wrapper(a)
 out = arg("--out"); os.makedirs(out, exist_ok=True)
 rows = [{"i": 1, "kind": "compact", "session_id": sess, "is_error": False}]
 asked = qs[:-1] if os.environ.get("STUB_SKIPQ") else qs
@@ -151,6 +195,12 @@ class World:
         self.hook = root / "corrupt-hook.py"; self.hook.write_text(CORRUPT_HOOK)
         self.mark = root / "student-ran.txt"
         self.argv_log = root / "stub-argv.jsonl"
+        self.sbx_log = root / "stub-sandbox-pairs.jsonl"
+        # the sandbox input of a real run: the expected hashes are those of the files in this tree, the settings are
+        # placeholders (a stub starts no student, so nothing executes them) with the port of feed.py's default model URL
+        self.expected = root / "sandbox-expected.txt"
+        self.expected.write_text("wrapper_sha256=%s\nforwarder_sha256=%s\n" % (
+            sha(os.path.join(TOOLS, "student-sandbox.sh")), sha(os.path.join(TOOLS, "sandbox-forward.py"))))
         self.plant_log = root / "plant-log.json"
         self.proc = None
 
@@ -159,7 +209,10 @@ class World:
              "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
-             "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
+             "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
+             "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
+             "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
+             "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres)}
         e.update({k: v for k, v in over.items() if v is not None})
         for k, v in over.items():
             if v is None:
@@ -168,9 +221,11 @@ class World:
 
     def run(self, *extra, label="t1", end=None, drop=(), **envover):
         args = ["--end-state", str(end or self.pres), "--session", SESSION, "--label", label,
-                "--question-file", str(self.qfile), "--components", str(self.comps)]
+                "--question-file", str(self.qfile), "--components", str(self.comps), "--expect-sandbox", str(self.expected)]
         for a in extra:
-            if isinstance(a, tuple):  # ("--question-file", path) replaces the default
+            if isinstance(a, tuple) and a[1] is None:  # ("--expect-sandbox", None) leaves the flag out
+                i = args.index(a[0]); del args[i:i + 2]
+            elif isinstance(a, tuple):  # ("--question-file", path) replaces the default
                 args[args.index(a[0]) + 1] = a[1]
             else:
                 args.append(a)
@@ -196,6 +251,7 @@ class World:
         assert self.snapshot() == before, "something under the slot, the protected homes or the root changed"
         assert not (self.runs / f"p1-{label}").exists() and os.listdir(self.runs) == []
         assert not self.mark.exists() and not self.argv_log.exists() and not self.plant_log.exists()
+        assert not self.sbx_log.exists()
         assert self.proc is None or self.proc.poll() is None, "the fake slot process was killed by a refusal"
 
 
@@ -848,7 +904,11 @@ RECORDER = r'''
 import json, os, runpy, sys
 label, stub = {LABEL!r}, {STUB!r}
 with open(os.environ["REC_LOG"], "a") as f:
-    f.write(json.dumps({{"tool": label, "argv": sys.argv[1:], "exe": getattr(sys, "orig_argv", [sys.executable])[0],
+    argv = sys.argv[1:]
+    for i in range(len(argv) - 2, -1, -1):   # the module's own `--env SANDBOX_*` pairs are not the caller's arguments
+        if argv[i] == "--env" and argv[i + 1].startswith("SANDBOX_"):
+            del argv[i:i + 2]
+    f.write(json.dumps({{"tool": label, "argv": argv, "exe": getattr(sys, "orig_argv", [sys.executable])[0],
                         "prot": os.environ.get("P1_PROTECTED")}}) + "\n")
 runpy.run_path(stub, run_name="__main__")
 '''
@@ -1036,3 +1096,121 @@ def test_the_docstring_names_both_plant_sets_and_beam_parquet():
     doc = " ".join(open(TOOL, encoding="utf-8").read().split('"""')[1].split())
     for phrase in ("BEAM_PARQUET", "--plant-engram --plant-absent", "engram-only"):
         assert phrase in doc, phrase
+
+
+# ------------------------------------------------------------------ the sandbox launch module (design A10; team crossing 33600)
+# Every student session goes through sandbox_launch.py. The stub feeder stands in for feed4.py and writes the log line the
+# wrapper would (emulate_wrapper), so the module's pre-launch and post-session checks run for real; STUB_SANDBOX picks a
+# variant. How the P1_FEED4 hook interacts with the wrapper (a decision recorded in the handoff): the stub is run by the
+# module exactly as feed4.py would be, wrapped, with every check live; only the wrapper's own log line is emulated.
+SB_NAMES = ["SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST", "SANDBOX_MODEL_PORT", "SANDBOX_MODEL_ALLOW",
+            "SANDBOX_PROTECT"]
+
+
+def raw_calls(w):
+    return [json.loads(l) for l in open(w.root / "stub-raw.jsonl")]
+
+
+def pairs_of(argv):
+    return {x.partition("=")[0]: x.partition("=")[2] for i, x in enumerate(argv[1:], 1) if argv[i - 1] == "--env"}
+
+
+def setup_text(w):
+    return (w.runs / "p1-t1" / "setup.txt").read_text()
+
+
+def test_sb_a_real_run_without_expect_sandbox_is_refused_in_step_1(w):
+    refusal(w, ("--expect-sandbox", None), expect="--expect-sandbox")
+
+
+def test_sb_a_dry_run_needs_no_expect_sandbox_and_says_so_in_setup_txt(w):
+    r = w.run("--dry-run", ("--expect-sandbox", None))
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "sandbox: not used (--dry-run" in setup_text(w)
+
+
+@pytest.mark.parametrize("text,word", [("", "malformed"), ("wrapper_sha256=abc\nforwarder_sha256=def\n", "malformed")])
+def test_sb_a_malformed_expected_file_is_refused_in_step_1(w, text, word):
+    w.expected.write_text(text)
+    refusal(w, expect=word)
+
+
+def test_sb_a_missing_expected_file_is_refused_in_step_1(w):
+    refusal(w, ("--expect-sandbox", str(w.root / "no-such-file")), expect="cannot be read")
+
+
+@pytest.mark.parametrize("name", SB_NAMES)
+def test_sb_a_missing_sandbox_setting_is_refused_in_step_1_naming_it(w, name):
+    refusal(w, expect=name, **{name: None})
+
+
+def test_sb_a_slot_setting_that_is_not_the_slot_is_refused(w):
+    refusal(w, expect="SANDBOX_SLOT", SANDBOX_SLOT=str(w.root / "elsewhere"))
+
+
+def test_sb_a_model_url_off_the_sandbox_port_is_refused_in_step_1(w):
+    refusal(w, expect="port", BEAM_OLLAMA_URL="http://127.0.0.1:%d" % (int(w.env()["SANDBOX_MODEL_PORT"]) + 1))
+
+
+def test_sb_both_feed4_invocations_go_through_the_module_the_plan_dump_unwrapped_and_the_session_wrapped(w):
+    r = w.run()
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    calls = raw_calls(w)
+    dump = [c for c in calls if "--dump-plan" in c]; real = [c for c in calls if "--dump-plan" not in c]
+    assert len(dump) == 1 and len(real) == 1
+    assert not any(x.startswith("SANDBOX_") for x in dump[0])
+    pairs = pairs_of(real[0])
+    for n in SB_NAMES + ["SANDBOX_SLOT", "SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT"]:
+        assert pairs.get(n), n
+    assert pairs["SANDBOX_SLOT"] == str(w.slot)
+    assert os.path.dirname(pairs["SANDBOX_LOG"]) == str(w.runs / "p1-t1")
+    assert pairs["SANDBOX_RW_ROOT"] == str(w.runs / "p1-t1" / "run") and pairs["SANDBOX_RW_BINDS"] == pairs["SANDBOX_RW_ROOT"] + "/proctor"
+
+
+def test_sb_setup_txt_records_the_log_the_verdict_verbatim_and_the_launch_line_hashes(w):
+    assert w.run().returncode == 0
+    text = setup_text(w); lines = text.splitlines()
+    (logline,) = [l for l in lines if l.startswith("sandbox log: ")]
+    name = logline.split(": ", 1)[1]
+    assert os.path.isfile(w.runs / "p1-t1" / name) and name.startswith("sandbox-") and name.endswith(".log")
+    assert "sandbox verdict: not-flagged" in lines
+    assert f"sandbox launch-line wrapper_sha256: {sha(os.path.join(TOOLS, 'student-sandbox.sh'))}" in lines
+    assert f"sandbox launch-line forwarder_sha256: {sha(os.path.join(TOOLS, 'sandbox-forward.py'))}" in lines
+    assert f"sandbox expected-hashes file: {w.expected.name} (sha256 {sha(w.expected)})" in lines
+    assert f"{sha(os.path.join(TOOLS, 'sandbox_launch.py'))}  sandbox_launch.py" in lines
+    assert "feed4 override (P1_FEED4)" in text      # the hook is on record, and the stub was wrapped all the same
+
+
+def test_sb_flagged_is_recorded_verbatim_not_a_stop(w):
+    r = w.run(STUB_SANDBOX="unreachable")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "sandbox verdict: flagged: endpoint unreachable, nothing reached it" in setup_text(w).splitlines()
+    assert (w.runs / "p1-t1" / "delivery.txt").exists()
+
+
+def test_sb_a_log_verdict_refusal_is_exit_3_with_a_stop_line_and_no_answer_is_read(w):
+    r = w.run(STUB_SANDBOX="nolaunch")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    assert "STOP: sandbox launch module" in r.stdout and "log-verdict refused" in r.stdout
+    run = w.runs / "p1-t1"
+    assert not (run / "delivery.txt").exists() and not (run / "transcripts").exists()   # nothing of the session was read
+    assert (run / "after-hashes.txt").exists() and "final exit 3" in setup_text(w)       # the protected-home proof still ran
+    assert "sandbox verdict: none" in setup_text(w)
+
+
+def test_sb_a_launch_line_hash_that_differs_is_exit_3_naming_it_and_no_answer_is_read(w):
+    r = w.run(STUB_SANDBOX="badwrapper")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    assert "STOP: sandbox launch module" in r.stdout and "wrapper_sha256" in r.stdout and "0" * 64 in r.stdout
+    assert not (w.runs / "p1-t1" / "delivery.txt").exists() and not (w.runs / "p1-t1" / "transcripts").exists()
+
+
+@pytest.mark.parametrize("which", ["wrapper", "forwarder"])
+def test_sb_a_pre_launch_hash_mismatch_refuses_before_the_student_starts(w, which):
+    w.expected.write_text("wrapper_sha256=%s\nforwarder_sha256=%s\n" % (
+        "0" * 64 if which == "wrapper" else sha(os.path.join(TOOLS, "student-sandbox.sh")),
+        "0" * 64 if which == "forwarder" else sha(os.path.join(TOOLS, "sandbox-forward.py"))))
+    r = w.run()
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert f"{which}_sha256" in r.stdout and not w.mark.exists() and not w.sbx_log.exists()
+    assert [p.name for p in (w.runs / "p1-t1").iterdir() if p.name.startswith("sandbox-")] == []   # no log was made

@@ -16,7 +16,18 @@ missing one):
                   tools/pilot-run.sh, refused the same way). The launcher streams the file through sha256 in step 1
   P1_PROTECTED    colon-separated preserved-home paths; every entry must exist; --end-state must be one of them
 
-usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F
+THE SANDBOX (design A10): every student session this launcher starts goes through sandbox_launch.py, the one door (see
+its docstring and tools/README.md). A real run (not --dry-run) therefore also needs
+  --expect-sandbox FILE   the expected sha256 of student-sandbox.sh and sandbox-forward.py (two lines,
+                          wrapper_sha256=<64 hex> and forwarder_sha256=<64 hex>); refused in step 1 without it
+  SANDBOX_*               in the environment, one value each for the settings student-sandbox.sh requires
+                          (SANDBOX_BINARY, SANDBOX_BINARY_SHA256, SANDBOX_MODEL_HOST, SANDBOX_MODEL_PORT, SANDBOX_PROTECT,
+                          SANDBOX_MODEL_ALLOW). SANDBOX_SLOT is this launcher's slot (BEAM_ARM_HOME); a different value is
+                          refused. The module passes them to feed4.py as `--env` pairs (an exported variable never reaches
+                          the wrapper: feed4 builds the student's environment from scratch). SANDBOX_LOG, the proctor
+                          binds and the tools binds are the module's own, per launch.
+
+usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F --expect-sandbox FILE
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
        or, for an ENGRAM-only plant (control 2):  ... [--plant-engram T --plant-absent T] [--dry-run]
 
@@ -46,8 +57,13 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
    evidence dir <rundir>/plant-evidence (outside the student's home); in engram-only mode without --builtin-fact. Its exit 3 (a protected entry changed) is exit 5;
    any other nonzero is exit 4; either way no student run.
  7 feed4.py --dump-plan with the step-8 arguments -> plan.json; it must be exactly [compact, q1..qN] in file order.
+   (Through sandbox_launch.run_feeder, unwrapped: a plan dump starts no student and creates no sandbox log.)
  8 unless --dry-run: feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --turns 0 --resume ID --force-compact
-   --question-file F --env CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C
+   --question-file F --env CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C, through sandbox_launch.run_feeder
+   (a fresh wrapper directory first on PATH, a fresh SANDBOX_LOG in <rundir>, the module's `--env` pairs added). A refusal
+   by the module before anything starts is exit 2; a log-verdict refusal or a launch-line hash that differs from the
+   expected value is exit 3 with a `STOP:` line, and then no answer of the session is read (steps 9's copy and delivery
+   check are skipped; steps 10 and 11 still run). `flagged` is recorded in setup.txt, not a stop.
  9 (not on --dry-run) stop slot processes; copy <slot>/.claude/projects to <rundir>/transcripts;
    answer-delivery-check.py -> delivery.txt.
 10 after-hashes.txt, same method for every protected home; ANY difference prints `changed home: <path>` and
@@ -55,7 +71,10 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
 11 setup.txt: first line the benchmarks commit id, then the sha256 of this script, feed4.py, feed.py, the question file,
    the components file, answer-delivery-check.py and plant-control.py, the plant mode on its own line (`plant mode: none`,
    `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), the FULL sha256 of BEAM_PARQUET (`<sha256>  BEAM_PARQUET`), which dataset check ran (`dataset check: registered
-   prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), start/end UTC, and each step's exit code.
+   prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), the sha256 of sandbox_launch.py, the sandbox lines
+   (`sandbox expected-hashes file: <name> (sha256 <sha>)`, `sandbox log: <basename>`, `sandbox verdict: <the log-verdict line,
+   verbatim>`, `sandbox launch-line wrapper_sha256: <hash>`, `sandbox launch-line forwarder_sha256: <hash>`; with --dry-run one
+   line saying no student ran), start/end UTC, and each step's exit code.
 CONTINUE READING (--continue-reading): the same launcher, steps and protected-home proof, but it feeds READING rounds instead
 of asking questions, then saves the resulting home as a new preserved end state:
   p1-session.py --end-state PATH --session ID --label NAME --components F --continue-reading --start N --through M
@@ -87,8 +106,9 @@ of asking questions, then saves the resulting home as a new preserved end state:
   proved byte-equal. In this mode a step-10 failure that is not a difference (the after-hashes cannot be computed or
   written, for example the run directory was removed) prints `AFTER-HASHES UNAVAILABLE: <reason>` and is exit 3, never
   `PROTECTED CHANGED`; the answering mode keeps its pinned behaviour (an unprovable pass counts as every home changed).
-Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check, feed4 or (continue-reading) the save or the
-after-hashes proof failed; 4 plant failed; 5 a protected home changed (overrides every other code).
+Exit codes: 0 all good; 1 delivery check failed; 2 refused (the sandbox module's pre-launch refusals included); 3 copy, plan check,
+feed4, a sandbox STOP (log-verdict refusal, launch-line hash mismatch) or (continue-reading) the save or the after-hashes proof
+failed; 4 plant failed; 5 a protected home changed (overrides every other code).
 
 A protected home's store is never opened with sqlite: it is hashed from a byte copy of knowledge.db, -wal and -shm in a
 temporary directory (protected_store_hash), because even a read-only sqlite connection writes -shm read marks. The memory
@@ -96,7 +116,9 @@ folders are only read. Only the disposable slot copy is hashed in place.
 
 TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_session.py). Setting any of them without
 P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never silently change a real run:
-  P1_FEED4            run this script in place of feed4.py (the plan dump and the run)
+  P1_FEED4            run this script in place of feed4.py (the plan dump and the run). The stub goes through the same
+                      sandbox_launch.run_feeder as feed4.py would, wrapped, with every pre-launch and post-session check
+                      live; a stub that starts no student must write the log line the wrapper would (a test stub does)
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
@@ -104,9 +126,15 @@ P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never sil
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
 """
 import argparse, datetime, hashlib, http.client, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
+import importlib.util
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The one door through which a student session starts. Loaded by path from beside this file (not through sys.path, which
+# `-I` and the deployed layout do not promise).
+_SL_SPEC = importlib.util.spec_from_file_location("sandbox_launch", os.path.join(HERE, "sandbox_launch.py"))
+SL = importlib.util.module_from_spec(_SL_SPEC)
+_SL_SPEC.loader.exec_module(SL)
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
 TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE",
               "P1_EXPECTED_PARQUET_PREFIX")
@@ -514,10 +542,30 @@ def step1(a):
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
     c = {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
-         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"], "created": []}
+         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"], "created": [], "sandbox": None}
     if a.continue_reading:
         c.update(continue_step1(a, env, end, launcher_paths(slot, env["BEAM_RUNS_DIR"], a.label, stamp, end, prot)))
+    if not a.dry_run:   # a dry run starts no student: no sandbox input is needed (a plan dump runs unwrapped)
+        c["sandbox"] = sandbox_input(a, env, slot_real, c)
     return c
+
+
+def sandbox_input(a, env, slot_real, c):
+    """Step 1: the expected-hashes file and the SANDBOX_* settings, checked before anything is touched (exit 2)."""
+    if not a.expect_sandbox:
+        raise Refusal("--expect-sandbox FILE is required for a real run (the expected sha256 of student-sandbox.sh and "
+                      "sandbox-forward.py; a dry run needs none)")
+    settings = {k: v for k, v in env.items() if k.startswith("SANDBOX_")}
+    if "SANDBOX_SLOT" in settings and os.path.realpath(settings["SANDBOX_SLOT"]) != slot_real:
+        raise Refusal(f"SANDBOX_SLOT {settings['SANDBOX_SLOT']} is not the slot {c['slot']} (BEAM_ARM_HOME)")
+    settings["SANDBOX_SLOT"] = c["slot"]
+    try:
+        sandbox = SL.Sandbox(settings, a.expect_sandbox)
+        SL.check_model_url(SL.model_url(feed4_args(a, c, os.path.join(c["rundir"], "run")), env),
+                           sandbox.settings["SANDBOX_MODEL_PORT"])
+    except SL.LaunchRefused as e:
+        raise Refusal(str(e))
+    return sandbox
 
 
 # ----------------------------------------------------------------------------------------------------------- the run
@@ -672,16 +720,17 @@ def work(a, c, steps):
         steps.append(("6 plant", 0))
     plan_path = os.path.join(rundir, "plan.json")
     with open(plan_path, "w") as f:
-        pr = subprocess.run([py, "-I", feed4, *feed4_args(a, c, os.path.join(rundir, "plan-dump")), "--dump-plan"],
-                            stdout=f).returncode
+        pr = SL.run_feeder(py, feed4, [*feed4_args(a, c, os.path.join(rundir, "plan-dump")), "--dump-plan"],
+                           stdout=f, test_stub=bool(os.environ.get("P1_FEED4"))).returncode
     if pr:
         steps.append(("7 plan dump", pr)); print(f"STOP: the plan dump exited {pr}"); return 3
     if a.continue_reading:
         full_path = os.path.join(rundir, "plan-full.json")
         with open(full_path, "w") as f:  # a FULL run's plan for the same K, from exchange 1, no resume: the comparison
-            pr = subprocess.run([py, "-I", feed4, "--arm-home", slot, "--out", os.path.join(rundir, "plan-dump-full"),
-                                 "--conv", "9", "--start", "1", "--turns", str(a.through), "--per-round", str(a.per_round),
-                                 "--expect-components", a.components, "--dump-plan"], stdout=f).returncode
+            pr = SL.run_feeder(py, feed4, ["--arm-home", slot, "--out", os.path.join(rundir, "plan-dump-full"),
+                                           "--conv", "9", "--start", "1", "--turns", str(a.through), "--per-round", str(a.per_round),
+                                           "--expect-components", a.components, "--dump-plan"], stdout=f,
+                               test_stub=bool(os.environ.get("P1_FEED4"))).returncode
         if pr:
             steps.append(("7 plan dump", pr)); print(f"STOP: the full-run plan dump exited {pr}"); return 3
         try:
@@ -705,7 +754,22 @@ def work(a, c, steps):
     if a.dry_run:
         steps.append(("8 student run", "skipped (--dry-run)")); steps.append(("9 after the run", "skipped (--dry-run)"))
         return 0
-    frc = subprocess.run([py, "-I", feed4, *feed4_args(a, c, os.path.join(rundir, "run"))]).returncode
+    try:
+        res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir,
+                            test_stub=bool(os.environ.get("P1_FEED4")))
+    except SL.LaunchRefused as e:   # before anything started: nothing of the session exists
+        steps.append(("8 student run", "refused by the sandbox launch module"))
+        print(f"REFUSE: {e}")
+        return 2
+    except SL.LaunchStop as e:      # the session ran, and none of its answers is read or handed on
+        res = e.result
+        c["sandbox_info"] = sandbox_info(c, res)
+        steps.append(("8 student run", res.returncode))
+        print(f"STOP: sandbox launch module: {e}")
+        stop_slot_processes(slot)
+        return 3
+    frc = res.returncode
+    c["sandbox_info"] = sandbox_info(c, res)
     steps.append(("8 student run", frc))
     stop_slot_processes(slot)
     proj = os.path.join(slot, ".claude", "projects")
@@ -728,6 +792,17 @@ def work(a, c, steps):
     return 3 if frc else (1 if drc else 0)
 
 
+def sandbox_info(c, res):
+    """The sandbox lines of setup.txt for one session: the log's basename, the verdict line verbatim (None when
+    log-verdict refused), and the two hashes the launch line carried."""
+    sb = c["sandbox"]
+    return [f"sandbox expected-hashes file: {os.path.basename(sb.expected_file)} (sha256 {file_sha256(sb.expected_file)})",
+            f"sandbox log: {os.path.basename(res.log) if res.log else 'none'}",
+            f"sandbox verdict: {res.verdict if res.verdict is not None else 'none (log-verdict refused or did not run)'}",
+            f"sandbox launch-line wrapper_sha256: {res.wrapper_sha256 or 'none'}",
+            f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}"]
+
+
 def write_setup(a, c, steps, start, rc):
     cont = getattr(a, "continue_reading", False)  # a bare namespace from an older caller has no such field
     r = subprocess.run(["git", "-C", HERE, "rev-parse", "HEAD"], capture_output=True, text=True)
@@ -744,6 +819,7 @@ def write_setup(a, c, steps, start, rc):
     for hook, label in (("P1_FEED4", "feed4 override"), ("P1_PLANT_CONTROL", "plant-control override")):
         if os.environ.get(hook):
             lines.append(f"{file_sha256(os.environ[hook])}  {label} ({hook}): {os.path.basename(os.environ[hook])}")
+    lines.append(f"{file_sha256(os.path.join(HERE, 'sandbox_launch.py'))}  sandbox_launch.py")
     lines.append(f"plant mode: {c['plant_mode']}")
     lines.append(f"{c['parquet_sha256']}  BEAM_PARQUET")
     lines.append(dataset_check_line(os.environ))
@@ -754,6 +830,12 @@ def write_setup(a, c, steps, start, rc):
         lines += c["serving"]
         if a.expect_serving is not None:
             lines.append(f"{file_sha256(a.expect_serving)}  expect-serving file {os.path.basename(a.expect_serving)} (matched)")
+    if c.get("sandbox_info"):
+        lines += c["sandbox_info"]
+    elif getattr(a, "dry_run", False):
+        lines.append("sandbox: not used (--dry-run starts no student; the plan dumps run unwrapped)")
+    else:
+        lines.append("sandbox: no student session was launched")
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]
@@ -773,6 +855,7 @@ def main(argv=None):
     ap.add_argument("--components", required=True)
     ap.add_argument("--plant-builtin"); ap.add_argument("--plant-engram"); ap.add_argument("--plant-absent")
     ap.add_argument("--plant-question"); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--expect-sandbox", help="the expected sha256 of student-sandbox.sh and sandbox-forward.py (required for a real run)")
     ap.add_argument("--continue-reading", action="store_true")
     ap.add_argument("--start", type=int); ap.add_argument("--through", type=int); ap.add_argument("--per-round", type=int)
     ap.add_argument("--save-end-state"); ap.add_argument("--expect-store-sha256"); ap.add_argument("--expect-serving")

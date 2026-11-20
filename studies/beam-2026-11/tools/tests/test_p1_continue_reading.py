@@ -17,10 +17,51 @@ MODEL = "qwen3.8:27b-128k"  # feed4's default --model; a cell below reads feed4.
 
 STUB_FEED4_CR = r'''
 import json, os, subprocess, sys
+
+# What the module appends to a feeder's argv for a student session: `--env SANDBOX_*=...` pairs. The cells that pin "the
+# caller's arguments" see the argv WITHOUT them (the pairs are recorded separately, in STUB_SBX_LOG, and pinned by the
+# sandbox cells below).
+def caller_argv(a):
+    out, i = [], 0
+    while i < len(a):
+        if a[i] == "--env" and i + 1 < len(a) and a[i + 1].startswith("SANDBOX_"):
+            i += 2
+            continue
+        out.append(a[i]); i += 1
+    return out
+
+
+def emulate_wrapper(a):
+    """A stub starts no student, so it writes what the real wrapper would log: ONE launch line carrying the sha256 of the
+    `claude` and sandbox-forward.py that sit first on its PATH (the files the module prepared), plus the marker. The
+    module's pre-launch and post-session checks run for real on it. STUB_SANDBOX picks a variant."""
+    import hashlib
+    pairs = {}
+    for i, x in enumerate(a):
+        if x == "--env":
+            k, _, v = a[i + 1].partition("="); pairs[k] = v
+    if os.environ.get("STUB_SBX_LOG"):
+        with open(os.environ["STUB_SBX_LOG"], "a") as f:
+            f.write(json.dumps(pairs) + "\n")
+    log = pairs.get("SANDBOX_LOG")
+    mode = os.environ.get("STUB_SANDBOX", "ok")
+    if not log or mode == "nolaunch":
+        return
+    first = os.environ["PATH"].split(":")[0]
+    sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+    W, F = sha(os.path.join(first, "claude")), sha(os.path.join(first, "sandbox-forward.py"))
+    if mode == "badwrapper":
+        W = "0" * 64
+    line = f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} model=h:1"
+    CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
+    body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
+    with open(log, "a") as f:
+        f.write("".join(l + "\n" for l in body))
+
 a = sys.argv[1:]
 def arg(n): return a[a.index(n) + 1]
 with open(os.environ["STUB_ARGV"], "a") as f:
-    f.write(json.dumps(a) + "\n")
+    f.write(json.dumps(caller_argv(a)) + "\n")
 start, turns, K = int(arg("--start")), int(arg("--turns")), int(arg("--per-round"))  # turns = inclusive END index
 resume = "--resume" in a
 def plan():
@@ -51,6 +92,7 @@ if "--dump-plan" in a:
     json.dump(p, sys.stdout); sys.exit(0)
 with open(os.environ["STUB_MARK"], "a") as f:
     f.write("student run\n")
+emulate_wrapper(a)
 out = arg("--out"); os.makedirs(out, exist_ok=True)
 p = plan()
 rows = [{"i": n + 1, "kind": "exchange", "session_id": arg("--resume"), "is_error": False, "exchanges": m["exchanges"],
@@ -138,7 +180,7 @@ def cr_args(w, over=None):
     d = {"--end-state": str(w.pres), "--session": SESSION, "--label": "t1", "--components": str(w.comps),
          "--continue-reading": True, "--start": K_DEFAULT["start"], "--through": K_DEFAULT["through"],
          "--per-round": K_DEFAULT["per_round"], "--save-end-state": str(w.saved),
-         "--expect-store-sha256": store_sha(w.pres)}
+         "--expect-store-sha256": store_sha(w.pres), "--expect-sandbox": str(w.expected)}
     for k, v in (over or {}).items():
         if v is None:
             d.pop(k, None)
@@ -154,6 +196,7 @@ def cr_run(w, over=None, extra=(), ollama_url=None, **envover):
     e = w.env(P1_FEED4=str(w.cr_stub), **envover)
     if ollama_url:
         e["BEAM_OLLAMA_URL"] = ollama_url
+        e["SANDBOX_MODEL_PORT"] = ollama_url.rsplit(":", 1)[1]   # the module refuses a model URL off the sandbox port
     return subprocess.run([sys.executable, TOOL, *cr_args(w, over), *extra], capture_output=True, text=True, env=e)
 
 
@@ -741,3 +784,19 @@ def test_r10_an_absolute_symlink_to_a_protected_home_in_the_slot_is_exit_3_and_n
     assert "evil-link" in r.stdout and "next run" in r.stdout and no_saved(w)
     assert "step 9b save the end state: exit 3" in setup_lines(w)
     assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm
+
+
+# ------------------------------------------------------------------ the sandbox launch module (the reading session is a student session too)
+def test_sb_c_continue_reading_records_the_sandbox_lines(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = setup_lines(w)
+    assert "sandbox verdict: not-flagged" in lines and any(l.startswith("sandbox log: sandbox-") for l in lines)
+
+
+def test_sb_c_a_log_verdict_refusal_is_exit_3_and_no_end_state_is_saved(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX="nolaunch")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    assert "STOP: sandbox launch module" in r.stdout
+    assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
+    assert not (w.runs / "p1-t1" / "delivery.txt").exists()
