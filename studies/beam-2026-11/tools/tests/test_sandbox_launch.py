@@ -490,27 +490,61 @@ def test_d2_the_modules_required_set_equals_the_set_the_wrapper_refuses_without(
 MENTION = re.compile(r"\bfeed(?:2|4)?\b|\bclaude\b")
 
 
-def tools_tree_violations(tools_dir, feeders, non_launchers):
-    """[(relative file, why)] for every file in the tools tree that mentions a feeder or `claude` and is in no category."""
+class ToolsTreeUnavailable(Exception):
+    """The population of the gate (the tracked files of the tools tree) could not be read: a named refusal, never an empty list."""
+
+
+def tracked_tools_files(tools_dir):
+    """The population of the gate: the files TRACKED by git under `tools_dir` (`git ls-files`), outside the top-level tests/ and
+    any __pycache__. Tracked files are exactly what the gate means; a working-tree walk also sees what tools leave behind
+    (pytest writes .pytest_cache/ into this directory, holding node ids that contain `claude`), which made the gate green on a
+    fresh checkout and red on every later run. FAILS CLOSED: git missing, `tools_dir` not in a git checkout, or no tracked file
+    is a named ToolsTreeUnavailable, never a silently empty population."""
+    try:
+        r = subprocess.run(["git", "-C", tools_dir, "ls-files", "-z", "--", "."], capture_output=True)
+    except OSError as e:
+        raise ToolsTreeUnavailable(f"git cannot be run ({type(e).__name__}), so the tracked files of {tools_dir} are unknown")
+    if r.returncode != 0:
+        raise ToolsTreeUnavailable(f"`git ls-files` failed in {tools_dir} (exit {r.returncode}: {r.stderr.decode('utf-8', 'replace').strip()}): "
+                                   "not a git checkout, so the tracked files are unknown")
+    files = [f for f in r.stdout.decode("utf-8").split("\0") if f]
+    files = [f for f in files if f.split("/")[0] != "tests" and "__pycache__" not in f.split("/")]
+    if not files:
+        raise ToolsTreeUnavailable(f"`git ls-files` lists no file under {tools_dir} outside tests/: an empty population is not a pass")
+    return files
+
+
+def tools_tree_violations(tools_dir, feeders, non_launchers, files=None):
+    """[(relative file, why)] for every file of the population that mentions a feeder or `claude` and is in no category. The
+    population is `files` (relative paths) or, by default, the tracked files of `tools_dir` (tracked_tools_files). A scratch tree
+    built outside git (the cells that restore or plant a file) supplies its own list: see scratch_violations."""
     out = []
-    for root, dirs, files in os.walk(tools_dir):
-        dirs[:] = sorted(d for d in dirs if not (root == tools_dir and d == "tests") and d != "__pycache__")
-        for fn in sorted(files):
-            path = os.path.join(root, fn)
-            rel = os.path.relpath(path, tools_dir)
+    for rel in sorted(tracked_tools_files(tools_dir) if files is None else files):
+        path = os.path.join(tools_dir, rel)
+        try:
             text = open(path, "rb").read().decode("utf-8", "replace")
-            if not MENTION.search(text):
-                continue
-            if rel == "sandbox_launch.py" or rel in feeders:
-                continue
-            if any("RETIRED-LAUNCHER" in l for l in text.splitlines()[:3]):
-                continue
-            if rel in non_launchers:
-                if non_launchers[rel].startswith("consumer:") and not ("run_feeder(" in text and "sandbox_launch" in text):
-                    out.append((rel, "listed as a consumer of the launch module but does not call run_feeder( through it"))
-                continue
-            out.append((rel, "mentions a feeder or `claude` and is the module, a feeder, retired, or listed in NON_LAUNCHERS: none"))
+        except OSError as e:   # `git ls-files` lists the INDEX: a tracked file gone or unreadable on disk cannot be judged
+            out.append((rel, f"in the population (tracked) but cannot be judged: {type(e).__name__} reading it"))
+            continue
+        if not MENTION.search(text):
+            continue
+        if rel == "sandbox_launch.py" or rel in feeders:
+            continue
+        if any("RETIRED-LAUNCHER" in l for l in text.splitlines()[:3]):
+            continue
+        if rel in non_launchers:
+            if non_launchers[rel].startswith("consumer:") and not ("run_feeder(" in text and "sandbox_launch" in text):
+                out.append((rel, "listed as a consumer of the launch module but does not call run_feeder( through it"))
+            continue
+        out.append((rel, "mentions a feeder or `claude` and is the module, a feeder, retired, or listed in NON_LAUNCHERS: none"))
     return out
+
+
+def scratch_violations(d, feeders, non_launchers):
+    """The gate on a SCRATCH tree (outside git): its population is every file in the scratch directory, which _copy_tools filled
+    from the tracked list only, plus whatever the cell restored or planted."""
+    files = [os.path.relpath(os.path.join(r, f), d) for r, _, fs in os.walk(d) for f in fs]
+    return tools_tree_violations(d, feeders, non_launchers, files=files)
 
 
 def test_d1_every_file_that_mentions_a_feeder_or_claude_is_classified():
@@ -527,9 +561,21 @@ def test_d1_non_launchers_has_no_stale_entry_and_every_entry_has_a_reason():
 
 
 def _copy_tools(tmp_path):
+    """A scratch copy of the TRACKED files of the tools tree (never the working tree's leftovers)."""
     dst = tmp_path / "tools-copy"
-    shutil.copytree(TOOLS, dst, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    for rel in tracked_tools_files(TOOLS):
+        os.makedirs(os.path.dirname(dst / rel), exist_ok=True)
+        shutil.copyfile(os.path.join(TOOLS, rel), dst / rel)
+        shutil.copymode(os.path.join(TOOLS, rel), dst / rel)
     return str(dst)
+
+
+def _scratch_git_tools(tmp_path):
+    """A scratch copy of the tracked files that IS a git checkout (index only, no commit), for the cells about the population."""
+    d = _copy_tools(tmp_path)
+    subprocess.run(["git", "init", "-q", d], check=True)
+    subprocess.run(["git", "-C", d, "add", "-A"], check=True)
+    return d
 
 
 # the launcher this PR replaced: p1-session.py as it was at f1cefc32, which started feed4 through a variable-held path
@@ -552,9 +598,9 @@ def old_p1_session():
 def test_d1_the_old_p1_session_restored_into_a_scratch_tree_is_flagged_by_name(tmp_path):
     """The door the old pattern search was blind to: p1-session.py as it was before this PR, in a scratch copy of the tree."""
     d = _copy_tools(tmp_path)
-    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+    assert scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
     open(os.path.join(d, "p1-session.py"), "w").write(old_p1_session())
-    found = tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    found = scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
     assert [f[0] for f in found] == ["p1-session.py"] and "run_feeder" in found[0][1], found
 
 
@@ -571,29 +617,29 @@ def test_d1_the_old_p1_session_restored_into_a_scratch_tree_is_flagged_by_name(t
 def test_d1_a_new_file_that_mentions_a_feeder_or_claude_and_is_in_no_category_is_flagged_by_name(tmp_path, name, text):
     d = _copy_tools(tmp_path)
     open(os.path.join(d, name), "w").write(text)
-    found = tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    found = scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
     assert [f[0] for f in found] == [name], found
 
 
 def test_d1_the_marker_in_the_first_three_lines_classifies_and_the_fourth_line_does_not(tmp_path):
     d = _copy_tools(tmp_path)
     open(os.path.join(d, "x.sh"), "w").write("#!/usr/bin/env bash\n# RETIRED-LAUNCHER: x\nexit 2\n$PY -I feed4.py\n")
-    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+    assert scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
     open(os.path.join(d, "y.sh"), "w").write("#!/usr/bin/env bash\n\n\n# RETIRED-LAUNCHER: y\n$PY -I feed4.py\n")
-    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["y.sh"]
+    assert [f[0] for f in scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["y.sh"]
 
 
 def test_d1_a_file_that_does_not_mention_a_feeder_or_claude_needs_no_entry(tmp_path):
     d = _copy_tools(tmp_path)
     open(os.path.join(d, "other.py"), "w").write("print('hello')\n")
-    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+    assert scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
 
 
 def test_d1_the_search_reads_the_feeder_list_from_the_module_not_a_hand_list(tmp_path):
     d = _copy_tools(tmp_path)
     open(os.path.join(d, "feed9.py"), "w").write("# a feeder-looking file\nclaude = 1\n")
-    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["feed9.py"]
-    assert tools_tree_violations(d, SL.FEEDERS + ("feed9.py",), SL.NON_LAUNCHERS) == []
+    assert [f[0] for f in scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["feed9.py"]
+    assert scratch_violations(d, SL.FEEDERS + ("feed9.py",), SL.NON_LAUNCHERS) == []
 
 
 # ====================================================================================== R: the retired launchers
@@ -618,7 +664,7 @@ def test_r_the_marker_is_what_the_classification_reads_removing_one_flags_that_f
     p = os.path.join(d, "pilot-run.sh")
     text = open(p).read()
     open(p, "w").write(text.replace("# RETIRED-LAUNCHER", "# retired-launcher"))
-    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["pilot-run.sh"]
+    assert [f[0] for f in scratch_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["pilot-run.sh"]
 
 
 # ====================================================================================================== ROUND 2
@@ -1212,3 +1258,82 @@ def test_f7_both_launch_line_readers_take_the_same_first_line(w):
     assert SL.read_launch_fields(str(log))["scope_unit"] == "x"
     assert SL.read_launch_hashes(str(log)) == {"wrapper_sha256": "1" * 64, "forwarder_sha256": "2" * 64}
     assert SL.read_launch_hashes(str(w.d / "no-such.log")) == {}
+
+
+# ====================================================================================================== ROUND 4
+# The gate's population is the TRACKED files (`git ls-files`), not a walk of the working tree: pytest writes .pytest_cache/ into
+# the tools directory, with node ids that contain `claude`, so a walk was green on a fresh checkout and red on every later run.
+def test_r4_a_pytest_cache_left_in_the_checkout_does_not_change_the_gate(tmp_path):
+    d = _scratch_git_tools(tmp_path)
+    before = tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    assert before == []
+    cache = os.path.join(d, ".pytest_cache", "v", "cache")
+    os.makedirs(cache)
+    open(os.path.join(cache, "nodeids"), "w").write('["tests/test_x.py::test_claude_and_feed4_launcher"]\n')
+    open(os.path.join(cache, "lastfailed"), "w").write('{"tests/test_x.py::test_claude": true}\n')
+    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == before      # the second run equals the first
+
+
+def test_r4_the_real_checkout_gives_the_same_answer_whatever_pytest_left_in_it():
+    """Run as CI runs it, WITH pytest's cache enabled: whatever the cache holds, the gate sees the tracked files only."""
+    assert ".pytest_cache" not in " ".join(tracked_tools_files(TOOLS))
+    assert tools_tree_violations(TOOLS, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+
+
+def test_r4_an_untracked_new_launcher_is_not_in_the_population_and_a_tracked_one_is(tmp_path):
+    """The README limit: the gate covers TRACKED files. An untracked file is invisible until it is added."""
+    d = _scratch_git_tools(tmp_path)
+    open(os.path.join(d, "new-launcher.sh"), "w").write("#!/usr/bin/env bash\nsetsid claude -p hi\n")
+    assert "new-launcher.sh" not in tracked_tools_files(d) and tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+    subprocess.run(["git", "-C", d, "add", "new-launcher.sh"], check=True)
+    assert [v[0] for v in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["new-launcher.sh"]
+
+
+def test_r4_git_unavailable_or_not_a_checkout_or_empty_is_a_named_refusal_never_an_empty_list(tmp_path, monkeypatch):
+    d = _scratch_git_tools(tmp_path)
+    monkeypatch.setenv("PATH", "")                                   # git cannot be run
+    with pytest.raises(ToolsTreeUnavailable, match="git cannot be run"):
+        tracked_tools_files(d)
+    with pytest.raises(ToolsTreeUnavailable):
+        tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    monkeypatch.undo()
+    plain = tmp_path / "not-a-checkout"; plain.mkdir()
+    (plain / "x.py").write_text("print(1)\n")
+    with pytest.raises(ToolsTreeUnavailable, match="not a git checkout"):
+        tracked_tools_files(str(plain))
+    outer = tmp_path / "outer"; outer.mkdir()                        # a plain dir INSIDE some other git checkout
+    subprocess.run(["git", "init", "-q", str(outer)], check=True)
+    inner = outer / "inner"; inner.mkdir()
+    (inner / "x.py").write_text("print(1)\n")
+    subprocess.run(["git", "-C", str(outer), "add", "-A"], check=True)
+    (inner / "untracked.py").write_text("print(2)\n")                # inner holds a tracked file: still fine; remove it for the empty case
+    subprocess.run(["git", "-C", str(outer), "rm", "-q", "--cached", "inner/x.py"], check=True)
+    with pytest.raises(ToolsTreeUnavailable, match="no file"):       # answers for the OUTER repo, which tracks nothing here: empty
+        tracked_tools_files(str(inner))
+
+
+def test_r4_a_tracked_file_that_is_gone_or_unreadable_on_disk_is_a_named_violation(tmp_path):
+    d = _scratch_git_tools(tmp_path)
+    os.unlink(os.path.join(d, "coverage.py"))                         # in the index, gone from disk
+    os.chmod(os.path.join(d, "setup-id.py"), 0o000)                   # in the index, unreadable
+    try:
+        found = dict(tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS))
+    finally:
+        os.chmod(os.path.join(d, "setup-id.py"), 0o644)
+    assert "cannot be judged" in found["coverage.py"] and "cannot be judged" in found["setup-id.py"], found
+
+
+def test_r4_the_population_of_a_planted_copy_is_the_copys_not_the_outer_repos(tmp_path):
+    """A scratch tree must never silently enumerate the outer repository: a sentinel present only in the copy is listed, and a
+    file present only in the outer repo (here: removed from the copy) is not."""
+    d = _copy_tools(tmp_path)
+    os.unlink(os.path.join(d, "coverage.py"))                         # tracked in the OUTER repo, absent from the copy
+    open(os.path.join(d, "sentinel-only-in-the-copy.txt"), "w").write("claude\n")
+    subprocess.run(["git", "init", "-q", d], check=True)
+    subprocess.run(["git", "-C", d, "add", "-A"], check=True)
+    listed = tracked_tools_files(d)
+    assert "sentinel-only-in-the-copy.txt" in listed and "coverage.py" not in listed
+    assert "coverage.py" in tracked_tools_files(TOOLS)                # (the outer repo does track it)
+    # and the explicit-list route used by the planted-tree cells never touches git at all
+    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS, files=["sentinel-only-in-the-copy.txt"])[0][0] == \
+        "sentinel-only-in-the-copy.txt"
