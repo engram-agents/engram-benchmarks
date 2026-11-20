@@ -135,13 +135,17 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   wakeups and background monitors (no turn starts that the proctor did not send). ON: file tools and the
   shell; in arm 2, ENGRAM's tools as the release ships them. Enforced by the harness's disallow option
   and verified per run from the session's first record; a run whose tool list differs from this one is
-  flagged. The shell has no network: the student wrapper (tools/student-sandbox.sh, benchmarks PR 13) lets
-  nothing out except requests to the model endpoint, through a bridge with a method-and-path allow-list. The
-  security seat measured this inside the box (loopback only; the host's ports refused; an outside address
-  unreachable), and the wrapper's test `test_s4_no_other_loopback_port_and_no_route_out` fails if the box can
-  reach anything but the model bridge. A blocked attempt cannot succeed, so it is counted per arm, not treated
-  as a fault (section 14): a request the bridge refuses is in the bridge's log (method and path only), and a
-  direct connection attempt is in the transcript, counted by the custody scan's network-call count.
+  flagged. Every registered run goes through the student wrapper (tools/student-sandbox.sh, merged under
+  the OPEN list's condition; a scored run without it is flagged, section 14), and inside it the shell has no
+  network: nothing leaves except requests to the model endpoint, through a bridge with a method-and-path
+  allow-list. The security seat measured this inside the box (loopback only; the host's ports refused; an
+  outside address unreachable). The wrapper's test `test_s4_no_other_loopback_port_and_no_route_out` fails
+  if the box reaches a named outside TCP target or a host loopback port; it does not cover IPv6 or UDP, and
+  it skips where the sandbox tool is not installed. A blocked attempt cannot succeed, so it is counted per
+  arm, not treated as a fault (section 14): the bridge's log, always enabled in registered runs, records each
+  allow-list refusal by method and path and every other refused connection as a connection line; a direct
+  connection attempt shows in the transcript as a shell call, and network-capable shell calls are counted
+  per arm from the transcript.
 
 ## 8. Procedure (one exam = one conversation, one arm)
 
@@ -205,7 +209,7 @@ Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, t
 error), whether ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files
 the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
 preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation; blocked
-shell network attempts, counted as section 7 says.
+shell network attempts, counted as section 7 says; the wrapper's launch line.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
 and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
@@ -213,10 +217,12 @@ returns its cache fields as 0 or empty, so the transcript cannot tell reused pre
 processed tokens) and output tokens; newly evaluated prompt tokens, from one source used identically in
 both arms (the server's log or a logging proxy), OPEN until a tuning run shows a reliable source, since
 a hook that injects changing text early in the prompt would break prefix reuse in one arm only; lease
-seconds: the GPU broker's lease for the run, from grant to release, read from the broker's own log, the same
-instrument in both arms (lease seconds include idle time inside the lease and are not weighted by
-utilisation; the co-load sampler's readings over the same lease are reported beside them, never multiplied
-in); tool calls by kind (ENGRAM read, ENGRAM write, file read, file write, transcript read, shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
+seconds, per conversation: the GPU broker's lease for the run (one conversation, one arm, reading through
+answering), from grant to release, read from the broker's own log, the same instrument in both arms. Lease
+seconds include idle time inside the lease and are not weighted by utilisation; the co-load sampler's
+readings over the same lease are reported beside them, never multiplied in. Arm 2's setup (section 7) has
+its own lease, reported as setup cost, and each book-closed run is its own run with its own lease; tool
+calls by kind (ENGRAM read, ENGRAM write, file read, file write, transcript read, shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
 diff of both arms' first prompts, that switching it on changes nothing the student sees.
 
 Per answer: whether the student opened its own session transcript (tool calls naming its path; this
@@ -241,12 +247,14 @@ Consequence, a stated bound: run-to-run noise within a cell is not measured.
 ## 14. Exclusions and re-runs
 
 A run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails;
-the student process dies; a timeout (one turn, reading or answering, in either arm, running past
-3,600 s); the ENGRAM first session does not complete (arm 2); the session's tool list differs from
-section 7's. The timeout value is about 3.3 times the longest turn measured in tuning (k = 1 reading
-1,075.3 s; K = 3 reading 1,108.8 s; answering 322.1 s), because the pace past exchange 135 is unmeasured
-and grows with the conversation: too low a value flags slow but healthy runs and costs re-runs, too high
-a value costs at most an hour of a real hang. A blocked shell network attempt is not a fault: it cannot
+the student process dies; a timeout (any one turn the proctor sends, in either arm, running past
+3,600 s: reading, the forced /compact, answering, and arm 2's setup turns alike); the ENGRAM first session
+does not complete (arm 2); the session's tool list differs from section 7's; a scored run with no wrapper
+launch line in its log (section 7). The timeout value is about 3.2 times the longest turn measured in
+tuning (tuning log, 2026-11-20: reading one exchange per turn 1,075.3 s; reading three exchanges per turn
+1,108.8 s; answering 322.1 s), because the pace past exchange 135 is unmeasured and grows with the
+conversation: too low a value flags slow but healthy runs and costs re-runs, too high a value costs at most
+an hour of a real hang. A blocked shell network attempt is not a fault: it cannot
 succeed (section 7), and attempts are counted per arm and reported. Each flagged run may be re-run once,
 with the reason logged before the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A book-closed run in which the
 student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
