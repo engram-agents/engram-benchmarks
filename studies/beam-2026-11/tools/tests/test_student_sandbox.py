@@ -4758,3 +4758,40 @@ def test_r10_the_readme_states_the_status_definition_the_flag_rule_and_the_pipel
     for needle in ("`status=unknown`", "`log-verdict`", "`fwd-first-request`", "section 14", "PIPELINES", "what the client received for this request"):
         assert needle in text, needle
     assert "unreachable-at-start" not in text
+
+
+def test_r10_c1a_a_connect_followed_by_a_send_that_moves_no_bytes_writes_no_marker(tmp_path):
+    """The marker means a request's bytes were WRITTEN upstream. An endpoint that accepts and resets before any byte is
+    taken (the connect succeeds, the first send raises, nothing moved) is not 'reached': no marker; the line is
+    `send-failed`, there is no connect-failed line, so log-verdict says not-flagged. Driven in-process through the
+    `connect` seam so the zero-bytes outcome is deterministic (a real loopback reset races the first send)."""
+    mod = _load_forwarder()
+
+    class ResettingEndpoint:
+        def send(self, data):
+            raise ConnectionResetError("reset before any byte was taken")
+
+        def recv(self, n):
+            return b""
+
+        def shutdown(self, how):
+            pass
+
+        def close(self):
+            pass
+
+    log = str(tmp_path / "zero.log")
+    a, b = socket.socketpair()
+    a.settimeout(10)
+    budget = mod.Budget(1 << 20, 1 << 22, 4, log, False)
+    t = threading.Thread(target=mod.handle_http, args=(b, ResettingEndpoint, log, mod.parse_allow(ALLOW), False, budget, 30,
+                                                       mod.Launch()), daemon=True)
+    t.start()
+    a.sendall(req("GET", "/v1/models"))
+    t.join(10)
+    assert not t.is_alive()
+    lines = log_lines(log)
+    assert not [l for l in lines if l.startswith(MARKER)], lines
+    assert _upstream_tagged(tagged_lines(log)) == [("send-failed", "-")]
+    assert verdict(log) == (0, "not-flagged", "")
+    a.close()

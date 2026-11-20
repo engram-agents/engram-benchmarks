@@ -443,7 +443,7 @@ def body_framing(headers):
 
 class Launch:
     """State shared by every connection of ONE outer forwarder process (one launch). It holds the one positive marker of
-    the launch: the first time any request's bytes are written upstream, from any connection, a single line
+    the launch: the first time a send moves any of a request's bytes upstream, from any connection, a single line
     `fwd-first-request` goes to the log, once, under a lock."""
 
     def __init__(self):
@@ -671,10 +671,12 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None, la
             sent = 0
             with slock:
                 send.update(active=True, snap=counts[1], pending=None)
-            launch.request_going_upstream(log)   # the launch's one marker: a request is about to go upstream
             try:
                 while sent < len(data):
-                    sent += upstream.send(data[sent:])
+                    n = upstream.send(data[sent:])
+                    sent += n
+                    if n > 0:
+                        launch.request_going_upstream(log)   # the launch's one marker, after the first send that moved bytes
             except OSError as e:   # the client's side was read fully above: this failure is the model endpoint's
                 err = type(e).__name__
                 down.join(timeout=SEND_FAIL_WAIT_S)   # let the relay finish relaying what the endpoint already answered
