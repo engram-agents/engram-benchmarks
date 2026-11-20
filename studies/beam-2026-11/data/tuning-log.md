@@ -2868,3 +2868,7 @@ The longest turn of any kind is 1,108.8 s, so 3,600 s is about 3.2 times it.
 1,075.3 s; K = 3 reading 1,108.8 s; answering 322.1 s" the measured maxima over every run record. That scan covered
 only the 9 records of the P1 and P1b runs, not all 38. The two reading maxima stand. The longest answering turn is
 524.8 s (run A), not 322.1 s, and setup turns reach 983.2 s. The ruling is unaffected: 3,600 s clears every kind.
+- **Witness hashes for the per-turn maxima table above** (sha256 prefixes of each cited turns record; the records
+  stay private): p1-p1b-k3 `96c933ec255c96be`; K1-conv9 `a74bde0dda5b32de`; the 11-14 long run `07a666cd00a2537a`;
+  the 11-14 setup run `6f2155c3d606b3e4`; run A (gate 2) `f772318ac2f2a4d5`; K5-conv9 `622a9e7d67caba97`;
+  p1-ctrl2-k1 `34e13428fa72ac4e`.
