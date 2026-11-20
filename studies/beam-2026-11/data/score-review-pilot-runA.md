@@ -198,6 +198,11 @@ minute count and guess goes into this log as plain lines without quotes.
    manifest after phase 2.
 5. Map (key holder): re-key only items whose phase-2 record is in; reveal key files only into this log, with
    times, and only for settled items.
+   CORRECTION 2026-11-20 (design owner, team crossing 33332): before the pilot settles, "reveal key files" means
+   reveal the item's LETTERS only, with the sha256 of its key file recorded in this log. Why: every key file of this
+   run carries the run's one letter seed, and packets are built from item and seed, so one verbatim key file would
+   unblind every item, phase-3 items included (found by the key holder, 2026-11-20). Key files and the seed open
+   when the last item settles.
 6. Phase 3 (the project lead): export-phase3 packets; he rules on the quoted fact list. Each packet asks him, in
    one line, for the minutes he spent. When phases 1 and 2 are committed, the study lead gives the design owner
    the count of phase-3 items, and the design owner puts one request to the project lead with that number.
@@ -235,6 +240,9 @@ minute count and guess goes into this log as plain lines without quotes.
   compares against was set by the same seat that writes phase 1. The tuning log gives run A's hand grade (72.8
   percent), but this log did not say that it is also the grades input here. How the design treats this is the design
   owner's call.
+- Added 2026-11-20 (design owner, team crossing 33332): this run uses ONE letter seed for all items, so no single
+  key file can be opened on its own before the pilot settles. That is a design weakness for any later study: a
+  per-item seed derived from a sealed master seed would let one item's key open alone.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
@@ -277,6 +285,12 @@ empty, the document changed: re-read and re-commit as above.
   the project lead's read of the score-review principles v0.2 (not approved; Office crossing 31871): phase 2 for
   criterion items waits; answer-type items continue under their existing gate. Nothing criterion-side had been made
   or sent when the hold began (key holder, crossing 31877).
+- 2026-11-20, design-owner rulings (team crossings 33318 and 33332), on a gap the key holder found when `map` ran:
+  the tool decided phase-2 membership from sets (a), (b) and (c) only, so items phase 2 had read but no set held were
+  labelled not_reviewed, and one whose phase 2 says the key is wrong would have left phase 3 silently. That item is
+  routed to phase 3 by hand (the key holder's operations entry); three items where both phases say the key stands
+  wait for the tool fix, an outside read of it, and a re-run of `map`. Step 5's reveal wording is corrected in place
+  (see the note under step 5), and Disclosures gains the one-seed limit.
 
 ## Operations (key holder, Aleph)
 
