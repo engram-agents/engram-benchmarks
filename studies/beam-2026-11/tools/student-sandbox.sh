@@ -62,9 +62,11 @@ case "${SANDBOX_MODEL_LEARN:-}" in
   1) LEARN=1; [ -n "${SANDBOX_LOG:-}" ] || refuse "SANDBOX_MODEL_LEARN=1 needs SANDBOX_LOG to learn into" ;;
   *) refuse "SANDBOX_MODEL_LEARN must be 1 or unset" ;;
 esac
+MODEL_MODE=learn; ALLOW_N=0   # the launch line records which one this run used, and how many entries the list has
 if [ "$LEARN" = 0 ]; then
   [ -n "${SANDBOX_MODEL_ALLOW:-}" ] || refuse "SANDBOX_MODEL_ALLOW is not set or is empty"
-  why=$("$PY" -I "$FWD" check-allow --text="$SANDBOX_MODEL_ALLOW" 2>&1 >/dev/null) || refuse "SANDBOX_MODEL_ALLOW $why"
+  MODEL_MODE=allow
+  ALLOW_N=$("$PY" -I "$FWD" check-allow --text="$SANDBOX_MODEL_ALLOW" 2>&1) || refuse "SANDBOX_MODEL_ALLOW $ALLOW_N"
 fi
 
 # (R3) Open the binary ONCE. The sha256 is taken from that open file and THAT descriptor is what bwrap binds
@@ -318,7 +320,17 @@ if [ ! -S "$SOCK" ]; then
 fi
 disown "$FPID" 2>/dev/null
 
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+# The launch line records everything that shaped this run: the model mode (learn allows everything the bridge can frame)
+# and the allow-list's entry count, whether SANDBOX_TEST was set, and every effective cap. A stray test flag in a run
+# is therefore visible in the log and, in test mode, on stderr (a loud marker, printed here by the wrapper, before
+# the box starts: it is not part of the student's streams).
+TESTFLAG=0
+if [ "${SANDBOX_TEST:-}" = 1 ]; then
+  TESTFLAG=1
+  printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s) ***\n' \
+    "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" >&2
+fi
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own

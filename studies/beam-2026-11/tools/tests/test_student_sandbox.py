@@ -680,7 +680,12 @@ def test_s6_streams_pass_through_unbuffered(cfg):
 @needs_box
 def test_s6_stderr_passes_through_separately(cfg):
     r = cfg.run(exec_="echo to-out; echo to-err >&2")
-    assert r.stdout == "to-out\n" and r.stderr == "to-err\n"
+    # in test mode the wrapper prints its own one-line TEST MODE marker before the box starts (C2); the student's
+    # stderr is everything else, byte for byte
+    own = [l for l in r.stderr.splitlines(True) if "TEST MODE" in l]
+    assert len(own) == 1 and r.stdout == "to-out\n" and r.stderr.replace(own[0], "", 1) == "to-err\n", r.stderr
+    r = cfg.run(exec_="echo to-out; echo to-err >&2", test=False, SANDBOX_TEST_EXEC="echo not-run")   # not test mode: no marker
+    assert "TEST MODE" not in r.stderr
 
 
 # ---------------------------------------------------------------- S7: the pinned binary runs inside
@@ -2759,3 +2764,56 @@ def test_peer_f3_the_named_skip_says_what_the_box_cells_need():
     """Every box cell skips with this reason when the host cannot run it; it must name all three requirements."""
     for need in ("Linux", "bash 4", "bwrap"):
         assert need in NEEDS_BOX_REASON, (need, NEEDS_BOX_REASON)
+
+
+# ---------------------------------------------------------------- round 5 (C1, C2): what a run's launch line records
+
+def _launch_fields(cfg, fake_bwrap, **kw):
+    """Run to the (fake) bwrap and return (the wrapper-launch line's key=value fields, the wrapper's stderr)."""
+    r, out = _launch(cfg, fake_bwrap, **kw)
+    assert r.returncode == 99, (r.returncode, r.stderr)
+    line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")]
+    assert len(line) == 1, line
+    os.unlink(out)
+    _wait_clean(cfg)
+    return dict(kv.split("=", 1) for kv in line[0].split()[1:]), r.stderr
+
+
+def test_peer_c1_the_launch_line_records_the_model_mode_and_the_allow_list_entry_count(cfg, fake_bwrap):
+    f, _ = _launch_fields(cfg, fake_bwrap)                                       # the default env lists two entries
+    assert (f["model_mode"], f["model_allow_entries"]) == ("allow", "2"), f
+    f, _ = _launch_fields(cfg, fake_bwrap, SANDBOX_MODEL_ALLOW="POST /v1/messages, GET /v1/models, POST /api/*")
+    assert (f["model_mode"], f["model_allow_entries"]) == ("allow", "3"), f
+    f, _ = _launch_fields(cfg, fake_bwrap, SANDBOX_MODEL_LEARN="1", drop=("SANDBOX_MODEL_ALLOW",))
+    assert (f["model_mode"], f["model_allow_entries"]) == ("learn", "0"), f      # learn mode: nothing is listed
+
+
+DEFAULT_CAPS = {"cap_tmp": str(2 << 30), "cap_home_run": str(64 << 20), "cap_request": str(32 << 20),
+                "cap_total": str(64 << 20), "cap_conns": "4"}
+TEST_CAPS = {"SANDBOX_TEST_TMP_CAP": "1111111", "SANDBOX_TEST_HOME_RUN_CAP": "2222222",
+             "SANDBOX_TEST_MAX_REQUEST": "3333333", "SANDBOX_TEST_MAX_TOTAL": "4444444", "SANDBOX_TEST_MAX_CONNS": "7"}
+TEST_CAPS_LOGGED = {"cap_tmp": "1111111", "cap_home_run": "2222222", "cap_request": "3333333", "cap_total": "4444444",
+                    "cap_conns": "7"}
+
+
+def test_peer_c2_in_test_mode_the_launch_line_logs_every_effective_cap_and_the_marker_is_printed(cfg, fake_bwrap):
+    f, err = _launch_fields(cfg, fake_bwrap, **TEST_CAPS)
+    assert f["test_mode"] == "1", f
+    for k, v in TEST_CAPS_LOGGED.items():
+        assert f[k] == v, (k, f)
+    marker = [l for l in err.splitlines() if "TEST MODE" in l]
+    assert len(marker) == 1 and marker[0].startswith("student-sandbox: "), err
+
+
+def test_peer_c2_outside_test_mode_the_defaults_apply_the_knobs_are_inert_and_there_is_no_marker(cfg, fake_bwrap):
+    f, err = _launch_fields(cfg, fake_bwrap, test=False, **TEST_CAPS)
+    assert f["test_mode"] == "0", f
+    for k, v in DEFAULT_CAPS.items():
+        assert f[k] == v, (k, f)
+    assert "TEST MODE" not in err, err
+
+
+def test_peer_c2_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
+    for name in ("SANDBOX_TEST_MAX_REQUEST", "SANDBOX_TEST_MAX_TOTAL", "SANDBOX_TEST_MAX_CONNS"):
+        for bad in ("0", "-1", "ten", "1.5", "007x"):
+            assert_refused(cfg, fake_bwrap, name, **{name: bad})
