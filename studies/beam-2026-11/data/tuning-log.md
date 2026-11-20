@@ -2774,3 +2774,29 @@ Claude Code `version` that wrote it). Versions by session:
   console output. That output carries the student's own end-of-round notes, here for exchanges 63-71: a tool-name
   list, one place name with a count and its own 'clean' self-check. No answer text, gold or judge output was seen. It
   was told to the design owner at the time. Progress reads after it used the record's structural fields only.
+
+### P1b R: the design owner's ruling (2026-11-20, logged before any descriptive reading exists)
+
+- **Disclosure (the design owner's, first):** the choice is not blind for either seat. The study lead's logged times
+  give a crude ratio: the K = 3 reading's 21,738.4 s against the k = 1 run's window 01:07:23Z to 08:13:00Z, 25,537 s,
+  about 0.85, with launcher overhead on the k = 1 side. The design owner saw that before ruling.
+- **Registered outcome:** option (a). The R script refuses a record with an error row (its contract R3), a contract
+  written to remove discretion, and it is not changed after the data exist. **The registered R for this pair is NOT
+  OBTAINED,** reason: one failed automatic compaction in the round carrying exchange 62.
+- **Descriptive readings, each labelled 'post hoc, not the registered R', neither primary:** after a contract-first
+  change to the script (a coder fairy plus an outside reader of the diff; excluded rows printed in a labelled block;
+  the errored round named), compute both (c) R over 87 exchanges with 61-63 dropped from both arms, and (b) R with the
+  errored round counted.
+- **Decision rule, fixed now, before either number exists:**
+  - both above 0.75: the stop line's purpose is met without a registered R. **P1b stops:** no answering sessions,
+    K = 3 is not adopted, the study stays at k = 1. No re-run.
+  - both at or below 0.75, or one on each side: nothing proceeds on a post hoc number; a wrapped fresh k = 1 reading
+    is the only route to a registered R, taken to the project lead as a GPU-time ask.
+- **The hand-saved end state** stays as a record under its '-hand' suffix and does not stand in for a launcher save
+  in any scored use.
+- **The 03:21Z console slip** is accepted as logged, one limits line, the same class as the 11-19 one.
+- **Next, by the same ruling:** a structural-fields-only read of the failed compaction (harness record and serving
+  log: token counts, finish reason, durations, error strings; no model text), and, for the project lead's freeze, a
+  plain-words comparison of section 14's flagged-run rule against a round-level rule, with the study lead's
+  recommendation. The design owner reads section 14 himself.
+- Nothing runs on the GPU until the student wrapper (PR 13) has its colleague read.
