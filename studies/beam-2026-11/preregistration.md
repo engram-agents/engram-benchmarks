@@ -139,7 +139,7 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   merged with its colleague read (OPEN list); a scored run without it is flagged (section 14). Inside the
   wrapper the shell has no network: nothing leaves except requests to the model endpoint, through a bridge
   with a method-and-path allow-list. The security seat measured this inside the box (loopback only; the
-  host's ports refused; an outside address unreachable). The wrapper's test
+  host's ports refused; an outside address unreachable), in its approving review of PR #13. The wrapper's test
   `test_s4_no_other_loopback_port_and_no_route_out` fails if the box reaches a named outside TCP target or a
   host loopback port; it does not cover IPv6 or UDP, and it skips where the box cannot run (no sandbox tool,
   or unprivileged user namespaces unavailable). Because a skip would look like a pass, before the first
@@ -223,11 +223,11 @@ both arms (the server's log or a logging proxy), OPEN until a tuning run shows a
 a hook that injects changing text early in the prompt would break prefix reuse in one arm only; lease
 seconds, per conversation: the GPU broker's lease for the run (one conversation, one arm, reading through
 answering), from grant to release, read from the broker's own log, the same instrument in both arms. Lease
-seconds include idle time inside the lease and are not weighted by utilisation; the co-load
-sampler's readings over the same lease (once a minute: the GPU's memory and load, the host's load average and
-busiest processes, and the GPU reservations; tools/coload-sampler.sh) are reported beside them, never
-multiplied in. Arm 2's setup (section 7) has
-its own lease, reported as setup cost, and each book-closed run is its own run with its own lease; tool
+seconds include idle time inside the lease and are not weighted by utilisation; the co-load sampler's
+readings over the same lease (at a fixed interval set in the run script, 60 s in tuning: the GPU's memory and
+load, the host's load average and busiest processes, and the GPU reservations; tools/coload-sampler.sh) are
+reported beside them, never multiplied in. Arm 2's setup (section 7) has its own lease, reported as setup
+cost, and each book-closed run is its own run with its own lease; tool
 calls by kind (ENGRAM read, ENGRAM write, file read, file write, transcript read, shell); compactions. Claude Code's OpenTelemetry export is not used unless a tuning run first shows, by a
 diff of both arms' first prompts, that switching it on changes nothing the student sees.
 
@@ -302,7 +302,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - The exam line (with its book-closed variant) and both instruction texts frozen with their sha256
   (texts and counts in section 4; the lean profile ships once engram#4802 merges).
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
-- The student wrapper (section 7) merged with its colleague read; until then the shell's network is not closed.
+- The student wrapper (section 7) merged with its colleague read, its launch line carrying the wrapper file's own
+  sha256 (section 14); until then the shell's network is not closed.
 - Isolation: whether arm 2 needs its own OS user for ENGRAM's recall service to run as for a real user.
 - Judge named after the cost pilot; licence handling for published transcripts.
 - How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
