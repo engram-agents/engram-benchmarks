@@ -52,7 +52,11 @@ def emulate_wrapper(a):
     W, F = sha(os.path.join(first, "claude")), sha(os.path.join(first, "sandbox-forward.py"))
     if mode == "badwrapper":
         W = "0" * 64
-    line = f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} model=h:1"
+    me = os.getpid()   # the stub stands in for the forwarder too: it is gone when the module looks (its start time is real)
+    start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
+    sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
+    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:

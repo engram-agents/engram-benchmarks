@@ -60,7 +60,10 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
    (Through sandbox_launch.run_feeder, unwrapped: a plan dump starts no student and creates no sandbox log.)
  8 unless --dry-run: feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --turns 0 --resume ID --force-compact
    --question-file F --env CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C, through sandbox_launch.run_feeder
-   (a fresh wrapper directory first on PATH, a fresh SANDBOX_LOG in <rundir>, the module's `--env` pairs added). A refusal
+   (a fresh wrapper directory first on PATH, a fresh SANDBOX_LOG in <rundir>, the module's `--env` pairs added, its launch
+   records in <BEAM_RUNS_DIR>/sandbox-launches/). The module stops the session's scope and checks nothing of it remains
+   (a leftover is a STOP, below), and refuses to launch while anything of an earlier launch is alive (the count of leftovers
+   found is written to setup.txt as `sandbox leftovers found at launch: N`). A refusal
    by the module before anything starts is exit 2; a log-verdict refusal or a launch-line hash that differs from the
    expected value is exit 3 with a `STOP:` line, and then no answer of the session is read (steps 9's copy and delivery
    check are skipped; steps 10 and 11 still run). `flagged` is recorded in setup.txt, not a stop.
@@ -755,11 +758,11 @@ def work(a, c, steps):
         steps.append(("8 student run", "skipped (--dry-run)")); steps.append(("9 after the run", "skipped (--dry-run)"))
         return 0
     try:
-        res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir,
+        res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir, state_dir=os.path.join(os.environ["BEAM_RUNS_DIR"], "sandbox-launches"),
                             test_stub=bool(os.environ.get("P1_FEED4")))
     except SL.LaunchRefused as e:   # before anything started: nothing of the session exists
         steps.append(("8 student run", "refused by the sandbox launch module"))
-        print(f"REFUSE: {e}")
+        print(f"REFUSE: {e}"); c["sandbox_leftovers"] = e.leftover_count
         return 2
     except SL.LaunchStop as e:      # the session ran, and none of its answers is read or handed on
         res = e.result
@@ -836,6 +839,8 @@ def write_setup(a, c, steps, start, rc):
         lines.append("sandbox: not used (--dry-run starts no student; the plan dumps run unwrapped)")
     else:
         lines.append("sandbox: no student session was launched")
+        if c.get("sandbox_leftovers"):
+            lines.append(f"sandbox leftovers found at launch: {c['sandbox_leftovers']}")
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]

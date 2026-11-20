@@ -434,6 +434,11 @@ if [ ! -S "$SOCK" ]; then
   printf '%s: the bridge forwarder did not start\n' "$PROG" >&2; exit 3
 fi
 disown "$FPID" 2>/dev/null
+# The per-launch markers the launch module tears down by (round 2): the forwarder's pid, its start time (field 22 of
+# /proc/<pid>/stat, in clock ticks since boot: a reused pid has another one) and its socket path (unique per launch: it is in
+# this run's own fresh directory). They are read here, after the forwarder is up, so both values are the real ones.
+FSTART=$(sed 's/^.*) //' "/proc/$FPID/stat" 2>/dev/null | cut -d' ' -f20)
+[[ $FSTART =~ ^[0-9]+$ ]] || FSTART=0
 
 # The launch line records everything that shaped this run: the model mode (learn allows everything the bridge can frame)
 # and the allow-list's entry count, whether SANDBOX_TEST was set, and every effective cap. A stray test flag in a run
@@ -445,7 +450,7 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own

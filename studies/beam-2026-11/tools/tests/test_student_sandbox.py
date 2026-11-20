@@ -174,9 +174,83 @@ class Cfg:
                               capture_output=True, text=True, timeout=timeout)
 
 
+# ---- X: every cell that starts a real box stops that box's scope at teardown, and asserts nothing of it remains.
+# WHICH units a run created: the scratch tree of a cell is unique (pytest's tmp_path), and the box's own argv carries it
+# (`--bind <slot> <slot>`, the bridge socket under the cell's TMPDIR), so a unit counts as this cell's exactly when a process
+# in its cgroup has the cell's root in its argv. A unit is never picked by name, so another run's box is never touched.
+# Every unit so attributed is recorded in CREATED_UNITS; the last cell of this file asserts none of them is still active.
+SCOPE_PREFIX = "student-sandbox-"
+CREATED_UNITS = []
+
+
+def _systemctl(*args, timeout=60):
+    env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    return subprocess.run(["systemctl", "--user", *args], env=env, capture_output=True, text=True, timeout=timeout)
+
+
+def active_scope_units():
+    try:
+        r = _systemctl("list-units", "--type=scope", "--state=active", "--no-legend", "--plain", SCOPE_PREFIX + "*")
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [l.split()[0] for l in r.stdout.splitlines() if l.strip()]
+
+
+def _argv_of(pid):
+    try:
+        return open("/proc/%d/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def scope_procs(unit):
+    unit = unit if unit.endswith(".scope") else unit + ".scope"   # systemctl reads a bare name as a .service
+    r = _systemctl("show", "-p", "ControlGroup", "--value", unit)
+    cg = r.stdout.strip()
+    try:
+        return [int(x) for x in open("/sys/fs/cgroup%s/cgroup.procs" % cg).read().split()] if cg else []
+    except (OSError, ValueError):
+        return []
+
+
+def pids_mentioning(root):
+    me, out = os.getpid(), []
+    for d in os.listdir("/proc"):
+        if d.isdigit() and int(d) != me and root in _argv_of(int(d)):
+            out.append(int(d))
+    return out
+
+
+def stop_boxes_of(root):
+    """Stop every scope whose processes carry `root` in their argv; then give what is left a moment, and end (TERM, then
+    KILL) the processes that still carry it. Returns (the units stopped, the pids that had to be ended)."""
+    if not BOX_OK:
+        return [], []
+    units = [u for u in active_scope_units() if any(root in _argv_of(p) for p in scope_procs(u))]
+    for u in units:
+        _systemctl("stop", u)
+    end = time.time() + 8
+    while pids_mentioning(root) and time.time() < end:
+        time.sleep(0.1)
+    left = pids_mentioning(root)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for p in left:
+            try:
+                os.kill(p, sig)
+            except OSError:
+                pass
+        time.sleep(0.5)
+    return units, left
+
+
 @pytest.fixture
 def cfg(tmp_path):
-    return Cfg(tmp_path)
+    c = Cfg(tmp_path)
+    yield c
+    units, ended = stop_boxes_of(c.root)
+    CREATED_UNITS.extend(units)
+    assert not [u for u in units if u in active_scope_units()], "a box scope of this cell is still active"
+    assert not ended, "processes of this cell outlived it and had to be ended: %s" % ended
 
 
 def procs_with(marker):
@@ -5019,3 +5093,9 @@ def test_followup_the_readme_states_one_log_per_launch_and_the_two_reset_limits(
     for needle in ("one log per launch", "exactly one line starting `wrapper-launch `", "harness setup error",
                    "a half-closing client hides a real mid-response reset", "the marker write is swallowed", "the disk fills, then frees"):
         assert needle in text, needle
+
+
+def test_x_no_unit_created_by_this_file_is_still_active():
+    """Last cell of the file: every scope the cells above were attributed (by their own scratch root, see the cfg fixture)
+    is gone. Which units this run created is known from that attribution, never from a name pattern."""
+    assert not [u for u in CREATED_UNITS if u in active_scope_units()]

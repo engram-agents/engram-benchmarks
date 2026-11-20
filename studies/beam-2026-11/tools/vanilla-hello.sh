@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
-echo "RETIRED: vanilla-hello.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
+echo "RETIRED: vanilla-hello.sh starts a student outside the sandbox launch module (A10); a student session starts only through sandbox_launch.py" >&2; exit 2
 # P2 step 1: vanilla Claude Code on the local model, fully isolated from the host's real Claude Code config, plugins and ENGRAM graph.
 : "${BEAM_HELLO_DIR:?set BEAM_HELLO_DIR (scratch directory that already contains work/, cc-home/ and eh/; outputs are written into it)}"
 BEAM_OLLAMA_URL="${BEAM_OLLAMA_URL:-http://localhost:11434}"  # privacy-scan: allow (Ollama's documented default endpoint)

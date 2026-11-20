@@ -42,13 +42,30 @@ mode = os.environ.get("STUB_MODE", "ok")
 W, F = sha(claude), sha(fwd)
 if mode == "badwrapper": W = "0" * 64
 if mode == "badforwarder": F = "0" * 64
-line = f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} model=h:1"
+me = os.getpid()
+start_of = lambda pid: open("/proc/%d/stat" % pid).read().rsplit(")", 1)[1].split()[19]
+fpid, fstart = me, start_of(me)      # the stub stands in for the forwarder too: it is gone when the module looks
+if mode == "reuse-same":             # a live process that IS what the launch line names (same pid, same start time)
+    fpid = int(os.environ["HELPER_PID"]); fstart = start_of(fpid)
+if mode == "reuse-diff":             # the pid is alive but is a different process (same pid, another start time)
+    fpid = int(os.environ["HELPER_PID"]); fstart = str(int(start_of(fpid)) + 1)
+sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me) if log else ""
+line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+        f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1")
+if mode == "nomarker":
+    line = line.replace(f"forwarder_start={fstart} ", "")
 CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
 body = {"ok": [line, "fwd-first-request"], "unreachable": [line, CF], "nolaunch": [], "nowrapper": ["fwd-first-request"], "two": [line, line, "fwd-first-request"],
-        "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"]}[mode]
+        "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"],
+        "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
 if log and mode != "nolaunch":
     with open(log, "a") as f:
         f.write("".join(l + "\n" for l in body))
+if mode == "plant":   # a survivor OUTSIDE any scope: its argv carries this launch's bridge socket path
+    import subprocess
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", sock], start_new_session=True)
+    with open(os.environ["REC"], "a") as f:
+        f.write(json.dumps({"planted": p.pid}) + "\n")
 sys.exit(int(os.environ.get("STUB_RC", "0")))
 '''
 
@@ -62,6 +79,14 @@ ns = argparse.Namespace(arm_home=val("--arm-home"), out=val("--out"), model="m",
                         env=[a[i + 1] for i, x in enumerate(a) if x == "--env"])
 os.makedirs(ns.out, exist_ok=True)
 st = feed4.Student(ns)
+if os.environ.get("DRIVER_DETACH"):   # return while the box is still running: the feeder is gone, its student is not
+    import time
+    log = [x.partition("=")[2] for x in a if x.startswith("SANDBOX_LOG=")][0]
+    for _ in range(300):
+        if os.path.exists(log) and "wrapper-launch " in open(log).read():
+            os._exit(0)
+        time.sleep(0.1)
+    os._exit(3)
 sys.exit(st.p.wait(timeout=90))
 ''' % TOOLS
 
@@ -77,6 +102,7 @@ class World:
         self.rec = self.d / "rec.jsonl"
         self.expected = self.d / "expected.txt"
         self.write_expected()
+        self.state = self.d / "state"       # the module's per-launch records (a state directory the caller supplies)
         self.n = 0
 
     def write_expected(self, wrapper=None, forwarder=None):
@@ -105,6 +131,7 @@ class World:
 
     def launch(self, mode="ok", *, feeder=None, argv=None, sandbox=None, rc=0, env=None, **kw):
         kw.setdefault("log_dir", str(self.logs))
+        kw.setdefault("state_dir", str(self.state))
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -119,7 +146,14 @@ class World:
 
 @pytest.fixture
 def w(tmp_path):
-    return World(tmp_path)
+    if shutil.which("systemctl") is None:
+        pytest.skip("the module stops and checks the launch's scope through `systemctl --user`: a Linux/systemd host is needed")
+    world = World(tmp_path)
+    yield world
+    # these cells leave nothing behind: any box of this cell (attributed by its scratch root, as in test_student_sandbox)
+    units, ended = TSS.stop_boxes_of(str(tmp_path))
+    TSS.CREATED_UNITS.extend(units)
+    assert not ended, "processes of this cell outlived it and had to be ended: %s" % ended
 
 
 # ====================================================================================== H: the expected-hashes file
@@ -398,7 +432,7 @@ def test_e_an_exported_setting_never_reaches_the_wrapper_through_a_real_student(
 def test_e_the_modules_own_launch_through_the_same_real_student_reaches_the_box(w, arrow_python):
     """The companion: the same real Student, started by the module, gets the settings as `--env` pairs, passes every
     check of the real wrapper, runs the test command in the box, and the launch line is logged and verified."""
-    r = SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_="true"), log_dir=str(w.logs),
+    r = SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_="true"), log_dir=str(w.logs), state_dir=str(w.state),
                       env=w.env(), test_stub=True)
     assert r.returncode == 0 and r.verdict == NOT_FLAGGED
     assert r.wrapper_sha256 == TSS.sha256_of(TSS.WRAPPER) and r.forwarder_sha256 == TSS.sha256_of(TSS.FWD)
@@ -576,3 +610,328 @@ def test_r_the_marker_is_what_the_search_reads_removing_one_makes_the_search_and
     open(p, "w").write(text)
     found = student_starters(d, SL.FEEDERS)
     assert found and {f[0] for f in found} == {"pilot-run.sh"}
+
+
+# ====================================================================================================== ROUND 2
+# No box or bridge outlives its session (teardown finding, 2026-11-20; design owner crossings 33620 and 33624, security
+# seat 33623). W: the launch line carries the per-launch markers. T: teardown after every session. B: refuse to launch
+# while anything earlier is alive. K1-K3 and Z(a): the cells. The cells that start a real box leave nothing behind (the `w`
+# fixture stops any box attributed to its scratch root, and asserts nothing had to be ended).
+import itertools, signal, stat, time
+
+
+def launch_fields(log):
+    """The key=value fields of the log's wrapper-launch line, or None."""
+    if not os.path.exists(log):
+        return None
+    for line in open(log).read().splitlines():
+        if line.startswith("wrapper-launch "):
+            return dict(t.partition("=")[::2] for t in line.split()[1:] if "=" in t)
+    return None
+
+
+def wait_fields(log, secs=40):
+    end = time.time() + secs
+    while time.time() < end:
+        f = launch_fields(log)
+        if f and f.get("bridge_sock"):
+            return f
+        time.sleep(0.1)
+    raise AssertionError("no wrapper-launch line in %s within %ss" % (log, secs))
+
+
+def start_ticks(pid):
+    """/proc/<pid>/stat field 22 (start time in clock ticks since boot), or None when the process is gone."""
+    try:
+        return int(open("/proc/%d/stat" % pid).read().rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def argv_pids(path):
+    """Pids (not this process) with `path` as one whole argv element: an independent scan of /proc, not the module's."""
+    out = []
+    for d in os.listdir("/proc"):
+        if d.isdigit() and int(d) != os.getpid():
+            try:
+                if path.encode() in open("/proc/%s/cmdline" % d, "rb").read().split(b"\0"):
+                    out.append(int(d))
+            except OSError:
+                pass
+    return out
+
+
+def scope_of(unit):
+    """systemctl takes a bare name as a .service; the wrapper's units are scopes."""
+    return unit if unit.endswith(".scope") else unit + ".scope"
+
+
+def unit_state(unit):
+    return TSS._systemctl("is-active", scope_of(unit)).stdout.strip()
+
+
+def records_in(state):
+    return [json.load(open(p)) for p in sorted(state.glob("*.json"))]
+
+
+def real_caller(w, arrow_python, exec_, detach=False):
+    """A SEPARATE process that runs the module with the real feed4.Student over the real wrapper (test mode, the box runs
+    `exec_`), so a test can SIGKILL the caller."""
+    script = w.d / "caller.py"
+    script.write_text('import importlib.util, json, os, sys\n'
+                      'spec = importlib.util.spec_from_file_location("sandbox_launch", sys.argv[1])\n'
+                      'SL = importlib.util.module_from_spec(spec); spec.loader.exec_module(SL)\n'
+                      'c = json.load(open(sys.argv[2]))\n'
+                      'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"]),\n'
+                      '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True)\n')
+    cj = w.d / "caller.json"
+    cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
+                              "expected": str(w.expected), "log_dir": str(w.logs), "state_dir": str(w.state),
+                              "env": w.env(**({"DRIVER_DETACH": "1"} if detach else {}))}))
+    return subprocess.Popen([sys.executable, str(script), MOD, str(cj)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def real_launch(w, arrow_python, exec_, detach=False):
+    return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_), log_dir=str(w.logs),
+                         state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True)
+
+
+# ---------------------------------------------------------------------------------------------------- W: the launch line
+@TSS.needs_box
+def test_w_the_launch_line_carries_the_forwarders_real_pid_start_time_and_socket_path(w):
+    log = str(w.d / "w.log")
+    p = subprocess.Popen(["/bin/bash", TSS.WRAPPER], env=w.cfg.env(exec_="sleep 30", SANDBOX_LOG=log),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        f = wait_fields(log)
+        pid, sock = int(f["forwarder_pid"]), f["bridge_sock"]
+        argv = open("/proc/%d/cmdline" % pid, "rb").read().split(b"\0")
+        assert b"outer" in argv and argv[argv.index(b"--sock") + 1] == sock.encode(), argv   # THE forwarder, and its socket
+        assert start_ticks(pid) == int(f["forwarder_start"])
+        assert stat.S_ISSOCK(os.stat(sock).st_mode) and sock.startswith(w.cfg.tmpd)
+        assert f["scope_unit"].startswith("student-sandbox-")
+    finally:
+        TSS._systemctl("stop", scope_of(launch_fields(log)["scope_unit"])) if launch_fields(log) else None
+        p.wait(timeout=60)
+
+
+@TSS.needs_box
+def test_w_the_socket_path_is_unique_per_launch(w):
+    socks = []
+    for i in range(2):
+        log = str(w.d / ("w%d.log" % i))
+        r = w.cfg.run(exec_="true", SANDBOX_LOG=log)
+        assert r.returncode == 0, r.stderr
+        socks.append(launch_fields(log)["bridge_sock"])
+    assert socks[0] != socks[1]
+
+
+# ---------------------------------------------------------------------------------------------------- T and K
+@TSS.needs_box
+@needs_arrow
+def test_k2_after_a_normal_session_the_scope_cgroup_is_empty_and_the_forwarder_gone(w, arrow_python):
+    r = real_launch(w, arrow_python, "true")
+    f = launch_fields(r.log)
+    assert unit_state(f["scope_unit"]) != "active" and TSS.scope_procs(f["scope_unit"]) == []
+    pid, start = int(f["forwarder_pid"]), int(f["forwarder_start"])
+    assert start_ticks(pid) != start          # gone, or a different process
+    assert argv_pids(f["bridge_sock"]) == []
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done"
+
+
+@TSS.needs_box
+@needs_arrow
+def test_k2_a_session_whose_feeder_returned_while_the_box_still_runs_is_torn_down(w, arrow_python):
+    """The feeder goes away at once; its student (`sleep`) does not. The module's stop is what ends it."""
+    r = real_launch(w, arrow_python, "sleep 120", detach=True)
+    assert r.returncode == 0
+    f = launch_fields(r.log)
+    assert unit_state(f["scope_unit"]) != "active" and TSS.scope_procs(f["scope_unit"]) == []
+    assert start_ticks(int(f["forwarder_pid"])) != int(f["forwarder_start"])
+    assert argv_pids(f["bridge_sock"]) == []
+
+
+@TSS.needs_box
+@needs_arrow
+def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_until_it_is_stopped(w, arrow_python):
+    caller = real_caller(w, arrow_python, "sleep 120")
+    try:
+        log = None
+        end = time.time() + 40
+        while log is None and time.time() < end:
+            logs = [p for p in w.logs.glob("*.log") if launch_fields(str(p))]
+            log = str(logs[0]) if logs else None
+            time.sleep(0.1)
+        assert log, "the session never launched"
+        f = wait_fields(log)
+        caller.kill(); caller.wait(timeout=30)           # the caller's SIGKILL: no teardown of its own can run
+        unit = f["scope_unit"]
+        assert unit_state(unit) == "active", "the premise: the box outlived its killed caller"
+        with pytest.raises(SL.LaunchRefused) as e:
+            w.launch()                                     # the NEXT launch
+        assert unit in str(e.value) and "systemctl --user stop" in str(e.value)
+        assert w.records() == []                           # nothing was started
+        assert TSS._systemctl("stop", scope_of(unit)).returncode == 0
+        assert w.launch().returncode == 0                  # after the stop it launches
+    finally:
+        if caller.poll() is None:
+            caller.kill()
+
+
+def test_k3_a_survivor_outside_the_scope_that_carries_the_bridge_socket_is_found_and_named(w):
+    """Z(a): a process started OUTSIDE any unit whose argv carries this launch's bridge_sock path. The after-check names it;
+    until it is gone the next launch refuses naming it too."""
+    planted = None
+    try:
+        with pytest.raises(SL.LaunchStop) as e:
+            w.launch("plant")
+        planted = [r["planted"] for r in w.records() if "planted" in r][0]
+        log = str(next(w.logs.glob("*.log")))
+        sock = launch_fields(log)["bridge_sock"]
+        assert str(planted) in str(e.value) and sock in str(e.value) and "bridge_sock" in str(e.value)
+        assert [r["state"] for r in records_in(w.state)] == ["open"]       # not marked done
+        with pytest.raises(SL.LaunchRefused, match=str(planted)):
+            w.launch()                                                      # B names the same survivor
+    finally:
+        if planted:
+            try:
+                os.kill(planted, signal.SIGKILL)
+            except OSError:
+                pass
+    deadline = time.time() + 5
+    while start_ticks(planted) is not None and time.time() < deadline:
+        time.sleep(0.05)
+    assert w.launch().returncode == 0
+    assert all(r["state"] == "done" for r in records_in(w.state))
+
+
+def _helper():
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+
+
+def test_t_a_pid_that_is_a_different_process_is_not_the_forwarder_and_is_left_alone(w):
+    """PID REUSE: the launch line names a live pid, but its start time is not the recorded one."""
+    h = _helper()
+    try:
+        r = w.launch("reuse-diff", env={"HELPER_PID": str(h.pid)})
+        assert r.returncode == 0 and h.poll() is None, "an unrelated process was ended"
+    finally:
+        h.kill(); h.wait()
+
+
+def test_t_the_forwarder_that_is_still_the_same_process_is_terminated(w):
+    h = _helper()
+    try:
+        r = w.launch("reuse-same", env={"HELPER_PID": str(h.pid)})
+        assert r.returncode == 0
+        assert h.wait(timeout=10) is not None           # it was terminated by the module
+    finally:
+        if h.poll() is None:
+            h.kill(); h.wait()
+
+
+def test_t_a_launch_line_that_lacks_a_marker_is_a_named_stop(w):
+    with pytest.raises(SL.LaunchStop, match="forwarder_start"):
+        w.launch("nomarker")
+
+
+def test_t_runs_in_a_finally_a_feeder_that_raised_is_still_torn_down_and_the_record_closed(w):
+    with pytest.raises(FileNotFoundError):
+        SL.run_feeder("/nonexistent-python", str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
+                      state_dir=str(w.state), env=w.env(), test_stub=True)
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done" and "no launch line" in rec["note"]
+
+
+def test_t_a_session_with_no_launch_line_has_nothing_to_stop_and_is_told_apart_by_the_missing_line(w):
+    with pytest.raises(SL.LaunchStop, match="log-verdict refused"):
+        w.launch("nolaunch")
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done" and "no launch line" in rec["note"]
+
+
+def test_t_a_normal_session_closes_its_record_with_the_launch_fields(w):
+    w.launch()
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done" and rec["scope_unit"].startswith("student-sandbox-") and rec["forwarder_start"]
+
+
+# ---------------------------------------------------------------------------------------------------- B: the before-launch refusal
+def test_b_a_state_directory_is_required_for_a_student_session(w):
+    with pytest.raises(SL.LaunchRefused, match="state directory"):
+        w.launch(state_dir=None)
+    w.assert_nothing_started()
+
+
+def _open_record(w, f_pid, f_start, name="launch-earlier"):
+    log = w.d / (name + ".log")
+    sock = str(w.d / (name + ".sock"))
+    log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=student-sandbox-none-1 "
+                   "forwarder_pid=%d forwarder_start=%d bridge_sock=%s model=h:1\n" % ("a" * 64, "b" * 64, f_pid, f_start, sock))
+    w.state.mkdir(exist_ok=True)
+    (w.state / (name + ".json")).write_text(json.dumps({"log": str(log), "state": "open"}))
+
+
+def test_b_an_earlier_launch_whose_forwarder_is_still_alive_refuses_the_next_naming_the_pid(w):
+    h = _helper()
+    try:
+        _open_record(w, h.pid, start_ticks(h.pid))
+        with pytest.raises(SL.LaunchRefused) as e:
+            w.launch()
+        assert str(h.pid) in str(e.value) and "forwarder" in str(e.value)
+        w.assert_nothing_started()
+    finally:
+        h.kill(); h.wait()
+    assert w.launch().returncode == 0
+    assert all(r["state"] == "done" for r in records_in(w.state))
+
+
+def test_b_an_earlier_launch_whose_pid_was_reused_by_another_process_does_not_refuse(w):
+    h = _helper()
+    try:
+        _open_record(w, h.pid, start_ticks(h.pid) + 1)
+        assert w.launch().returncode == 0
+    finally:
+        h.kill(); h.wait()
+
+
+def test_b_an_open_record_whose_session_never_wrote_a_launch_line_is_closed_and_does_not_refuse(w):
+    w.state.mkdir()
+    (w.state / "launch-x.json").write_text(json.dumps({"log": str(w.d / "never-written.log"), "state": "open"}))
+    assert w.launch().returncode == 0
+    assert [r["state"] for r in records_in(w.state)] == ["done", "done"]
+
+
+@TSS.needs_box
+def test_b_an_active_scope_unit_with_the_wrappers_prefix_refuses_the_next_launch_naming_it(w):
+    unit = "student-sandbox-btest-%s" % os.urandom(4).hex()
+    p = subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--unit", unit, "--", "sleep", "120"],
+                         env=dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()))
+    try:
+        end = time.time() + 20
+        while unit_state(unit) != "active" and time.time() < end:
+            time.sleep(0.1)
+        assert unit_state(unit) == "active"
+        with pytest.raises(SL.LaunchRefused) as e:
+            w.launch()
+        assert unit in str(e.value) and "systemctl --user stop %s" % scope_of(unit) in str(e.value)
+        w.assert_nothing_started()
+    finally:
+        TSS._systemctl("stop", scope_of(unit))
+        p.wait(timeout=60)
+    assert w.launch().returncode == 0
+
+
+# ---------------------------------------------------------------------------------------------------- small folds
+def test_fresh_log_is_bounded_and_then_a_named_refusal(w, monkeypatch):
+    monkeypatch.setattr(SL, "_SEQ", itertools.repeat(1))
+    monkeypatch.setattr(SL.secrets, "token_hex", lambda n: "aa")
+    (w.logs / "sandbox-1-aa.log").write_text("")
+    with pytest.raises(SL.LaunchRefused, match="fresh"):
+        SL._fresh_log(str(w.logs))
+
+
+def test_the_vanilla_hello_retired_line_names_the_module_not_p1_session():
+    line = open(os.path.join(TOOLS, "vanilla-hello.sh")).read().splitlines()[2]
+    assert "sandbox_launch.py" in line and "p1-session.py" not in line

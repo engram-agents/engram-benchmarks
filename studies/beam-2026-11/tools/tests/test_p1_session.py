@@ -116,7 +116,11 @@ def emulate_wrapper(a):
     W, F = sha(os.path.join(first, "claude")), sha(os.path.join(first, "sandbox-forward.py"))
     if mode == "badwrapper":
         W = "0" * 64
-    line = f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} model=h:1"
+    me = os.getpid()   # the stub stands in for the forwarder too: it is gone when the module looks (its start time is real)
+    start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
+    sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
+    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:
@@ -1214,3 +1218,23 @@ def test_sb_a_pre_launch_hash_mismatch_refuses_before_the_student_starts(w, whic
     assert r.returncode == 2, (r.stdout, r.stderr)
     assert f"{which}_sha256" in r.stdout and not w.mark.exists() and not w.sbx_log.exists()
     assert [p.name for p in (w.runs / "p1-t1").iterdir() if p.name.startswith("sandbox-")] == []   # no log was made
+
+
+def test_sb_a_leftover_of_an_earlier_launch_refuses_the_session_and_the_count_is_recorded(w):
+    """Round 2: the launch module refuses while anything of an earlier launch is alive. p1-session gives it the state
+    directory <BEAM_RUNS_DIR>/sandbox-launches/ and records how many leftovers it found."""
+    helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        start = open("/proc/%d/stat" % helper.pid).read().rsplit(")", 1)[1].split()[19]
+        log = w.root / "earlier.log"
+        log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=student-sandbox-none-1 "
+                       "forwarder_pid=%d forwarder_start=%s bridge_sock=%s model=h:1\n"
+                       % ("a" * 64, "b" * 64, helper.pid, start, w.root / "earlier.sock"))
+        state = w.runs / "sandbox-launches"; state.mkdir()
+        (state / "earlier.json").write_text(json.dumps({"log": str(log), "state": "open"}))
+        r = w.run()
+        assert r.returncode == 2, (r.stdout, r.stderr)
+        assert str(helper.pid) in r.stdout and not w.mark.exists()
+        assert "sandbox leftovers found at launch: 1" in setup_text(w).splitlines()
+    finally:
+        helper.kill(); helper.wait()
