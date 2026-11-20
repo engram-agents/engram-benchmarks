@@ -27,6 +27,9 @@ socket, and nothing else crosses:
          Forks into the background, then execs the command it was given, so the student is the main process.
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
+  log-verdict --log FILE   run-script helper: the ONE harness-fault flag rule, read from the outer forwarder's log
+         (prints `not-flagged`, or `flagged: endpoint unreachable, nothing reached it`; a missing, empty or unreadable log
+         is a named refusal, exit 2).
   check-allow --text LIST     wrapper helper: validate an allow-list (exit 2 with one reason on stderr).
   seccomp-bpf --out FILE   wrapper helper: write the box's seccomp program (key syscalls EPERM; other arch and x32 killed).
   homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
@@ -161,7 +164,8 @@ class Refusal(Exception):
     """EVERY place the bridge refuses a request, or fails one for its own side, is one `Refusal(kind, reason, status, detail)`:
     the kind is one of the registered counts (framing, cap, rule) or `upstream` (a harness fault, never a student attempt);
     the reason is a short token that names the site and is unique to it; the status is the one answered, or None when no
-    reply is attempted (written status=-). One refusal writes one line (refusal_line) and closes the connection, so a
+    reply is attempted (written status=-), or "unknown" when the endpoint's own answer already reached the client and
+    the bridge, which relays bytes without parsing them, does not know its status (written status=unknown). One refusal writes one line (refusal_line) and closes the connection, so a
     request is counted once, by the first refusal made. The three arguments are literals at every site: a test reads
     them out of this source with `ast`."""
 
@@ -178,7 +182,7 @@ PHRASE = {400: b"Bad Request", 403: b"Forbidden", 408: b"Request Timeout", 413: 
 def refusal_response(ref):
     """The reply to a refusal: status line, no body, close; None when no reply can be sent (status None). The only place
     the response template is used."""
-    if ref.status is None:
+    if not isinstance(ref.status, int):
         return None
     return RESP_CLOSE % (ref.status, PHRASE[ref.status])
 
@@ -437,6 +441,57 @@ def body_framing(headers):
     return "none", 0
 
 
+class Launch:
+    """State shared by every connection of ONE outer forwarder process (one launch). It holds the one positive marker of
+    the launch: the first time any request's bytes are written upstream, from any connection, a single line
+    `fwd-first-request` goes to the log, once, under a lock."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.seen = False
+
+    def request_going_upstream(self, log):
+        with self.lock:
+            if self.seen:
+                return
+            self.seen = True
+            write_log(log, MARKER)
+
+
+MARKER = "fwd-first-request"
+RE_CONNECT_FAILED = re.compile(r"fwd-[a-z]+ method=\S+ path=\S+ status=\S+ bytes_read=\d+ kind=upstream reason=connect-failed detail=.*")
+VERDICT_FLAGGED = "flagged: endpoint unreachable, nothing reached it"
+SEND_FAIL_WAIT_S = 2.0   # how long a failed send waits for the relay to finish relaying what the endpoint already answered
+
+
+def log_verdict(path):
+    """The ONE place the harness-fault flag is decided, from the outer forwarder's log: (exit code, stdout, stderr).
+    Flagged only if the log has at least one connect-failed line AND no `fwd-first-request` line at all (a connect failed
+    in a launch that never put a request upstream: the endpoint was never reachable). A missing, empty or unreadable log is
+    a named refusal (exit 2): no log is not 'no marker'. Reads line shapes only (the kind and reason fields, anchored to
+    the line's own format, so a path or a detail cannot imitate them), never a body."""
+    try:
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+    except OSError as e:
+        return 2, "", "student-sandbox: refused: log-verdict cannot read the log (%s)" % type(e).__name__
+    lines = text.splitlines()
+    if not lines:
+        return 2, "", "student-sandbox: refused: log-verdict: the log is empty"
+    marker = any(l == MARKER for l in lines)
+    failed = any(RE_CONNECT_FAILED.fullmatch(l) for l in lines)
+    return 0, (VERDICT_FLAGGED if failed and not marker else "not-flagged"), ""
+
+
+def run_log_verdict(a):
+    rc, out, err = log_verdict(a.log)
+    if err:
+        sys.stderr.write(err + "\n")
+    if out:
+        print(out)
+    return rc
+
+
 def drain_briefly(sock, limit=None):
     """Discard what the client already sent, so closing does not reset the connection under a reply it has not read.
     `limit` bounds the bytes discarded (the accept loop uses it, so a client that keeps sending cannot hold it)."""
@@ -455,7 +510,7 @@ def drain_briefly(sock, limit=None):
         pass
 
 
-def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
+def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None, launch=None):
     """One client connection through the allow-list. Every request on the connection is checked, not only the first.
 
     NOTHING of a request is sent upstream until the whole request has validated: the request line, the headers, the
@@ -466,9 +521,17 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
     t_open = time.time()
     counts = [0, 0]
     err = None
+    launch = launch or Launch()   # run_outer passes the launch's one; a bare call gets its own
     wlock = threading.Lock()   # guards the client socket's write side between the relay thread and this one
     state = {"closing": False, "fault_logged": False, "upstream_closed": False}
     flock = threading.Lock()   # one upstream fault line per connection, whichever site sees it first
+    # The send state of the request being sent upstream, read by the relay thread when it sees the endpoint fail: while a
+    # request is `active` the relay does not name a failure, it parks it in `pending` and the send site decides (it knows
+    # how far the send got and, from `snap` (the downstream byte count when this request began to be sent), whether the
+    # endpoint had already answered THIS request). The counter `counts[1]` is per connection and grows across keep-alive
+    # requests, so the answer is the growth since `snap`, never the counter itself.
+    slock = threading.Lock()
+    send = {"active": False, "snap": 0, "pending": None}
     upstream = None
     down = None
     reply = None               # the refusal to send after every earlier response has been relayed
@@ -486,7 +549,16 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
         """The model endpoint's side failed while a response was being relayed (a reset, any OSError reading it). Not a
         student refusal and not a hangup: the client's own failures never come through here. An error from our own close
         of the endpoint socket is not a fault."""
-        if state["upstream_closed"] or not claim_fault():
+        if state["upstream_closed"]:
+            return
+        with slock:
+            if send["active"]:
+                send["pending"] = e      # a request is being sent: the send site names this failure
+                return
+        write_reset(e)
+
+    def write_reset(e):
+        if not claim_fault():
             return
         ref = Refusal("upstream", "upstream-reset", None, "the model endpoint's connection failed while a response was being relayed (%s)" % type(e).__name__)
         write_log(log, refusal_line(ref, "-", "-", 0))   # the request it belongs to is not known to this thread
@@ -595,12 +667,29 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
                     raise Refusal("upstream", "connect-failed", 502, "the model endpoint did not accept the connection (%s)" % err)
                 down = threading.Thread(target=relay_down, args=(upstream,), daemon=True)
                 down.start()
+            data = head + body
+            sent = 0
+            with slock:
+                send.update(active=True, snap=counts[1], pending=None)
+            launch.request_going_upstream(log)   # the launch's one marker: a request is about to go upstream
             try:
-                upstream.sendall(head + body)
+                while sent < len(data):
+                    sent += upstream.send(data[sent:])
             except OSError as e:   # the client's side was read fully above: this failure is the model endpoint's
                 err = type(e).__name__
+                down.join(timeout=SEND_FAIL_WAIT_S)   # let the relay finish relaying what the endpoint already answered
+                relayed = counts[1] - send["snap"]
+                if relayed > 0:
+                    raise Refusal("upstream", "rejected-early", "unknown",   # the endpoint answered this request before the send finished
+                                  "the model endpoint answered before the request was fully sent (%s): request bytes attempted=%d sent=%d, response bytes relayed=%d" % (
+                                      err, len(data), sent, relayed))
                 raise Refusal("upstream", "send-failed", None,   # no reply is attempted: the relay has usually ended the client's side already
                               "the model endpoint failed while the request was being sent (%s)" % err)
+            with slock:   # not in a `finally`: a refused send leaves `active` set until its line is written, so the relay cannot name it first
+                send["active"] = False
+                pending, send["pending"] = send["pending"], None
+            if pending is not None:    # the endpoint failed while the send was finishing, and the send did finish
+                write_reset(pending)
             counts[0] += len(head) + len(body)
             budget.request_done(cur["held"])
             budget.release(cur["held"])
@@ -616,12 +705,12 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
         with wlock:
             state["closing"] = True
         if upstream is not None:
+            state["upstream_closed"] = True   # BEFORE our own FIN: a reset it provokes is ours, not the endpoint's fault
             try:
                 upstream.shutdown(socket.SHUT_WR)   # the model server finishes what it was sent, then closes
             except OSError:
                 pass
             down.join(timeout=30)
-            state["upstream_closed"] = True
             upstream.close()
         if reply is not None:
             with wlock:
@@ -746,6 +835,7 @@ def run_outer(a):
         return connect_upstream(a.host, a.port)
 
     budget = Budget(a.max_request, a.max_total, a.max_conns, a.log, a.learn)
+    launch = Launch()
 
     def admit(client):
         if budget.open_conn():
@@ -755,7 +845,7 @@ def run_outer(a):
 
     def handler(client):
         try:
-            handle_http(client, connect, a.log, rules, a.learn, budget, a.read_idle_s)
+            handle_http(client, connect, a.log, rules, a.learn, budget, a.read_idle_s, launch)
         finally:
             budget.close_conn()
 
@@ -1018,6 +1108,8 @@ def main(argv):
     ca = sub.add_parser("check-allow")
     ca.add_argument("--text", required=True)
     sub.add_parser("homes")
+    lv = sub.add_parser("log-verdict")
+    lv.add_argument("--log", required=True)
     sc = sub.add_parser("seccomp-bpf")
     sc.add_argument("--out", required=True)
     af = sub.add_parser("account-file")
@@ -1033,7 +1125,7 @@ def main(argv):
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
             "latency-compare": run_latency_compare, "check-allow": run_check_allow, "homes": run_homes,
             "account-file": run_account_file, "etc-scan": run_etc_scan,
-            "seccomp-bpf": run_seccomp_bpf}[a.mode](a)
+            "seccomp-bpf": run_seccomp_bpf, "log-verdict": run_log_verdict}[a.mode](a)
 
 
 if __name__ == "__main__":

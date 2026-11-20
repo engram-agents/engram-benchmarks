@@ -3606,7 +3606,7 @@ def test_r7_4_the_outer_forwarder_holds_no_descriptor_meant_for_the_box(cfg):
 # order (connection cap, head framing, body-header framing, rule checks, head size cap, then the body in arrival order).
 
 KINDS = {"framing", "cap", "rule", "upstream"}
-TAGGED_RE = re.compile(r"(fwd-(?:deny|refuse|fault)) method=(\S+) path=(\S+) status=(\d+|-) bytes_read=(\d+) "
+TAGGED_RE = re.compile(r"(fwd-(?:deny|refuse|fault)) method=(\S+) path=(\S+) status=(\d+|-|unknown) bytes_read=(\d+) "
                        r"kind=(\w+) reason=(\S+) detail=(.*)")
 TAGGED_PREFIXES = ("fwd-deny ", "fwd-refuse ", "fwd-fault ")
 
@@ -3697,6 +3697,10 @@ class FaultStub:
                     c.close()
                     return
                 buf += d
+            if self.mode == "reject-early":
+                c.sendall(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 5\r\n\r\nnope!")
+                c.close()           # the body is unread: the close is answered by a reset
+                return
             if self.mode == "reset-mid-response":
                 c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npart")
                 time.sleep(0.2)
@@ -3728,11 +3732,19 @@ def fault_stub():
         s.close()
 
 
-FAULT_STUB_MODE = {"send-failed": "close-first", "upstream-reset": "reset-mid-response"}
+FAULT_STUB_MODE = {"send-failed": "close-first", "upstream-reset": "reset-mid-response", "rejected-early": "reject-early"}
 
 
 def _send_failed(o, stub, tmp):
     """A request too big to be written whole to an upstream that closed: the connect succeeds, the send does not."""
+    s = o.connect()
+    s.settimeout(20)
+    _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
+    return [s]
+
+
+def _rejected_early(o, stub, tmp):
+    """The endpoint answers 400 from the head and closes with the body unread; the bridge is still sending it."""
     s = o.connect()
     s.settimeout(20)
     _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
@@ -3792,6 +3804,7 @@ SITE_CASES = {
     "connect-failed": ("upstream", 502, "GET", "/v1/models", {}, _upstream_down),
     "send-failed": ("upstream", None, M, P, {}, _send_failed),     # None: no reply is attempted, status=-
     "upstream-reset": ("upstream", None, "-", "-", {}, _upstream_reset),     # None: no reply can be sent, status=-
+    "rejected-early": ("upstream", "unknown", M, P, {}, _rejected_early),   # "unknown": the endpoint's own 400 was relayed
 }
 
 
@@ -3814,9 +3827,11 @@ def test_t_each_refusal_site_writes_exactly_one_tagged_line(outer, raw_stub, dea
     log = str(tmp_path / "t.log")
     o = outer(stub, allow=ALLOW, log=log, **kw)
     socks = drive(o, stub, tmp_path)
-    if status is not None:                      # a site that cannot reply (status=-) has no status to read
+    if isinstance(status, int):                 # a site that cannot reply (status=- or unknown) has no status of its own to read
         got, _, _ = read_response(socks[0])
         assert got == status, (reason, got)
+    if status == "unknown":
+        assert read_response(socks[0])[0] == 400    # the endpoint's own answer, relayed intact
     lines = tagged_lines(log)
     assert len(lines) == 1, (reason, lines)
     L = lines[0]
@@ -3863,7 +3878,7 @@ def _status_set(node):
     expression whose two branches are literals (None is 'no reply can be sent', written as status=-). Anything else is
     reported as the single value '?' so a cell fails on it."""
     import ast
-    if isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, int)):
+    if isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, int) or node.value == "unknown"):
         return frozenset([node.value])
     if isinstance(node, ast.IfExp):
         a, b = _status_set(node.body), _status_set(node.orelse)
@@ -3899,13 +3914,13 @@ def test_t_derived_every_refusal_site_has_a_kind_a_unique_reason_and_a_mapped_st
     for lineno, kind, reason, status in sites:
         assert kind in KINDS, "line %d: refusal site without a registered kind: %r" % (lineno, kind)
         assert isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9-]*", reason), "line %d: no reason token" % lineno
-        assert status and all(x is None or isinstance(x, int) for x in status), "line %d: no literal status" % lineno
+        assert status and all(x is None or x == "unknown" or isinstance(x, int) for x in status), "line %d: no literal status" % lineno
     reasons = [r for _, _, r, _ in sites]
     assert len(reasons) == len(set(reasons)), "two sites share a reason: %r" % sorted(
         r for r in set(reasons) if reasons.count(r) > 1)
     mod = _load_forwarder()
     # a status the bridge can return is mapped: it has a phrase, and every phrase belongs to a status some site returns
-    replied = {x for _, _, _, st in sites for x in st if x is not None}      # a None status is "no reply can be sent"
+    replied = {x for _, _, _, st in sites for x in st if isinstance(x, int)}      # None is "no reply can be sent", "unknown" is the endpoint's own answer
     assert replied == set(mod.PHRASE), (sorted(replied), sorted(mod.PHRASE))
     # each site has exactly one kind (it is one literal); a STATUS may carry two kinds, by what the check protects:
     # 400 is framing and, for a size limit, cap
@@ -4173,7 +4188,8 @@ def _readme_text():
 
 def _status_cell(cell):
     """The statuses a README status cell names: three-digit numbers, and a bare '-' for 'no reply can be sent'."""
-    return frozenset(int(t) if t != "-" else None for t in re.findall(r"\d{3}|(?<![\w-])-(?![\w-])", cell))
+    return frozenset(int(t) if t[0].isdigit() else (None if t == "-" else t)
+                     for t in re.findall(r"\d{3}|unknown|(?<![\w-])-(?![\w-])", cell))
 
 
 def readme_reason_table():
@@ -4422,3 +4438,323 @@ def test_k_the_readme_states_the_truncation_limit_and_the_keep_alive_bound():
     assert "closes CLEANLY in the middle of a response" in text and "indistinguishable from a normal close" in text
     assert "does not run while a connection waits for its next request" in text and "can fill the connection cap" in text
     assert "before its first request" in text and "reason=read-timeout" in text
+
+
+# ---------------------------------------------------------------- round 10 (C, PL, P): upstream lines classified by the harness-fault principle
+# An event is a harness fault only if the student cannot cause it. Every upstream line is counted and read by hand; the ONE
+# flag is the log-level verdict (`log-verdict`): a connect failure in a launch whose log never recorded a request going
+# upstream. The marker is a positive line, `fwd-first-request`, written once per launch.
+
+MARKER = "fwd-first-request"
+FLAGGED = "flagged: endpoint unreachable, nothing reached it"
+
+
+def verdict(log):
+    r = subprocess.run([PY, "-I", FWD, "log-verdict", "--log", log], capture_output=True, text=True, timeout=30)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def log_lines(log):
+    time.sleep(0.6)
+    return open(log).read().splitlines() if os.path.exists(log) else []
+
+
+def rst_close(c):
+    c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    c.close()
+
+
+def read_until(c, marker=b"\r\n\r\n"):
+    buf = b""
+    while marker not in buf:
+        d = c.recv(65536)
+        if not d:
+            break
+        buf += d
+    return buf
+
+
+OK200 = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+REJECT400 = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 5\r\n\r\nnope!"
+
+
+class FnStub:
+    """An endpoint whose every accepted connection runs `fn(c)`. one_shot: the listener is closed as soon as the first
+    connection is accepted, so a LATER connect is refused (an endpoint that accepts one connection, then stops)."""
+
+    def __init__(self, fn, one_shot=False):
+        self.fn, self.one_shot = fn, one_shot
+        self.srv = socket.socket()
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind(("127.0.0.1", free_port()))
+        self.srv.listen(16)
+        self.port = self.srv.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            if self.one_shot:
+                self.srv.close()
+            threading.Thread(target=self._run, args=(c,), daemon=True).start()
+            if self.one_shot:
+                return
+
+    def _run(self, c):
+        try:
+            c.settimeout(8)
+            self.fn(c)
+        except OSError:
+            pass
+
+    def close(self):
+        try:
+            self.srv.close()
+        except OSError:
+            pass
+
+
+@pytest.fixture
+def fn_stub():
+    made = []
+
+    def mk(fn, one_shot=False):
+        s = FnStub(fn, one_shot)
+        made.append(s)
+        return s
+    yield mk
+    for s in made:
+        s.close()
+
+
+def _answer_and_close(c):
+    read_until(c)
+    c.sendall(OK200)
+    time.sleep(0.2)
+    c.close()
+
+
+def _upstream_tagged(lines):
+    return [(L["reason"], L["status"]) for L in lines if L["kind"] == "upstream"]
+
+
+# ---- C1: the marker, the verdict
+
+def test_r10_c1a_the_marker_is_written_once_per_launch_across_two_connections(outer, fn_stub, tmp_path):
+    stub = fn_stub(_answer_and_close)
+    log = str(tmp_path / "m1.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    for _ in range(2):
+        s = o.connect()
+        s.sendall(req("GET", "/v1/models"))
+        assert read_response(s)[0] == 200
+        s.close()
+    assert [l for l in log_lines(log) if l.startswith(MARKER)] == [MARKER]
+
+
+def test_r10_c1_one_request_reached_the_endpoint_then_a_connect_fails_is_counted_not_flagged(outer, fn_stub, tmp_path):
+    """The security seat's case: an endpoint that accepts one connection and then stops listening."""
+    stub = fn_stub(_answer_and_close, one_shot=True)
+    log = str(tmp_path / "m2.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    a = o.connect()
+    a.sendall(req("GET", "/v1/models"))
+    assert read_response(a)[0] == 200
+    time.sleep(0.4)
+    b = o.connect()
+    b.sendall(req("GET", "/v1/models"))
+    assert read_response(b)[0] == 502
+    lines = log_lines(log)
+    assert [l for l in lines if l.startswith(MARKER)] == [MARKER], lines
+    assert _upstream_tagged(tagged_lines(log)) == [("connect-failed", "502")]
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_r10_c1_an_endpoint_down_from_the_start_is_flagged(outer, dead_port_stub, tmp_path):
+    log = str(tmp_path / "m3.log")
+    o = outer(dead_port_stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 502
+    lines = log_lines(log)
+    assert not [l for l in lines if l.startswith(MARKER)], lines
+    assert _upstream_tagged(tagged_lines(log)) == [("connect-failed", "502")]
+    assert verdict(log) == (0, FLAGGED, "")
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "directory"])
+def test_r10_c1c_a_log_that_is_missing_empty_or_unreadable_is_a_named_refusal(tmp_path, kind):
+    log = str(tmp_path / "v.log")
+    if kind == "empty":
+        open(log, "w").close()
+    elif kind == "directory":
+        os.mkdir(log)
+    rc, out, err = verdict(log)
+    assert rc == 2 and out == "" and err.startswith("student-sandbox: refused:") and "log" in err, (rc, out, err)
+
+
+@pytest.mark.parametrize("name,text,want", [
+    ("only-connect-failed", "fwd-fault method=- path=- status=502 bytes_read=0 kind=upstream reason=connect-failed detail=x\n", FLAGGED),
+    ("marker-and-connect-failed", MARKER + "\nfwd-fault method=- path=- status=502 bytes_read=0 kind=upstream reason=connect-failed detail=x\n", "not-flagged"),
+    ("no-connect-failed", "fwd-conn id=1 open=1.0 close=2.0 up=0 down=0\n", "not-flagged"),
+    ("another-upstream-line-only", "fwd-fault method=- path=- status=- bytes_read=0 kind=upstream reason=upstream-reset detail=x\n", "not-flagged"),
+    ("a-path-cannot-fake-the-reason", "fwd-deny method=GET path=/kind=upstream status=403 bytes_read=0 kind=rule reason=not-on-allow-list detail=reason=connect-failed\n", "not-flagged"),
+])
+def test_r10_c1c_the_verdict_reads_line_kinds_and_reasons_only(tmp_path, name, text, want):
+    log = str(tmp_path / (name + ".log"))
+    open(log, "w").write(text)
+    assert verdict(log) == (0, want, ""), name
+
+
+# ---- C2: rejected-early
+
+@pytest.mark.parametrize("size", [12 << 20])
+def test_r10_c2_a_big_body_rejected_early_is_one_rejected_early_line_not_flagged(outer, fn_stub, tmp_path, size):
+    """The security seat's minting case: the endpoint answers 400 from the head and closes with the body unread."""
+    def rejecting(c):
+        read_until(c)
+        c.sendall(REJECT400)
+        time.sleep(0.2)             # the response is relayed before the close is answered by a reset
+        c.close()
+    stub = fn_stub(rejecting)
+    log = str(tmp_path / "c2.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    raw = req("POST", "/v1/messages", body=b"x" * size)
+    _send(s, raw)
+    assert read_response(s) == (400, {"content-length": "5"}, b"nope!")     # the endpoint's own answer, intact
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["status"], L["method"], L["path"]) for L in lines] == [
+        ("upstream", "rejected-early", "unknown", "POST", "/v1/messages")], lines
+    d = lines[0]["detail"]
+    assert "attempted=%d" % len(raw) in d and re.search(r"sent=\d+", d) and "relayed=%d" % len(REJECT400) in d, d
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_r10_c2_at_256k_the_send_may_complete_before_the_reset_and_the_line_is_still_one_unflagged_upstream_line(outer, fn_stub, tmp_path):
+    """Measured: a 256 KiB body fits the kernel's buffers, so the send COMPLETES before the endpoint's reset arrives and the
+    relay (not the send site) sees the failure after the 400 was relayed: that is `upstream-reset`, not `rejected-early`.
+    Either way the student cannot make it a flag: one counted line, and the verdict stays not-flagged."""
+    def rejecting(c):
+        read_until(c)
+        c.sendall(REJECT400)
+        time.sleep(0.2)
+        c.close()
+    stub = fn_stub(rejecting)
+    log = str(tmp_path / "c2c.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    _send(s, req("POST", "/v1/messages", body=b"x" * (256 << 10)))
+    assert read_response(s) == (400, {"content-length": "5"}, b"nope!")
+    lines = _upstream_tagged(tagged_lines(log))
+    assert len(lines) == 1 and lines[0][0] in ("rejected-early", "upstream-reset"), lines
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_r10_c2_a_64k_body_the_endpoint_does_not_fail_on_writes_no_upstream_line(outer, fn_stub, tmp_path):
+    def rejecting(c):
+        read_until(c)
+        c.sendall(REJECT400)
+        time.sleep(0.2)
+        c.close()
+    stub = fn_stub(rejecting)
+    log = str(tmp_path / "c2b.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    _send(s, req("POST", "/v1/messages", body=b"x" * (64 << 10)))
+    assert read_response(s)[0] == 400
+    s.close()
+    assert _upstream_tagged(tagged_lines(log)) == []
+
+
+# ---- C4 and PL: what the relay knows of the request being sent
+
+def test_r10_c4_a_reset_before_the_request_is_sent_and_no_response_is_send_failed_not_upstream_reset(outer, fn_stub, tmp_path):
+    def resetting(c):
+        read_until(c)
+        rst_close(c)                # no response, a reset while the rest of the request is still being sent
+    stub = fn_stub(resetting)
+    log = str(tmp_path / "c4.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
+    try:
+        while s.recv(65536):
+            pass
+    except OSError:
+        pass
+    assert _upstream_tagged(tagged_lines(log)) == [("send-failed", "-")]
+
+
+def test_r10_pl_a_second_request_whose_send_fails_with_no_response_to_it_is_send_failed(outer, fn_stub, tmp_path):
+    """The response counter is per connection: the first request's response must not make the second's failure rejected-early."""
+    def first_ok_then_reset(c):
+        read_until(c)
+        c.sendall(OK200)
+        c.recv(65536)               # the second request begins to arrive
+        rst_close(c)
+    stub = fn_stub(first_ok_then_reset)
+    log = str(tmp_path / "pl.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 200
+    _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
+    try:
+        while s.recv(65536):
+            pass
+    except OSError:
+        pass
+    assert _upstream_tagged(tagged_lines(log)) == [("send-failed", "-")]
+
+
+# ---- P1: our own FIN is not the endpoint's fault; P3: one upstream line per connection
+
+def test_r10_p1_an_endpoint_that_resets_in_answer_to_our_own_fin_writes_no_upstream_line(outer, fn_stub, tmp_path):
+    def reset_on_fin(c):
+        read_until(c)
+        c.sendall(OK200)
+        while c.recv(65536):        # until our FIN
+            pass
+        rst_close(c)
+    stub = fn_stub(reset_on_fin)
+    log = str(tmp_path / "p1.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 200
+    s.close()                       # the bridge now shuts the endpoint's side: that FIN is ours
+    assert _upstream_tagged(tagged_lines(log)) == []
+
+
+def test_r10_p3_an_endpoint_that_both_resets_and_fails_the_send_gives_exactly_one_upstream_line(outer, fault_stub, tmp_path):
+    stub = fault_stub("reset-mid-response")
+    log = str(tmp_path / "p3.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(10)
+    s.sendall(req("GET", "/v1/models"))
+    try:
+        while s.recv(65536):        # the partial response, then the end: the relay writes upstream-reset
+            pass
+    except OSError:
+        pass
+    time.sleep(0.5)
+    _send(s, req("POST", "/v1/messages", body=b"x" * 100))     # the next request on the same connection: its send fails
+    time.sleep(0.5)
+    assert _upstream_tagged(tagged_lines(log)) == [("upstream-reset", "-")]
+
+
+def test_r10_the_readme_states_the_status_definition_the_flag_rule_and_the_pipelining_limit():
+    text = _readme_text()
+    for needle in ("`status=unknown`", "`log-verdict`", "`fwd-first-request`", "section 14", "PIPELINES", "what the client received for this request"):
+        assert needle in text, needle
+    assert "unreachable-at-start" not in text
