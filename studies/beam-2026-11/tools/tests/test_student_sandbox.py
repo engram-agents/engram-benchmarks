@@ -3065,3 +3065,29 @@ def test_peer_a2_the_per_request_cap_is_exact_for_a_chunked_request_too(outer, h
     status, _, _ = read_response(s2)
     assert status == 413, status
     assert raw.bytes_seen() == b""
+
+
+@needs_box
+def test_peer_a2_the_wrapper_hands_each_effective_cap_to_the_running_forwarder(cfg):
+    """The launch line says what the wrapper decided; this reads what the host-side forwarder was actually started with."""
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 4", SANDBOX_TEST_MAX_REQUEST="3333333",
+                         SANDBOX_TEST_MAX_TOTAL="4444444", SANDBOX_TEST_MAX_CONNS="7"),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        argv = None
+        end = time.time() + 10
+        while time.time() < end and argv is None:
+            for pid in procs_with(cfg.tmpd):
+                try:
+                    parts = open("/proc/%d/cmdline" % pid, "rb").read().split(b"\0")
+                except OSError:
+                    continue
+                if b"outer" in parts and any(x.endswith(b"sandbox-forward.py") for x in parts):
+                    argv = [x.decode() for x in parts]
+            time.sleep(0.05)
+        assert argv, "no outer forwarder found"
+        got = {a: argv[argv.index(a) + 1] for a in ("--max-request", "--max-total", "--max-conns")}
+        assert got == {"--max-request": "3333333", "--max-total": "4444444", "--max-conns": "7"}, got
+    finally:
+        p.kill()
+        p.wait()
