@@ -480,3 +480,50 @@ def test_the_two_post_hoc_flags_are_never_mixed(tmp_path):
     a, b, args = ph_pair(tmp_path, [30.0] * 4, mutate3=lambda rs: err(rs[1], is_error=True))
     r = run(a, b, *args, "--posthoc-count-errored", "--posthoc-exclude", "4-6")
     assert r.returncode == 2 and "never mixed" in r.stderr and r.stdout == ""
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Outside reader's findings (2026-11-20), cells written before the fixes.
+#   F1. A malformed row whose exchanges hold a non-int item (e.g. [[4], [5], [6]]) is a refusal (exit 2, naming file and
+#       row), with or without --posthoc-exclude; it must never reach the set lookup (TypeError, traceback, exit 1).
+#   F2. A --posthoc-exclude range that matches no row in EITHER run is refused (exit 2) naming the range and saying it
+#       matched no rows; a range that matches rows in at least one run is not refused.
+# ---------------------------------------------------------------------------------------------------------------------
+def test_unhashable_exchange_item_is_a_refusal_with_and_without_the_flag(tmp_path):
+    a, b, args = ph_pair(tmp_path, [60.0] * 4, mutate3=lambda rs: rs[1].update(exchanges=[[4], [5], [6]]))
+    r = run(a, b, *args)                                  # no flag: unchanged, a clean exit 2 naming the file
+    refused(r, "k3.jsonl")
+    assert "Traceback" not in r.stderr, r.stderr
+    r = run(a, b, *args, "--posthoc-exclude", "4-6")      # flag: exit 2 naming the file and the row, never a traceback
+    refused(r, "k3.jsonl", "row 2", "exchanges")
+    assert "Traceback" not in r.stderr and BANNER not in r.stdout, (r.stderr, r.stdout)
+
+
+def test_non_int_exchange_items_are_refused_under_the_flag(tmp_path):
+    for bad in (["a", "b", "c"], [4, 5, None], [4, 5, {"x": 1}], [4, 5, True]):
+        a, b, args = ph_pair(tmp_path, [60.0] * 4, mutate3=lambda rs, bad=bad: rs[1].update(exchanges=bad))
+        r = run(a, b, *args, "--posthoc-exclude", "4-6")
+        refused(r, "k3.jsonl", "row 2")
+        assert "Traceback" not in r.stderr, r.stderr
+
+
+def test_exclude_range_matching_no_row_in_either_run_is_refused(tmp_path):
+    a, b, args = ph_pair(tmp_path, [60.0] * 4, mutate3=lambda rs: rs.pop(1), mutate1=lambda rs: rs.__delitem__(slice(3, 6)))
+    r = run(a, b, *args, "--posthoc-exclude", "4-6")
+    refused(r, "--posthoc-exclude", "4-6", "matched no rows")
+    assert BANNER not in r.stdout
+
+
+def test_exclude_range_matching_rows_in_only_one_run_is_not_refused(tmp_path):
+    a, b, args = ph_pair(tmp_path, [60.0] * 4, mutate3=lambda rs: rs.pop(1))
+    r = run(a, b, *args, "--posthoc-exclude", "4-6")
+    assert r.returncode == 0, r.stderr
+    blk = block_lines(r, EXC_HEAD)
+    assert len(blk) == 3 and all("k1.jsonl" in l for l in blk), blk
+
+
+def test_one_unmatched_range_among_matched_ones_is_refused_by_its_own_name(tmp_path):
+    a, b, args = ph_pair(tmp_path, [60.0] * 4, mutate3=lambda rs: rs.pop(2), mutate1=lambda rs: rs.__delitem__(slice(6, 9)))
+    r = run(a, b, *args, "--posthoc-exclude", "4-6", "--posthoc-exclude", "7-9")
+    refused(r, "--posthoc-exclude 7-9", "matched no rows")
+    assert "4-6" not in r.stderr

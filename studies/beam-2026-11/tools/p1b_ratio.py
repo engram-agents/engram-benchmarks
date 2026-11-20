@@ -67,6 +67,8 @@ def load_run(path, k, start, through, excluded=frozenset(), count_errored=False)
         is_dropped = False
         peek = row.get("exchanges")
         if excluded and kind == "exchange" and isinstance(peek, list) and peek:
+            if any(not isinstance(e, int) or isinstance(e, bool) for e in peek):
+                raise Refusal(f"{label}: exchanges {peek!r} holds an item that is not an integer")
             inside = [e in excluded for e in peek]
             if all(inside):
                 is_dropped = True
@@ -107,8 +109,9 @@ def load_run(path, k, start, through, excluded=frozenset(), count_errored=False)
 
 
 def parse_exclusions(specs, start, through):
-    """Validate --posthoc-exclude ranges; return the set of excluded exchanges. Raises Refusal."""
+    """Validate --posthoc-exclude ranges; return (the set of excluded exchanges, [(spec, set)] per range). Raises Refusal."""
     out = set()
+    ranges = []
     for spec in specs:
         tag = f"--posthoc-exclude {spec}"
         m = re.fullmatch(r"(\d+)-(\d+)", spec)
@@ -126,7 +129,8 @@ def parse_exclusions(specs, start, through):
         if rng & out:
             raise Refusal(f"{tag}: overlaps another --posthoc-exclude range")
         out |= rng
-    return out
+        ranges.append((spec, rng))
+    return out, ranges
 
 
 def ratio(k3, k1):
@@ -171,9 +175,13 @@ def main(argv):
         print("refused: --posthoc-exclude and --posthoc-count-errored are two readings, never mixed", file=sys.stderr)
         return 2
     try:
-        excluded = parse_exclusions(a.posthoc_exclude, a.start, a.through)
+        excluded, ranges = parse_exclusions(a.posthoc_exclude, a.start, a.through)
         s3 = load_run(a.k3, 3, a.start, a.through, excluded, a.posthoc_count_errored)
         s1 = load_run(a.k1, 1, a.start, a.through, excluded, a.posthoc_count_errored)
+        hit = {e for r in s3["dropped"] + s1["dropped"] for e in r["exchanges"]}
+        for spec, rng in ranges:
+            if not rng & hit:
+                raise Refusal(f"--posthoc-exclude {spec}: the range matched no rows in either run")
         if a.posthoc_count_errored and not (s3["errored"] or s1["errored"]):
             raise Refusal("--posthoc-count-errored: no row has is_error set, so the flag would be meaningless")
     except Refusal as e:
