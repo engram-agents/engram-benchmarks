@@ -159,7 +159,8 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   over its size limit, a request over the per-request or total buffered-bytes cap, a connection past the connection
   cap, refused before any request is read, and a request left half-sent past the idle read timeout). The fourth is
   NETWORK-CAPABLE SHELL CALLS, counted from the transcript, whether or not anything was reached, by a rule fixed
-  before the first scored run. The per-reason breakdown is reported beside the counts as description, never as an
+  before the first scored run. A line of a fifth kind, `upstream`, is the bridge's own failure to reach the model endpoint
+  (it answers 502): it is not a count and never a student attempt, but a flagged harness fault (section 14). The per-reason breakdown is reported beside the counts as description, never as an
   outcome. (Amended 2026-11-20, design owner, team crossings 33426, 33428 and 33430: the count named ALLOW-LIST
   REFUSALS when this section was merged is renamed RULE REFUSALS, because it holds more than allow-list misses;
   FRAMING REFUSALS and CAP REFUSALS are added, because a request the bridge refused as unparseable or over a cap
@@ -286,7 +287,8 @@ K1-conv9); arm 2 setup 983.2 s; answering 524.8 s (run A); the forced /compact 1
 Conversation 9 has 135 exchanges, so the pace past exchange 135 is unmeasured, and scored conversations run
 to 196 (exchanges counted with the reader's own `feed.exchanges()` on the 100K file: the 17 scored conversations
 have 94 to 196 each, 2,409 in all; the eight longer than 135 are conversations 10: 172, 11: 194, 12: 196, 13: 155,
-16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of 2026-11-19). Too low a value flags slow but healthy runs and costs
+16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of 2026-11-19, a private
+working file, sha256 60cf1a810f72ac8e8f6a5201f1b551ee84098f1039ed88d0a5f96b281c95afdf). Too low a value flags slow but healthy runs and costs
 re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a
 fault: it cannot succeed (section 7), and the four network counts are reported per arm. A line of kind `upstream` is the harness fault listed above,
 never a student attempt. Each flagged run may
