@@ -4,7 +4,7 @@ The wrapper is the `claude` that feed4 resolves on PATH; these cells drive it th
 SANDBOX_TEST_EXEC (a probe command run inside the same box, after the same checks and mounts) or through a stub
 "pinned binary". No host path literal lives here: every location is generated at test time.
 """
-import hashlib, json, os, re, shlex, shutil, signal, socket, socketserver, stat, subprocess, sys, tempfile, threading, time
+import hashlib, json, os, re, shlex, shutil, signal, socket, socketserver, stat, struct, subprocess, sys, tempfile, threading, time
 import pytest
 
 TOOLS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -3606,7 +3606,7 @@ def test_r7_4_the_outer_forwarder_holds_no_descriptor_meant_for_the_box(cfg):
 # order (connection cap, head framing, body-header framing, rule checks, head size cap, then the body in arrival order).
 
 KINDS = {"framing", "cap", "rule", "upstream"}
-TAGGED_RE = re.compile(r"(fwd-(?:deny|refuse|fault)) method=(\S+) path=(\S+) status=(\d+) bytes_read=(\d+) "
+TAGGED_RE = re.compile(r"(fwd-(?:deny|refuse|fault)) method=(\S+) path=(\S+) status=(\d+|-) bytes_read=(\d+) "
                        r"kind=(\w+) reason=(\S+) detail=(.*)")
 TAGGED_PREFIXES = ("fwd-deny ", "fwd-refuse ", "fwd-fault ")
 
@@ -3662,6 +3662,95 @@ def _upstream_down(o, stub, tmp):
     return [s]
 
 
+class FaultStub:
+    """An upstream that fails on purpose. mode 'close-first': accepts and closes at once, reading nothing (a request sent
+    to it cannot be written whole); mode 'reset-mid-response': reads the request, sends the start of a response, then
+    resets the connection; mode 'stream-big': answers with a very large body, as fast as it is read."""
+
+    def __init__(self, mode):
+        self.mode = mode
+        self.srv = socket.socket()
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind(("127.0.0.1", free_port()))
+        self.srv.listen(16)
+        self.port = self.srv.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._one, args=(c,), daemon=True).start()
+
+    def _one(self, c):
+        try:
+            c.settimeout(8)
+            if self.mode == "close-first":
+                c.close()           # an ordinary close: the first bytes written to it are answered by a reset
+                return
+            buf = b""
+            while b"\r\n\r\n" not in buf:
+                d = c.recv(65536)
+                if not d:
+                    c.close()
+                    return
+                buf += d
+            if self.mode == "reset-mid-response":
+                c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npart")
+                time.sleep(0.2)
+                c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))   # close sends a reset
+                c.close()
+            elif self.mode == "stream-big":
+                c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n" % (64 << 20))
+                chunk = b"y" * 65536
+                for _ in range(1024):
+                    c.sendall(chunk)
+                c.close()
+        except OSError:
+            pass
+
+    def close(self):
+        self.srv.close()
+
+
+@pytest.fixture
+def fault_stub():
+    made = []
+
+    def mk(mode):
+        s = FaultStub(mode)
+        made.append(s)
+        return s
+    yield mk
+    for s in made:
+        s.close()
+
+
+FAULT_STUB_MODE = {"send-failed": "close-first", "upstream-reset": "reset-mid-response"}
+
+
+def _send_failed(o, stub, tmp):
+    """A request too big to be written whole to an upstream that closed: the connect succeeds, the send does not."""
+    s = o.connect()
+    s.settimeout(20)
+    _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
+    return [s]
+
+
+def _upstream_reset(o, stub, tmp):
+    s = o.connect()
+    s.settimeout(5)
+    _send(s, req("GET", "/v1/models"))
+    try:
+        while s.recv(65536):      # the start of the response, then the end of the connection (EOF or a reset)
+            pass
+    except OSError:
+        pass
+    return [s]
+
+
 CL_HEAD = b"POST /v1/messages HTTP/1.1\r\nHost: m\r\n"
 M, P = "POST", "/v1/messages"
 # reason: (kind, status, method, path, outer kwargs, driver)
@@ -3701,6 +3790,8 @@ SITE_CASES = {
     "chunk-line-too-long": ("cap", 400, M, P, {}, _simple(CHUNK_HEAD + b"a" * 9000)),
     "read-timeout": ("cap", 408, "-", "-", dict(read_idle_s=1), _simple(b"GET /v1/mo")),
     "connect-failed": ("upstream", 502, "GET", "/v1/models", {}, _upstream_down),
+    "send-failed": ("upstream", None, M, P, {}, _send_failed),     # None: no reply is attempted, status=-
+    "upstream-reset": ("upstream", None, "-", "-", {}, _upstream_reset),     # None: no reply can be sent, status=-
 }
 
 
@@ -3712,18 +3803,25 @@ def dead_port_stub():
 
 
 @pytest.mark.parametrize("reason", sorted(SITE_CASES))
-def test_t_each_refusal_site_writes_exactly_one_tagged_line(outer, raw_stub, dead_port_stub, tmp_path, reason):
+def test_t_each_refusal_site_writes_exactly_one_tagged_line(outer, raw_stub, dead_port_stub, fault_stub, tmp_path, reason):
     kind, status, method, path, kw, drive = SITE_CASES[reason]
-    stub = dead_port_stub if reason == "connect-failed" else raw_stub()
+    if reason == "connect-failed":
+        stub = dead_port_stub
+    elif reason in FAULT_STUB_MODE:
+        stub = fault_stub(FAULT_STUB_MODE[reason])
+    else:
+        stub = raw_stub()
     log = str(tmp_path / "t.log")
     o = outer(stub, allow=ALLOW, log=log, **kw)
     socks = drive(o, stub, tmp_path)
-    got, _, _ = read_response(socks[0])
-    assert got == status, (reason, got)
+    if status is not None:                      # a site that cannot reply (status=-) has no status to read
+        got, _, _ = read_response(socks[0])
+        assert got == status, (reason, got)
     lines = tagged_lines(log)
     assert len(lines) == 1, (reason, lines)
     L = lines[0]
-    assert (L["kind"], L["reason"], int(L["status"]), L["method"], L["path"]) == (kind, reason, status, method, path), L
+    assert (L["kind"], L["reason"], L["status"], L["method"], L["path"]) == (
+        kind, reason, "-" if status is None else str(status), method, path), L
     assert "SECRET" not in L["detail"]
     if reason == "connection-cap":
         assert L["bytes_read"] == "0" and "(2)" in L["detail"], L      # only what is known at accept: nothing invented
@@ -3760,9 +3858,22 @@ def _forwarder_tree():
     return ast.parse(open(FWD).read())
 
 
+def _status_set(node):
+    """The statuses one `Refusal(...)` site can carry, read from its status argument: a literal, or a conditional
+    expression whose two branches are literals (None is 'no reply can be sent', written as status=-). Anything else is
+    reported as the single value '?' so a cell fails on it."""
+    import ast
+    if isinstance(node, ast.Constant) and (node.value is None or isinstance(node.value, int)):
+        return frozenset([node.value])
+    if isinstance(node, ast.IfExp):
+        a, b = _status_set(node.body), _status_set(node.orelse)
+        return frozenset() if "?" in a | b else a | b
+    return frozenset(["?"])
+
+
 def derived_refusal_sites():
-    """Every call of `Refusal(kind, reason, status, ...)` in the forwarder, as (lineno, kind, reason, status) with the
-    literal arguments; a call whose first three arguments are not literals is reported with None in their place."""
+    """Every call of `Refusal(kind, reason, status, ...)` in the forwarder, as (lineno, kind, reason, statuses) with the
+    literal arguments; kind or reason that is not a literal is reported as None, statuses is a frozenset of int|None."""
     import ast
     sites = []
     for node in ast.walk(_forwarder_tree()):
@@ -3770,12 +3881,15 @@ def derived_refusal_sites():
             f = node.func
             name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else None)
             if name == "Refusal":
-                lits = [a.value if isinstance(a, ast.Constant) else None for a in node.args[:3]]
-                lits += [None] * (3 - len(lits))
+                args = {"kind": None, "reason": None, "status": None}
+                for key, a in zip(("kind", "reason", "status"), node.args[:3]):
+                    args[key] = a
                 for kw in node.keywords:
-                    if kw.arg in ("kind", "reason", "status") and isinstance(kw.value, ast.Constant):
-                        lits["kind reason status".split().index(kw.arg)] = kw.value.value
-                sites.append((node.lineno,) + tuple(lits))
+                    if kw.arg in args:
+                        args[kw.arg] = kw.value
+                lit = lambda a: a.value if isinstance(a, ast.Constant) else None
+                st = _status_set(args["status"]) if args["status"] is not None else frozenset(["?"])
+                sites.append((node.lineno, lit(args["kind"]), lit(args["reason"]), st))
     return sites
 
 
@@ -3785,20 +3899,22 @@ def test_t_derived_every_refusal_site_has_a_kind_a_unique_reason_and_a_mapped_st
     for lineno, kind, reason, status in sites:
         assert kind in KINDS, "line %d: refusal site without a registered kind: %r" % (lineno, kind)
         assert isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9-]*", reason), "line %d: no reason token" % lineno
-        assert isinstance(status, int), "line %d: no literal status" % lineno
+        assert status and all(x is None or isinstance(x, int) for x in status), "line %d: no literal status" % lineno
     reasons = [r for _, _, r, _ in sites]
     assert len(reasons) == len(set(reasons)), "two sites share a reason: %r" % sorted(
         r for r in set(reasons) if reasons.count(r) > 1)
     mod = _load_forwarder()
     # a status the bridge can return is mapped: it has a phrase, and every phrase belongs to a status some site returns
-    assert {s for _, _, _, s in sites} == set(mod.PHRASE), (sorted({s for _, _, _, s in sites}), sorted(mod.PHRASE))
+    replied = {x for _, _, _, st in sites for x in st if x is not None}      # a None status is "no reply can be sent"
+    assert replied == set(mod.PHRASE), (sorted(replied), sorted(mod.PHRASE))
     # each site has exactly one kind (it is one literal); a STATUS may carry two kinds, by what the check protects:
     # 400 is framing and, for a size limit, cap
     kinds_by_status = {}
-    for _, k, _, s in sites:
-        kinds_by_status.setdefault(s, set()).add(k)
+    for _, k, _, st in sites:
+        for s in st:
+            kinds_by_status.setdefault(s, set()).add(k)
     assert all(kinds_by_status.values())
-    assert {s for s, ks in kinds_by_status.items() if len(ks) > 1} <= {400}, kinds_by_status
+    assert {s for s, ks in kinds_by_status.items() if len(ks) > 1} <= {400, None}, kinds_by_status
 
 
 def test_t_derived_the_refusal_response_and_the_refusal_line_each_have_one_writer():
@@ -3840,8 +3956,8 @@ def test_t_derived_every_site_has_a_driving_cell():
     """The per-site cell table covers exactly the sites the source has: a new site without a cell fails here."""
     assert sorted(SITE_CASES) == sorted(r for _, _, r, _ in derived_refusal_sites())
     for reason, (kind, status, *_rest) in SITE_CASES.items():
-        derived = {(k, s) for _, k, r, s in derived_refusal_sites() if r == reason}
-        assert derived == {(kind, status)}, (reason, derived, kind, status)
+        derived = [(k, st) for _, k, r, st in derived_refusal_sites() if r == reason]
+        assert len(derived) == 1 and derived[0][0] == kind and status in derived[0][1], (reason, derived, kind, status)
 
 
 # ---- precedence: a request is counted by the FIRST refusal the bridge makes, in the code's order
@@ -4042,3 +4158,267 @@ def test_l_s3_a_running_child_reads_alive_and_the_reaped_one_dead():
         p.kill()
         p.wait()
     assert mod.alive(p.pid) is False
+
+
+# ---------------------------------------------------------------- round 9 (D, U, K)
+# D: the README's per-reason table and its stated check order are derived-checked against the source (never a hand list).
+# U: an upstream failure after a successful connect is tagged at its own site, never silent; a client hangup stays untagged.
+
+README = os.path.join(TOOLS, "README.md")
+
+
+def _readme_text():
+    return open(README).read()
+
+
+def _status_cell(cell):
+    """The statuses a README status cell names: three-digit numbers, and a bare '-' for 'no reply can be sent'."""
+    return frozenset(int(t) if t != "-" else None for t in re.findall(r"\d{3}|(?<![\w-])-(?![\w-])", cell))
+
+
+def readme_reason_table():
+    """{reason: (kind, frozenset of statuses)} from the README's per-reason table: every row shaped
+    `| `reason` | kind | status | site |`. A reason that appears twice is a failure of its own."""
+    rows, dup = {}, []
+    for line in _readme_text().splitlines():
+        m = re.match(r"\| `([a-z][a-z0-9-]*)` \| (framing|cap|rule|upstream) \| ([^|]*?) \| ", line)
+        if m:
+            if m.group(1) in rows:
+                dup.append(m.group(1))
+            rows[m.group(1)] = (m.group(2), _status_cell(m.group(3)))
+    assert not dup, "a reason is in the README table twice: %r" % dup
+    return rows
+
+
+def readme_order():
+    """(steps, ordered, anytime) from the README's order paragraph. `steps` is [(number, [reason tokens])], read from the
+    segments `(1) ... (2) ...` of the paragraph that starts "Order, as found in the code"; `ordered` is the set of step
+    numbers whose text says "in this order"; `anytime` is the reason tokens of the paragraph that starts "At any point".
+    A reason token is a backticked lower-case hyphenated word (a status number or a header name is not one)."""
+    paras = _readme_text().split("\n\n")
+    order = [p for p in paras if p.startswith("Order, as found in the code")]
+    anyp = [p for p in paras if p.startswith("At any point")]
+    assert len(order) == 1 and len(anyp) == 1, "the README must state its order and its at-any-point sites, once each"
+    tok = lambda t: re.findall(r"`([a-z][a-z0-9-]*)`", t)
+    parts = re.split(r"\((\d+)\)", order[0])
+    steps = [(int(parts[i]), tok(parts[i + 1])) for i in range(1, len(parts) - 1, 2)]
+    ordered = {int(parts[i]) for i in range(1, len(parts) - 1, 2) if "in this order" in parts[i + 1]}
+    return steps, ordered, set(tok(anyp[0]))
+
+
+def derived_request_order():
+    """The reasons of the `Refusal(...)` sites in the order the bridge can reach them along ONE request, read from the
+    source with `ast`: the entry points are the accept hook and the connection handler, in the order the accept loop
+    (`serve`) uses them; from each, the statements are walked in source order and every call of a function defined in
+    the forwarder (a module function, a method of a class there, a function nested in the one being walked) is
+    expanded in place, at the call, so a helper called from two steps contributes its sites at both.
+
+    WHAT IT CAN SEE: the source order of the sites along that path, with a helper expanded at each call; a site reached
+    twice appears twice. WHAT IT CANNOT SEE: which branch a run takes (an `if` body is walked as if taken); data-driven
+    order between two checks that read bytes as they arrive (the body's size and framing errors) and inside loops;
+    one iteration of the request loop only; a function reached through a callback, a thread target or an attribute
+    whose name is not unique among the forwarder's methods (not expanded; a site only such a path reaches is
+    reported as unreached and must be classed by the README as at-any-point); and what a library call raises."""
+    import ast
+    tree = _forwarder_tree()
+    mod = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    meth = {}
+    for c in tree.body:
+        if isinstance(c, ast.ClassDef):
+            for m in c.body:
+                if isinstance(m, ast.FunctionDef):
+                    meth.setdefault(m.name, []).append(m)
+    nested = lambda fn: {n.name: n for n in fn.body if isinstance(n, ast.FunctionDef)}
+    out = []
+
+    def expand(fn, scope, stack):
+        scope = dict(scope, **nested(fn))
+        for stmt in fn.body:
+            visit(stmt, scope, stack + [fn])
+
+    def visit(n, scope, stack):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            return                           # a definition runs nothing until it is called
+        for child in ast.iter_child_nodes(n):
+            visit(child, scope, stack)
+        if isinstance(n, ast.Call):
+            f = n.func
+            if isinstance(f, ast.Name) and f.id == "Refusal":
+                out.append(n.args[1].value)
+                return
+            target = None
+            if isinstance(f, ast.Name):
+                target = scope.get(f.id) or mod.get(f.id)
+            elif isinstance(f, ast.Attribute) and len(meth.get(f.attr, [])) == 1:
+                target = meth[f.attr][0]
+            if target is not None and target not in stack:
+                expand(target, scope, stack)
+
+    run_outer = nested(mod["run_outer"])
+    names = sorted((n.lineno, n.col_offset, n.id) for n in ast.walk(mod["serve"])
+                   if isinstance(n, ast.Name) and n.id in ("admit", "handler"))
+    entries = []
+    for _, _, name in names:
+        if name not in entries:
+            entries.append(name)
+    assert entries == ["admit", "handler"], entries
+    for name in entries:
+        expand(run_outer[name], dict(run_outer), [])
+    return out
+
+
+def test_d1_the_readme_reason_table_equals_the_source_exactly():
+    src = {}
+    for _, kind, reason, st in derived_refusal_sites():
+        src[reason] = (kind, st)
+    readme = readme_reason_table()
+    assert set(readme) == set(src), ("missing from the README: %r" % sorted(set(src) - set(readme)),
+                                     "in the README but not in the source: %r" % sorted(set(readme) - set(src)))
+    diff = {r: (readme[r], src[r]) for r in src if readme[r] != src[r]}
+    assert not diff, "a row's kind or status differs from the source (README, source): %r" % diff
+
+
+def test_d2_the_readme_order_agrees_with_the_order_of_the_sites_in_the_source():
+    steps, ordered, anytime = readme_order()
+    sites = {r for _, _, r, _ in derived_refusal_sites()}
+    named = [t for _, toks in steps for t in toks]
+    assert [n for n, _ in steps] == list(range(1, len(steps) + 1)), steps
+    assert set(named) | anytime == sites, ("in the source, not placed by the README: %r" % sorted(sites - set(named) - anytime),
+                                           "in the README, not in the source: %r" % sorted((set(named) | anytime) - sites))
+    seq = derived_request_order()
+    assert len(seq) >= 20, "the walk found too few sites to be reading the source: %r" % seq
+    unreached = sites - set(seq)
+    assert unreached <= anytime, "a site the walk cannot reach must be classed at-any-point by the README: %r" % sorted(unreached - anytime)
+    # each occurrence goes to the earliest README step, not before the current one, that names its reason; none left = disagree
+    cur, placed = 1, []
+    for reason in seq:
+        if reason in anytime:
+            continue
+        for n, toks in steps:
+            if n >= cur and reason in toks:
+                cur = n
+                placed.append((n, reason))
+                break
+        else:
+            pytest.fail("the source reaches %r after a later README step than any that names it (current step %d): "
+                        "the README order and the source order disagree; walk: %r" % (reason, cur, seq))
+    for n, toks in steps:
+        if n in ordered:                      # a step the README says is in this order: the same order, token by token
+            got = []
+            for m, r in placed:
+                if m == n and r not in got:
+                    got.append(r)
+            assert got == toks, "step %d: the README order is %r; the source order is %r" % (n, toks, got)
+
+
+def test_d3_expect_and_a_path_off_the_list_are_counted_by_the_check_the_readme_says_runs_first(outer, raw_stub, tmp_path):
+    steps, ordered, _ = readme_order()
+    n, rule_step = next((n, toks) for n, toks in steps if "expect-continue" in toks and "not-on-allow-list" in toks)
+    assert n in ordered, "the README must say the rule checks run in this order"
+    first = min(("expect-continue", "not-on-allow-list"), key=rule_step.index)
+    stub = raw_stub()
+    log = str(tmp_path / "d3.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(b"DELETE /api/delete HTTP/1.1\r\nHost: m\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n")
+    read_response(s)
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"]) for L in lines] == [("rule", first)], (first, lines)
+    assert stub.bytes_seen() == b""
+
+
+# ---- U: after a successful connect
+
+def test_u1_after_response_bytes_were_relayed_the_send_failure_is_one_line_status_dash_and_no_502(outer, tmp_path):
+    """The first request is answered (bytes relayed); the upstream then goes away; the next request's send fails: no reply
+    is attempted, so the line says status=- and the client gets no 502."""
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", free_port()))
+    srv.listen(4)
+
+    def once():
+        c, _ = srv.accept()
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            buf += c.recv(65536)
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+        time.sleep(0.3)
+        c.close()
+    threading.Thread(target=once, daemon=True).start()
+
+    class Stub:
+        port = srv.getsockname()[1]
+    log = str(tmp_path / "u1b.log")
+    o = outer(Stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(20)
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[:1] == (200,)
+    time.sleep(0.8)                                   # the upstream has closed
+    _send(s, req("POST", "/v1/messages", body=b"x" * (12 << 20)))
+    got = b""
+    try:
+        while True:
+            d = s.recv(65536)
+            if not d:
+                break
+            got += d
+    except OSError:
+        pass
+    srv.close()
+    assert b"502" not in got, got
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["status"]) for L in lines] == [("upstream", "send-failed", "-")], lines
+
+
+def test_u2_an_upstream_reset_in_the_relay_is_one_tagged_line_status_dash(outer, fault_stub, tmp_path):
+    stub = fault_stub("reset-mid-response")
+    log = str(tmp_path / "u2.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(5)
+    s.sendall(req("GET", "/v1/models"))
+    try:
+        while s.recv(65536):
+            pass
+    except OSError:
+        pass
+    s.close()
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["status"], L["prefix"]) for L in lines] == [
+        ("upstream", "upstream-reset", "-", "fwd-fault")], lines
+
+
+def test_u3_a_client_that_hangs_up_inside_a_request_is_not_tagged(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "u3a.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 100\r\n\r\nabc")
+    s.close()
+    assert tagged_lines(log) == []
+    assert stub.bytes_seen() == b""
+
+
+def test_u3_a_client_that_hangs_up_while_a_response_streams_is_not_tagged(outer, fault_stub, tmp_path):
+    stub = fault_stub("stream-big")
+    log = str(tmp_path / "u3b.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(10)
+    s.sendall(req("GET", "/v1/models"))
+    got = 0
+    while got < 200000:
+        got += len(s.recv(65536))
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))   # hang up with a reset, mid-response
+    s.close()
+    assert tagged_lines(log) == []
+
+
+# ---- K: the README states the limits
+
+def test_k_the_readme_states_the_truncation_limit_and_the_keep_alive_bound():
+    text = _readme_text()
+    assert "closes CLEANLY in the middle of a response" in text and "indistinguishable from a normal close" in text
+    assert "does not run while a connection waits for its next request" in text and "can fill the connection cap" in text
+    assert "before its first request" in text and "reason=read-timeout" in text

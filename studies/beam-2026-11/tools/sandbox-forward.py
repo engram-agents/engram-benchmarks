@@ -15,7 +15,8 @@ socket, and nothing else crosses:
          one), each piece checked before it is forwarded. A client that stops sending inside a request (or never starts one)
          for --read-idle-s seconds gets 408; a response being relayed is never timed.
          Every refusal is ONE log line carrying kind= (framing, cap, rule, or upstream for the bridge's own failure to reach
-         the model endpoint, which answers 502) and a reason token unique to its site; see class Refusal.
+         the model endpoint, which answers 502; to send to it or a reset of its connection mid-response, which answer
+         nothing and log status=-) and a reason token unique to its site; see class Refusal.
          Responses, streamed ones included, are relayed byte for byte. --learn allows everything it can frame and
          check and logs each request's METHOD and PATH only (never a body, never a query string), so the harness's
          real set can be learned once and then fixed as the list.
@@ -46,11 +47,19 @@ LOCK = threading.Lock()
 COUNTER = [0]
 
 
-def pipe(src, dst, counts, idx, wlock=None, shutdown_dst=True):
-    """One direction, raw. Counts bytes only. `wlock` serialises writes to a socket two threads may write."""
+def pipe(src, dst, counts, idx, wlock=None, shutdown_dst=True, on_src_error=None):
+    """One direction, raw. Counts bytes only. `wlock` serialises writes to a socket two threads may write.
+    A failure is told apart BY SITE: an OSError from reading `src` goes to `on_src_error(exc)` when one is given (the
+    outer forwarder passes one for the model endpoint's side); an OSError from writing `dst` is the peer hanging up
+    and is never reported."""
     try:
         while True:
-            data = src.recv(65536)
+            try:
+                data = src.recv(65536)
+            except OSError as e:
+                if on_src_error is not None:
+                    on_src_error(e)
+                break
             if not data:
                 break
             if wlock is not None:
@@ -151,9 +160,10 @@ RESP_CLOSE = b"HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 class Refusal(Exception):
     """EVERY place the bridge refuses a request, or fails one for its own side, is one `Refusal(kind, reason, status, detail)`:
     the kind is one of the registered counts (framing, cap, rule) or `upstream` (a harness fault, never a student attempt);
-    the reason is a short token that names the site and is unique to it; the status is the one answered. One refusal
-    writes one line (refusal_line) and closes the connection, so a request is counted once, by the first refusal made.
-    The three arguments are literals at every site: a test reads them out of this source with `ast`."""
+    the reason is a short token that names the site and is unique to it; the status is the one answered, or None when no
+    reply is attempted (written status=-). One refusal writes one line (refusal_line) and closes the connection, so a
+    request is counted once, by the first refusal made. The three arguments are literals at every site: a test reads
+    them out of this source with `ast`."""
 
     def __init__(self, kind, reason, status, detail=""):
         super().__init__(detail or reason)
@@ -166,7 +176,10 @@ PHRASE = {400: b"Bad Request", 403: b"Forbidden", 408: b"Request Timeout", 413: 
 
 
 def refusal_response(ref):
-    """The reply to a refusal: status line, no body, close. The only place the response template is used."""
+    """The reply to a refusal: status line, no body, close; None when no reply can be sent (status None). The only place
+    the response template is used."""
+    if ref.status is None:
+        return None
     return RESP_CLOSE % (ref.status, PHRASE[ref.status])
 
 
@@ -174,8 +187,8 @@ def refusal_line(ref, method, path, bytes_read):
     """The one log line of a refusal, never a payload. The prefix is readable by kind (rule refusals are denials,
     an upstream fault is a fault, the rest are refusals) but a reader counts by `kind=`. The only place a line is built."""
     prefix = {"rule": "fwd-deny", "upstream": "fwd-fault"}.get(ref.kind, "fwd-refuse")
-    return "%s method=%s path=%s status=%d bytes_read=%d kind=%s reason=%s detail=%s" % (
-        prefix, method, path, ref.status, bytes_read, ref.kind, ref.reason, ref.detail)
+    return "%s method=%s path=%s status=%s bytes_read=%d kind=%s reason=%s detail=%s" % (
+        prefix, method, path, "-" if ref.status is None else ref.status, bytes_read, ref.kind, ref.reason, ref.detail)
 
 
 class Budget:
@@ -454,7 +467,8 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
     counts = [0, 0]
     err = None
     wlock = threading.Lock()   # guards the client socket's write side between the relay thread and this one
-    state = {"closing": False}
+    state = {"closing": False, "fault_logged": False, "upstream_closed": False}
+    flock = threading.Lock()   # one upstream fault line per connection, whichever site sees it first
     upstream = None
     down = None
     reply = None               # the refusal to send after every earlier response has been relayed
@@ -462,8 +476,23 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
     # the idle read timeout runs while a request is partly read, or before the connection has carried any request
     reader = Reader(client, read_idle_s, lambda: upstream is None or cur["read"] > 0 or bool(reader.buf))
 
+    def claim_fault():
+        with flock:
+            first = not state["fault_logged"]
+            state["fault_logged"] = True
+            return first
+
+    def upstream_reset(e):
+        """The model endpoint's side failed while a response was being relayed (a reset, any OSError reading it). Not a
+        student refusal and not a hangup: the client's own failures never come through here. An error from our own close
+        of the endpoint socket is not a fault."""
+        if state["upstream_closed"] or not claim_fault():
+            return
+        ref = Refusal("upstream", "upstream-reset", None, "the model endpoint's connection failed while a response was being relayed (%s)" % type(e).__name__)
+        write_log(log, refusal_line(ref, "-", "-", 0))   # the request it belongs to is not known to this thread
+
     def relay_down(up):
-        pipe(up, client, counts, 1, wlock, shutdown_dst=False)
+        pipe(up, client, counts, 1, wlock, shutdown_dst=False, on_src_error=upstream_reset)
         with wlock:   # the model server is done: tell the client, unless a refusal is still to be written
             if not state["closing"]:
                 try:
@@ -566,14 +595,20 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
                     raise Refusal("upstream", "connect-failed", 502, "the model endpoint did not accept the connection (%s)" % err)
                 down = threading.Thread(target=relay_down, args=(upstream,), daemon=True)
                 down.start()
-            upstream.sendall(head + body)
+            try:
+                upstream.sendall(head + body)
+            except OSError as e:   # the client's side was read fully above: this failure is the model endpoint's
+                err = type(e).__name__
+                raise Refusal("upstream", "send-failed", None,   # no reply is attempted: the relay has usually ended the client's side already
+                              "the model endpoint failed while the request was being sent (%s)" % err)
             counts[0] += len(head) + len(body)
             budget.request_done(cur["held"])
             budget.release(cur["held"])
             cur["held"] = 0
     except Refusal as e:
         reply = refusal_response(e)
-        write_log(log, refusal_line(e, cur["method"], cur["path"], cur["read"]))
+        if e.kind != "upstream" or claim_fault():
+            write_log(log, refusal_line(e, cur["method"], cur["path"], cur["read"]))
     except (EOFError, OSError):
         pass
     finally:
@@ -586,6 +621,7 @@ def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
             except OSError:
                 pass
             down.join(timeout=30)
+            state["upstream_closed"] = True
             upstream.close()
         if reply is not None:
             with wlock:
