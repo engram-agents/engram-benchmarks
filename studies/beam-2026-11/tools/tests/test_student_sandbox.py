@@ -4872,7 +4872,9 @@ def test_followup_l_c_exactly_one_launch_line_gives_the_round_10_verdicts(tmp_pa
 
 def test_followup_l_d_a_refused_request_whose_path_carries_the_launch_token_is_not_a_second_launch(outer, dead_port_stub, tmp_path):
     """A client cannot make a launch line: its path is logged raw after `method=`, never at the start of a line. (A raw
-    space cannot be in a request target, so the token is carried as `wrapper-launch%20`.)"""
+    space cannot be in a request target, so the token is carried as `wrapper-launch%20`.) This cell does NOT discriminate
+    the with-space substring mutant (a raw space never reaches a path, so the logged text never holds `wrapper-launch `);
+    the L-e impostors below carry that mutant."""
     log = str(tmp_path / "ld.log")
     launch_line(log)
     o = outer(dead_port_stub, allow=ALLOW, log=log)
@@ -4894,7 +4896,8 @@ def test_followup_l_e_only_the_token_and_one_space_at_column_zero_counts(tmp_pat
 
 def test_followup_v_a_a_real_request_imitating_a_connect_failed_line_keeps_its_path_verbatim_and_does_not_flag(outer, dead_port_stub, tmp_path):
     """Through the bridge, endpoint dead and the request refused by rule (not on the allow-list, 403): the logged path
-    keeps `%20` verbatim, and the line is not a connect-failed line, so nothing flags."""
+    keeps `%20` verbatim, and the line is not a connect-failed line, so nothing flags. It does not carry the matcher: it
+    also passes under `fullmatch` -> `search` (the logged line still has text before the shape); `test_followup_v_b` carries it."""
     log = str(tmp_path / "va.log")
     launch_line(log)
     o = outer(dead_port_stub, allow=ALLOW, log=log)
@@ -4997,8 +5000,22 @@ def test_followup_r2_a_reset_the_relay_sees_while_a_request_is_being_sent_is_wri
     a.close()
 
 
+def test_followup_e2e_the_line_the_real_wrapper_writes_is_the_launch_line_log_verdict_counts(cfg, fake_bwrap):
+    """Binds `LAUNCH_PREFIX` in the forwarder to the line `student-sandbox.sh` really writes: every other L cell writes a
+    synthetic line through `launch_line`. Runs the REAL wrapper once (to the fake bwrap, as the other launch-line cells do),
+    then feeds its log to `log-verdict`: accepted (exit 0, a verdict printed), exactly one line starting with the prefix."""
+    r, out = _launch(cfg, fake_bwrap)
+    assert r.returncode == 99, (r.returncode, r.stderr)
+    code, out_text, err = verdict(cfg.log)
+    lines = open(cfg.log).read().splitlines()
+    assert len([l for l in lines if l.startswith(LAUNCH_PREFIX)]) == 1, lines
+    assert (code, err) == (0, "") and out_text in ("flagged: endpoint unreachable, nothing reached it", "not-flagged"), (code, out_text, err)
+    os.unlink(fake_bwrap[1])
+    _wait_clean(cfg)
+
+
 def test_followup_the_readme_states_one_log_per_launch_and_the_two_reset_limits():
     text = _readme_text()
     for needle in ("one log per launch", "exactly one line starting `wrapper-launch `", "harness setup error",
-                   "a half-closing client hides a real mid-response reset", "the marker write is swallowed", "full disk"):
+                   "a half-closing client hides a real mid-response reset", "the marker write is swallowed", "the disk fills, then frees"):
         assert needle in text, needle
