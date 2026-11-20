@@ -2825,3 +2825,24 @@ Claude Code `version` that wrote it). Versions by session:
   ratio (about 0.85) before the rule was fixed (disclosed above). The custody exposure bound of A10 travels with these
   numbers. Display nit: the excluded-rows block names both files by their shared basename (`turns.jsonl`); each row
   is identified by its exchanges.
+
+### Four open-before-registration items: the design owner's rulings (2026-11-20, on the study lead's proposal)
+
+- **(4a) Shell network = BLOCKED** by the student wrapper (benchmarks PR 13), final when PR 13 merges with its
+  colleague read. Section 7 will name the security seat's in-box measurement and the wrapper cell that fails if the
+  box reaches anything but the model bridge. Section 14's fault "a shell network call to anything but the model
+  endpoint" is reworded: a blocked call cannot succeed, so attempts are logged and counted per arm, reported, and are
+  not a fault.
+- **(5) Own OS user for arm 2 = NO, CONDITIONAL.** Security half accepted on the wrapper as the boundary, with the uid
+  bound stated in section 15 and one line of concurrence from the security seat on this item. Function half needs a
+  measurement first: inside the box, in an arm-2 home, does the recall service start and does semantic recall answer
+  as on a real seat (not the keyword fallback)? One wrapped control turn. If recall falls back, it is a design
+  question back to the design owner.
+- **(15) Per-turn timeout = 3,600 s,** both arms, reading and answering alike, with its reasoning in the text: measured
+  maxima (k = 1 reading 1,075.3 s; K = 3 reading 1,108.8 s; answering 322.1 s), pace past exchange 135 unmeasured,
+  and the cost of too low (false flags, re-runs) against too high (at most an hour of a real hang).
+- **(4b) GPU time = "lease seconds"**: the GPU broker's lease, start to release, from its own log, named as lease
+  seconds (idle time inside the lease included; not utilisation-weighted); the co-load sampler's readings reported
+  beside it, not multiplied in; the same instrument in both arms.
+- The text change for (4a), (15) and (4b) goes now; (5) after the recall measurement. Reviewer: Halley, else the
+  security seat.
