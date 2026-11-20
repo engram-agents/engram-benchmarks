@@ -16,14 +16,35 @@ PY = "/usr/bin/python3"
 OWN_RUN_NAMES = {"sandbox-bridge.sock", "sandbox-forward.py"}
 
 
+def _bash4():
+    """The wrapper is run as /bin/bash and needs bash 4 (descriptor variables, ${var,,}, mapfile -d); macOS ships 3.2."""
+    try:
+        out = subprocess.run(["/bin/bash", "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True).stdout
+        return int(out.strip()) >= 4
+    except (OSError, ValueError):
+        return False
+
+
 def _box_usable():
-    if not shutil.which("bwrap"):
+    if not sys.platform.startswith("linux") or not _bash4() or not shutil.which("bwrap"):
         return False
     return subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "/usr/bin/true"],
                           capture_output=True).returncode == 0
 
 
-needs_box = pytest.mark.skipif(not _box_usable(), reason="bwrap or unprivileged user namespaces unavailable")
+# The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
+NEEDS_BOX_REASON = "needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces): the sandbox is Linux-only"
+BOX_OK = _box_usable()
+needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
+
+
+@pytest.fixture(autouse=True)
+def _wrapper_cells_need_the_box(request):
+    """A cell that runs the wrapper uses the `cfg` or `fake_bwrap` fixture; on a host without Linux + bash 4 + bwrap it is
+    skipped with the named reason instead of failing. The pure-Python framing and allow-list cells use neither, so
+    they run everywhere."""
+    if not BOX_OK and {"cfg", "fake_bwrap"} & set(request.fixturenames):
+        pytest.skip(NEEDS_BOX_REASON)
 
 
 def sha256_of(path):
@@ -2678,3 +2699,63 @@ def test_peer_b_the_box_receives_home_exactly_as_the_caller_passed_it(cfg):
     r = cfg.run(exec_='printf "%s" "$HOME"', HOME=cfg.slot + "/")
     assert r.returncode == 0, r.stderr
     assert r.stdout == cfg.slot + "/"
+
+
+# ---------------------------------------------------------------- round 5 (L2, F3): Linux-only box, platform-free framing
+
+def _load_forwarder():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sandbox_forward_alive_under_test", FWD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_peer_l2_alive_is_true_for_this_process_and_false_for_a_dead_pid():
+    mod = _load_forwarder()
+    assert mod.alive(os.getpid()) is True
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    p.wait()
+    assert mod.alive(p.pid) is False
+
+
+def test_peer_l2_alive_signals_zero_and_does_not_read_proc(monkeypatch):
+    """The forwarder's exit check must work where there is no /proc (a Mac seat): it sends signal 0, nothing else."""
+    mod = _load_forwarder()
+    calls = []
+    real_kill, real_open = os.kill, open
+
+    def spy_kill(pid, sig):
+        calls.append((pid, sig))
+        return real_kill(pid, sig)
+
+    def no_proc(path, *a, **k):
+        if str(path).startswith("/proc"):
+            raise OSError("no /proc here")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(mod.os, "kill", spy_kill)
+    monkeypatch.setattr("builtins.open", no_proc)
+    assert mod.alive(os.getpid()) is True
+    assert calls == [(os.getpid(), 0)], calls
+
+
+def test_peer_l2_a_permission_error_means_alive_and_a_lookup_error_means_dead(monkeypatch):
+    mod = _load_forwarder()
+
+    def deny(pid, sig):
+        raise PermissionError
+
+    def gone(pid, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(mod.os, "kill", deny)
+    assert mod.alive(1) is True        # the process exists, it is only not ours to signal
+    monkeypatch.setattr(mod.os, "kill", gone)
+    assert mod.alive(1) is False
+
+
+def test_peer_f3_the_named_skip_says_what_the_box_cells_need():
+    """Every box cell skips with this reason when the host cannot run it; it must name all three requirements."""
+    for need in ("Linux", "bash 4", "bwrap"):
+        assert need in NEEDS_BOX_REASON, (need, NEEDS_BOX_REASON)

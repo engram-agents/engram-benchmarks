@@ -566,12 +566,16 @@ def handle_http(client, connect, log, rules, learn, budget):
 
 
 def alive(pid):
+    """Is the watched pid still there? Signal 0, not /proc, so the framing cells (and this check) run on a Mac seat too.
+    ProcessLookupError: gone. PermissionError: it exists and is simply not ours to signal. A process that has exited but
+    has not been reaped by its parent still counts as there, until the parent waits for it."""
     try:
-        with open("/proc/%d/stat" % pid) as f:
-            state = f.read().rpartition(")")[2].split()[0]
-    except (OSError, IndexError):
+        os.kill(pid, 0)
+    except ProcessLookupError:
         return False
-    return state not in ("Z", "X")
+    except PermissionError:
+        return True
+    return True
 
 
 def run_outer(a):
