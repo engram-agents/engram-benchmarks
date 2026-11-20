@@ -2614,3 +2614,35 @@ def test_peer_a2_enforce_mode_does_not_record_maxima(outer, http_stub, tmp_path)
     time.sleep(0.6)   # the connection's own log line is written when it ends
     text = open(log).read()
     assert "fwd-conn " in text and "fwd-learn-max" not in text
+
+
+def test_peer_a2_many_small_chunks_that_add_up_past_the_cap_are_413(outer, raw_stub):
+    """No single chunk is over the cap; only the running total is."""
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW, max_request=4096)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + b"".join(b"64\r\n" + b"x" * 100 + b"\r\n" for _ in range(60)) + b"0\r\n\r\n")
+    status, _, _ = read_response(s)
+    assert status == 413, status
+    assert at_eof(s)
+    assert stub.bytes_seen() == b""
+
+
+def test_peer_a2_a_declared_content_length_over_the_cap_is_refused_before_its_body_is_sent(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW, max_request=4096)
+    s = o.connect()
+    s.sendall(b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 1000000\r\n\r\n")   # the body never comes
+    status, _, _ = read_response(s)
+    assert status == 413, status
+    assert stub.bytes_seen() == b""
+
+
+def test_peer_a2_a_declared_chunk_size_over_the_cap_is_refused_before_its_data_is_sent(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW, max_request=4096)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + b"100000\r\n")   # a 1 MiB chunk is announced; none of it comes
+    status, _, _ = read_response(s)
+    assert status == 413, status
+    assert stub.bytes_seen() == b""
