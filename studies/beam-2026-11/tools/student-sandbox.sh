@@ -19,7 +19,11 @@
 #                         each root and each entry obey the class rules in the R1/R2 block below.
 #   SANDBOX_PROTECT      REQUIRED. Colon-separated absolute EXISTING paths (files or directories) that no slot, root or entry
 #                         may equal, contain or lie inside: the dataset file, the key-list directory. Empty or unset is a refusal.
-#   SANDBOX_LOG          optional file (outside the box) for launch lines and per-connection counts/timings
+#   HOME (the caller's own)  must resolve to the slot (realpath equal): refused otherwise, so the student's HOME exists inside
+#   SANDBOX_LOG          optional file (outside the box) for launch lines, per-connection counts/timings and refusals
+#   Caps (constants below, provisional until the pilot's learn mode has measured a real run; test-mode overrides only):
+#                         the bridge's trusted side (per request, total buffered, concurrent connections) and the box's own
+#                         systemd user scope (tasks, memory). Every effective value is on the launch line.
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
 set -u
@@ -292,9 +296,9 @@ fi
 # ---- C: process and memory caps on the box itself. The box runs in its own systemd USER scope with TasksMax (pids, threads
 # included), MemoryMax and MemorySwapMax=0, entered by this wrapper's own exec, so the caps cover the box alone: the host
 # uid, the host-side forwarder (started above this line, so it stays in the caller's cgroup) and the feeder are outside.
-# Measured on the study host (2026-11-20): bubblewrap 0.9.0 has no rlimit options; prlimit on the bwrap invocation
-# fails (namespace creation is charged to the uid's host-wide count) and prlimit inside the box caps one uid-wide number;
-# RLIMIT_AS cannot be set from RSS intuition (the pinned binary's runtime reserves about 9.6 GiB of address space for
+# Measured on the study host (2026-11-20): bubblewrap 0.9.0 has no rlimit options; prlimit around the wrapper fails
+# (the limit is charged to the uid's host-wide count) and prlimit inside the box caps processes only, not memory;
+# RLIMIT_AS cannot be set from RSS intuition (the pinned binary's runtime reserves about 9.4 GiB of address space for
 # about 200 MiB resident); the cgroup route caps what matters and kills only the hog. PROVISIONAL until the pilot has
 # measured a real run: 1024 tasks, 4 GiB. It replaces the caller's cgroup for the box: a memory limit set around the whole
 # run (memrun's) no longer covers the box, which has its own. Overridable only in test mode.
