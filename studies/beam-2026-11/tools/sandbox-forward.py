@@ -6,10 +6,12 @@ socket, and nothing else crosses:
 
   outer  (host side, started by the wrapper before the box)  UNIX socket  ->  <SANDBOX_MODEL_HOST>:<SANDBOX_MODEL_PORT>
          TRUSTED, and an HTTP request allow-list: it parses HTTP/1.1 requests on each connection (request line and
-         headers; bodies by Content-Length or chunked; keep-alive, several requests per connection) and forwards a
+         headers; bodies by Content-Length or strictly chunked; keep-alive, several requests per connection) and forwards a
          request only if its METHOD and path are on the list (--allow, "METHOD /path" entries, exact path or a prefix
          ending in "*"). Any other request gets 403 and the connection closes; it never reaches the model server.
-         A request that cannot be framed gets 400; CONNECT, Upgrade and non-origin-form targets get 403.
+         A request that cannot be framed gets 400; CONNECT, Upgrade and non-origin-form targets get 403; a request
+         line whose version is not exactly HTTP/1.1 gets 505. Chunked bodies are framed strictly: CRLF exactly (a bare
+         CR or LF is 400), no chunk extension, no trailer (only the empty one), each piece checked before it is forwarded.
          Responses, streamed ones included, are relayed byte for byte. --learn allows everything it can frame and
          check and logs each request's METHOD and PATH only (never a body, never a query string), so the harness's
          real set can be learned once and then fixed as the list.
@@ -24,7 +26,8 @@ socket, and nothing else crosses:
   homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
   account-file passwd|group --home H   wrapper helper: the synthetic /etc/passwd or /etc/group of the box (root and the
           invoking uid/gid only; the invoker's home is H).
-  etc-scan   wrapper helper: the readable regular files under /etc that name a home or another account, NUL-separated.
+  etc-scan [--root DIR]   wrapper helper: the readable regular files under /etc (or DIR) that contain /home/ or the name of
+          an account with uid >= 1000, as a whole word, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
@@ -125,7 +128,7 @@ def connect_upstream(host, port):
 
 MAX_HEAD = 64 * 1024
 MAX_LINE = 8 * 1024
-RE_REQLINE = re.compile(rb"([A-Z]{1,16}) ([\x21-\x7e]+) HTTP/1\.([01])")
+RE_REQLINE = re.compile(rb"([A-Z]{1,16}) ([\x21-\x7e]+) HTTP/([0-9])\.([0-9])")
 RE_NAME = re.compile(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 RE_BADCTL = re.compile(rb"[\x00-\x08\x0a-\x1f\x7f]")
 RE_LENGTH = re.compile(rb"[0-9]{1,15}")
@@ -137,6 +140,12 @@ RESP_CLOSE = b"HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
 class BadRequest(Exception):
     """The bytes are not a request we can frame: 400, close."""
+    status, reason = 400, b"Bad Request"
+
+
+class VersionNotSupported(BadRequest):
+    """A well-formed request line whose version is not exactly HTTP/1.1: 505, close, nothing forwarded."""
+    status, reason = 505, b"HTTP Version Not Supported"
 
 
 def parse_allow(text):
@@ -221,16 +230,28 @@ class Reader:
                 return None
 
     def read_line(self):
+        """One line ending in CRLF exactly. A bare LF or a bare CR anywhere in it is refused as soon as it is seen
+        (not only when the CRLF finally arrives)."""
         while True:
-            i = self.buf.find(b"\r\n")
+            i = self.buf.find(b"\n")
             if i >= 0:
-                line = bytes(self.buf[:i + 2])
-                del self.buf[:i + 2]
+                if i == 0 or self.buf[i - 1] != 13 or b"\r" in self.buf[:i - 1]:
+                    raise BadRequest("bare CR or LF in chunk framing")
+                line = bytes(self.buf[:i + 1])
+                del self.buf[:i + 1]
                 return line
+            if b"\r" in self.buf[:-1]:
+                raise BadRequest("bare CR in chunk framing")
             if len(self.buf) > MAX_LINE:
                 raise BadRequest("line too long")
             if not self.fill():
                 raise EOFError("connection closed inside a request body")
+
+    def read_exact(self, n):
+        out = b""
+        while len(out) < n:
+            out += self.take(n - len(out))
+        return out
 
     def take(self, n):
         """Up to n bytes (at least one), from the buffer first."""
@@ -247,6 +268,8 @@ def parse_head(head):
     m = RE_REQLINE.fullmatch(lines[0])
     if not m:
         raise BadRequest("request line")
+    if (m.group(3), m.group(4)) != (b"1", b"1"):
+        raise VersionNotSupported("only HTTP/1.1")   # a 1.0 message is not chunk-framed: nothing of it is read further
     headers = []
     for l in lines[1:]:
         if l[:1] in (b" ", b"\t"):
@@ -321,26 +344,24 @@ def handle_http(client, connect, log, rules, learn):
             n -= len(chunk)
 
     def forward_chunked():
+        """Strict chunked framing: every size line is hex then CRLF exactly (no extension, no whitespace), every chunk
+        ends in CRLF exactly, and the last chunk is followed by the EMPTY trailer only. Every piece is validated BEFORE
+        it is forwarded, so a refused byte never reaches the upstream."""
         while True:
             line = reader.read_line()
-            forward(line)
-            size_tok = line[:-2].split(b";", 1)[0].strip()
-            if not RE_HEX.fullmatch(size_tok):
+            if not RE_HEX.fullmatch(line[:-2]):
                 raise BadRequest("chunk size")
-            size = int(size_tok, 16)
+            forward(line)
+            size = int(line[:-2], 16)
             if size == 0:
-                while True:   # trailers, through the blank line
-                    t = reader.read_line()
-                    forward(t)
-                    if t == b"\r\n":
-                        return
+                if reader.read_exact(2) != b"\r\n":
+                    raise BadRequest("trailer")
+                forward(b"\r\n")
+                return
             forward_exact(size)
-            crlf = b""
-            while len(crlf) < 2:
-                crlf += reader.take(2 - len(crlf))
-            if crlf != b"\r\n":
+            if reader.read_exact(2) != b"\r\n":
                 raise BadRequest("chunk framing")
-            forward(crlf)
+            forward(b"\r\n")
 
     try:
         while True:
@@ -382,8 +403,8 @@ def handle_http(client, connect, log, rules, learn):
                 forward_exact(n)
             elif kind == "chunked":
                 forward_chunked()
-    except BadRequest:
-        reply = RESP_CLOSE % (400, b"Bad Request")
+    except BadRequest as e:
+        reply = RESP_CLOSE % (e.status, e.reason)
     except (EOFError, OSError):
         pass
     finally:
@@ -539,19 +560,25 @@ def run_account_file(a):
     return 0
 
 
-def run_etc_scan(a):
-    """Class rule, from the host at launch: a readable regular file under /etc (symlinks never followed) whose content
-    contains the string /home/ or any account name other than root and the invoker as a whole colon/comma-delimited
-    token (the shape of passwd, group, subuid, subgid and their backups). Prints the paths, NUL-separated."""
+def people_names():
+    """The names of the class of people and agents: every account with uid >= 1000, except 65534 (nobody)."""
     import pwd
-    me = pwd.getpwuid(os.getuid()).pw_name
-    others = sorted({u.pw_name for u in pwd.getpwall()} - {"root", me})
+    return sorted({u.pw_name for u in pwd.getpwall() if u.pw_uid >= 1000 and u.pw_uid != 65534})
+
+
+def run_etc_scan(a):
+    """Class rule, from the host at launch: a readable regular file under the root (default /etc; symlinks never
+    followed) whose content contains the string /home/ or the name of any account with uid >= 1000 (nobody excluded) as
+    a WHOLE WORD: not directly preceded or followed by a letter or digit, so any other delimiter counts (a colon, a
+    comma, a space, an equals sign, a quote, a line start). System account names (uid < 1000) are not matched. Short names
+    over-mask: that fails closed, and the launch line counts the files. Prints the paths, NUL-separated."""
+    names = people_names()
     rx = None
-    if others:
-        rx = re.compile(rb"(?:^|[:,])(?:" + b"|".join(re.escape(n.encode()) for n in others) + rb")(?=[:,\n]|$)", re.M)
-    skip = {os.path.realpath("/etc/" + n) for n in ETC_SYNTHETIC}
+    if names:
+        rx = re.compile(rb"(?<![A-Za-z0-9])(?:" + b"|".join(re.escape(n.encode()) for n in names) + rb")(?![A-Za-z0-9])")
+    skip = {os.path.realpath(os.path.join(a.root, n)) for n in ETC_SYNTHETIC}
     out = []
-    for dirpath, dirnames, filenames in os.walk("/etc"):
+    for dirpath, dirnames, filenames in os.walk(a.root):
         for f in filenames:
             p = os.path.join(dirpath, f)
             if os.path.islink(p) or not os.path.isfile(p) or not os.access(p, os.R_OK) or os.path.realpath(p) in skip:
@@ -573,7 +600,7 @@ def run_etc_scan(a):
 def one_request(host, port):
     t0 = time.perf_counter()
     s = socket.create_connection((host, port), timeout=10)
-    s.sendall(b"GET /ping HTTP/1.0\r\nHost: bridge-latency\r\n\r\n")
+    s.sendall(b"GET /ping HTTP/1.1\r\nHost: bridge-latency\r\nConnection: close\r\n\r\n")
     while s.recv(65536):
         pass
     s.close()
@@ -632,7 +659,8 @@ def main(argv):
     sub.add_parser("homes")
     af = sub.add_parser("account-file")
     af.add_argument("kind", choices=("passwd", "group")); af.add_argument("--home", required=True)
-    sub.add_parser("etc-scan")
+    es = sub.add_parser("etc-scan")
+    es.add_argument("--root", default="/etc")
     la = sub.add_parser("latency")
     la.add_argument("--host", required=True); la.add_argument("--port", type=int, required=True)
     la.add_argument("-n", type=int, default=50)

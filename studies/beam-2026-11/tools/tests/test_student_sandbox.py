@@ -105,6 +105,12 @@ class Cfg:
         self.tmpd = os.path.join(self.root, "tmpd")
         os.makedirs(self.tmpd)
         self.log = os.path.join(self.root, "launch.log")
+        # the protected paths the run script would pass: a dataset stand-in file and a key-list directory
+        self.prot_dir = os.path.join(self.root, "prot")
+        os.makedirs(os.path.join(self.prot_dir, "keys"))
+        self.prot_file = os.path.join(self.prot_dir, "dataset.parquet")
+        open(self.prot_file, "w").close()
+        self.prot_keys = os.path.join(self.prot_dir, "keys")
 
     def set_binary(self, text):
         make_exe(self.binary, text)
@@ -117,7 +123,8 @@ class Cfg:
              "PROCTOR_DIR": os.path.join(self.slot, "proctor"), "TMPDIR": self.tmpd,
              "SANDBOX_SLOT": self.slot, "SANDBOX_BINARY": self.binary, "SANDBOX_BINARY_SHA256": self.sha,
              "SANDBOX_MODEL_HOST": "127.0.0.1", "SANDBOX_MODEL_PORT": str(self.model_port),
-             "SANDBOX_MODEL_ALLOW": "GET /*, POST /*"}
+             "SANDBOX_MODEL_ALLOW": "GET /*, POST /*",
+             "SANDBOX_PROTECT": self.prot_file + ":" + self.prot_keys}
         if test:
             e["SANDBOX_TEST"] = "1"
         if exec_ is not None:
@@ -172,7 +179,7 @@ def fake_bwrap(tmp_path):
 
 
 REQUIRED = ["SANDBOX_SLOT", "SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST", "SANDBOX_MODEL_PORT",
-            "SANDBOX_MODEL_ALLOW"]
+            "SANDBOX_MODEL_ALLOW", "SANDBOX_PROTECT"]
 
 
 def assert_refused(cfg, fake_bwrap, name, **runkw):
@@ -419,7 +426,7 @@ def test_s2_dataset_hidden_inside_and_kept_outside(cfg):
         if real:
             paths.append(real)  # existence/readability only: contents are never read
         r = cfg.run(exec_='for p in "$@"; do test -e "$p" && echo EXISTS "$p"; test -r "$p" && echo READABLE "$p"; done; echo done',
-                    args=paths, BEAM_PARQUET=p)
+                    args=paths, SANDBOX_PROTECT=p)
         assert r.returncode == 0, r.stderr
         assert r.stdout.split() == ["done"], "dataset path visible inside: %r" % r.stdout
         assert open(p, "rb").read() == content, "the feeder's own read outside the box must keep working"
@@ -501,7 +508,7 @@ def attempt(host, port):
         return "FAIL:" + type(e).__name__
     # connected: whatever happens next, the endpoint was reachable
     try:
-        s.sendall(b"GET / HTTP/1.0\r\n\r\n"); data = b""
+        s.sendall(b"GET / HTTP/1.1\r\nHost: m\r\nConnection: close\r\n\r\n"); data = b""
         while True:
             c = s.recv(4096)
             if not c:
@@ -933,10 +940,10 @@ def test_r1_root_contains_the_dataset_or_the_binary(cfg, fake_bwrap, tmp_path):
     p = str(d / "standin.parquet")
     open(p, "w").close()
     for root in (str(d), str(d.parent)):
-        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "dataset", SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=root, BEAM_PARQUET=p)
-        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "dataset", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=root, BEAM_PARQUET=p)
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "protected", SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=root, SANDBOX_PROTECT=p)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "protected", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=root, SANDBOX_PROTECT=p)
     # control: the same tree is fine when the dataset is elsewhere
-    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=str(d.parent), BEAM_PARQUET=os.path.join(cfg.root, "elsewhere.parquet"))
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=str(d.parent))
     _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "binary", SANDBOX_RO_BINDS=cfg.bindir, SANDBOX_RO_ROOT=cfg.bindir)
 
 
@@ -990,12 +997,13 @@ def test_r2_slot_is_any_account_home_or_an_ancestor_of_one(cfg, fake_bwrap):
 
 
 def test_r2_slot_contains_the_dataset_or_the_binary(cfg, fake_bwrap):
-    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dataset", BEAM_PARQUET=os.path.join(cfg.slot, "work", "standin.parquet"))
-    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dataset", BEAM_PARQUET=os.path.join(cfg.slot, "work", "standin.parquet"),
+    open(os.path.join(cfg.slot, "work", "standin.parquet"), "w").close()
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "protected", SANDBOX_PROTECT=os.path.join(cfg.slot, "work", "standin.parquet"))
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "protected", SANDBOX_PROTECT=os.path.join(cfg.slot, "work", "standin.parquet"),
              SANDBOX_SLOT=os.path.join(cfg.slot, "work"))
     _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "binary", SANDBOX_SLOT=cfg.root)
     _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "binary", SANDBOX_SLOT=cfg.bindir)
-    _accepted(cfg, fake_bwrap, BEAM_PARQUET=os.path.join(cfg.root, "elsewhere.parquet"))
+    _accepted(cfg, fake_bwrap)
 
 
 def test_r2_slot_inside_a_dot_directory_of_a_home(cfg, fake_bwrap, tmp_path):
@@ -1060,11 +1068,11 @@ def test_f2_dataset_stand_in_stays_invisible_when_its_parents_sibling_is_bound(c
         open(os.path.join(sib, "marker"), "w").close()
         r = cfg.run(exec_='test -e "$1/marker" && echo SIBLING-BOUND; test -e "$2" && echo STANDIN-VISIBLE; '
                           'test -e "$3" && echo STANDIN-DIR-VISIBLE; echo done', args=[sib, p, d],
-                    BEAM_PARQUET=p, SANDBOX_RO_BINDS=sib, SANDBOX_RO_ROOT=sib)
+                    SANDBOX_PROTECT=p, SANDBOX_RO_BINDS=sib, SANDBOX_RO_ROOT=sib)
         assert r.returncode == 0, r.stderr
         assert r.stdout.split() == ["SIBLING-BOUND", "done"], r.stdout
         # binding the home itself must be refused, and must never make the stand-in visible
-        r = cfg.run(exec_='test -e "$1" && echo STANDIN-VISIBLE; echo done', args=[p], BEAM_PARQUET=p,
+        r = cfg.run(exec_='test -e "$1" && echo STANDIN-VISIBLE; echo done', args=[p], SANDBOX_PROTECT=p,
                     SANDBOX_RO_BINDS=home, SANDBOX_RO_ROOT=home)
         assert "STANDIN-VISIBLE" not in r.stdout, "the stand-in became visible through an ancestor bind"
         assert r.returncode == 2 and "home directory" in r.stderr, (r.returncode, r.stderr)
@@ -1178,26 +1186,27 @@ def test_r3_no_leaked_descriptors_inside(cfg):
 ETC_OVERLAID = ("passwd", "group", "machine-id", "hostname")
 
 
-def _other_account_names():
-    """Account names from the HOST's database at test time, other than root and the invoker."""
+def _people_names():
+    """Account names with uid >= 1000 (minus 65534), from the HOST's database at test time."""
     import pwd
-    me = pwd.getpwuid(os.getuid()).pw_name
-    return sorted({u.pw_name for u in pwd.getpwall()} - {"root", me})
+    return sorted({u.pw_name for u in pwd.getpwall() if u.pw_uid >= 1000 and u.pw_uid != 65534})
 
 
 def _name_rx(names):
+    """Whole word, any delimiter: not preceded or followed by a letter or digit."""
     import re
     if not names:
         return None
     alt = b"|".join(re.escape(n.encode()) for n in names)
-    return re.compile(rb"(?:^|[:,])(?:" + alt + rb")(?=[:,\n]|$)", re.M)
+    return re.compile(rb"(?<![A-Za-z0-9])(?:" + alt + rb")(?![A-Za-z0-9])")
 
 
 def _host_etc_masked():
-    """The class rule, restated independently of the wrapper: every readable regular file under /etc (symlinks not
-    followed) whose content contains '/home/' or an account name other than root and the invoker as a whole
-    colon/comma-delimited token, except the four files that are replaced by synthetic ones."""
-    rx = _name_rx(_other_account_names())
+    """Which files the wrapper must have masked, for the mechanics cells (the launch-line count, empty inside): every
+    readable regular file under /etc (symlinks not followed) whose content contains '/home/' or the name of an
+    account with uid >= 1000 as a whole word, except the four files replaced by synthetic ones. The RULE itself is
+    checked by test_r4_no_readable_file_under_etc_names_a_person, which does not use this function."""
+    rx = _name_rx(_people_names())
     skip = {os.path.realpath("/etc/" + n) for n in ETC_OVERLAID}
     out = []
     for dp, dn, fn in os.walk("/etc"):
@@ -1216,34 +1225,90 @@ def _host_etc_masked():
 
 ETC_PROBE = r'''
 import os, re, sys
-names = [n.encode() for n in sys.argv[1:]]
-rx = re.compile(rb"(?:^|[:,])(?:" + b"|".join(re.escape(n) for n in names) + rb")(?=[:,\n]|$)", re.M) if names else None
-bad = []
+# argv[1]: a file listing the names, one per line. Prints COUNTS only, never a name or a path.
+names = [n for n in open(sys.argv[1]).read().split("\n") if n]
+alts = [re.compile(rb"(?<!\w)" + re.escape(n.encode()) + rb"(?!\w)") for n in names]
+files = bad_name = bad_home = errors = 0
 for dp, dn, fn in os.walk("/etc"):
     for f in fn:
         p = os.path.join(dp, f)
-        if os.path.islink(p) or not os.path.isfile(p) or not os.access(p, os.R_OK):
+        if not os.path.isfile(p):
             continue
+        real = os.path.realpath(p)
+        if real != "/etc" and not real.startswith("/etc/"):
+            continue                      # a symlink that leaves /etc is not followed
+        if not os.access(p, os.R_OK):
+            continue
+        if real in ("/etc/passwd", "/etc/group"):
+            continue                      # synthetic: root and the invoking account only, by design (own cell)
         try:
             d = open(p, "rb").read()
         except OSError:
+            errors += 1
             continue
-        if b"/home/" in d or (rx is not None and rx.search(d)):
-            bad.append(p)
-print("BAD", len(bad))
+        files += 1
+        if b"/home/" in d:
+            bad_home += 1
+        if any(a.search(d) for a in alts):
+            bad_name += 1
+print("FILES", files, "BAD_NAME", bad_name, "BAD_HOME", bad_home, "ERRORS", errors, "NAMES", len(names))
 '''
 
 
 @needs_box
-def test_r4_no_readable_file_under_etc_names_a_home_or_another_account(cfg):
-    """Class check from inside the box, against the HOST's account database now."""
-    names = _other_account_names()
-    assert names, "the host account database lists no account other than root and the invoker"
+def test_r4_no_readable_file_under_etc_names_a_person(cfg):
+    """Class check from inside the box. The name set is generated here from the HOST's account database (uid >= 1000,
+    minus 65534), not from the wrapper; every readable file under /etc is read and matched as a whole word (any
+    delimiter). Counts only are printed."""
+    names = _people_names()
+    assert names, "the host account database lists no account with uid >= 1000"
+    nf = os.path.join(cfg.slot, "names.txt")
+    open(nf, "w").write("\n".join(names) + "\n")
     pf = os.path.join(cfg.slot, "etcprobe.py")
     open(pf, "w").write(ETC_PROBE)
-    r = cfg.run(exec_='%s -I %s "$@"' % (PY, shlex.quote(pf)), args=names)
+    r = cfg.run(exec_='%s -I %s %s' % (PY, shlex.quote(pf), shlex.quote(nf)))
     assert r.returncode == 0, r.stderr
-    assert r.stdout.split() == ["BAD", "0"], r.stdout
+    t = r.stdout.split()
+    got = dict(zip(t[0::2], map(int, t[1::2])))
+    assert got["FILES"] > 20 and got["NAMES"] == len(names), got
+    assert got["BAD_NAME"] == 0 and got["BAD_HOME"] == 0, got
+
+
+def _etc_scan(root):
+    r = subprocess.run([PY, "-I", FWD, "etc-scan", "--root", root], capture_output=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return sorted(os.path.basename(x.decode()) for x in r.stdout.split(b"\0") if x)
+
+
+def test_r4_scan_masks_a_name_in_any_delimiter_and_only_a_whole_word(tmp_path):
+    """The scan helper on a stand-in /etc the test controls (the host /etc is never written)."""
+    import pwd
+    names = _people_names()
+    assert names
+    n = names[0]
+    system = [u.pw_name for u in pwd.getpwall() if u.pw_uid < 1000 and u.pw_name not in names and u.pw_name != "root"]
+    assert system, "no system account (uid < 1000) other than root in the host database"
+    root = tmp_path / "etc-standin"
+    (root / "sub").mkdir(parents=True)
+    planted = {
+        "space-delimited": "AllowUsers %s other\n" % n,
+        "line-start": "%s ALL=(ALL) ALL\n" % n,
+        "key-equals": "owner=%s\n" % n,
+        "colon": "x:%s:y\n" % n,
+        "quoted": 'user "%s"\n' % n,
+        "home-path": "path /home/\n",
+    }
+    for k, v in planted.items():
+        (root / "sub" / k).write_text(v)
+    controls = {
+        "inside-a-longer-word": "x%sy and %s2 and a%s\n" % (n, n, n),
+        "system-account": "%s root\n" % system[0],
+        "plain": "nothing to see\n",
+    }
+    for k, v in controls.items():
+        (root / k).write_text(v)
+    got = _etc_scan(str(root))
+    assert got == sorted(planted), got
 
 
 @needs_box
@@ -1366,7 +1431,8 @@ class HttpStub(socketserver.ThreadingTCPServer):
                         sz = h.rfile.readline()
                         raw += sz
                         n = int(sz.split(b";")[0], 16)
-                        raw += h.rfile.read(n + 2)
+                        if n:
+                            raw += h.rfile.read(n + 2)
                         if n == 0:
                             while True:
                                 t = h.rfile.readline()
@@ -1581,7 +1647,7 @@ def test_r5_a_chunked_body_passes_intact(outer, http_stub):
     o = outer(stub, allow=ALLOW)
     s = o.connect()
     raw = (b"POST /v1/messages HTTP/1.1\r\nHost: model\r\nTransfer-Encoding: chunked\r\n\r\n"
-           b"5\r\nhello\r\n6;ext=1\r\n world\r\n0\r\nX-Trailer: t\r\n\r\n")
+           b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")
     s.sendall(raw[:40])
     time.sleep(0.05)
     s.sendall(raw[40:70])
@@ -1759,19 +1825,19 @@ def test_r5_end_to_end_through_the_box(cfg, http_stub):
 # ---------------------------------------------------------------- R6: tmpfs caps
 
 GIB, MIB = 1 << 30, 1 << 20
-SIZE_PROBE = 'for p in /tmp /var/tmp /home /run; do echo "$p $(( $(stat -f -c "%S * %b" "$p") ))"; done'
+SIZE_PROBE = 'for p in /tmp /var/tmp /home /run /dev/shm; do echo "$p $(( $(stat -f -c "%S * %b" "$p") ))"; done'
 
 
 @needs_box
-def test_r6_default_caps_are_2gib_for_tmp_and_vartmp_and_64mib_for_home_and_run(cfg):
+def test_r6_default_caps_are_2gib_for_tmp_vartmp_and_dev_shm_and_64mib_for_home_and_run(cfg):
     r = cfg.run(exec_=SIZE_PROBE)
     assert r.returncode == 0, r.stderr
     sizes = {l.split()[0]: int(l.split()[1]) for l in r.stdout.splitlines()}
-    assert sizes == {"/tmp": 2 * GIB, "/var/tmp": 2 * GIB, "/home": 64 * MIB, "/run": 64 * MIB}, sizes
+    assert sizes == {"/tmp": 2 * GIB, "/var/tmp": 2 * GIB, "/home": 64 * MIB, "/run": 64 * MIB, "/dev/shm": 2 * GIB}, sizes
 
 
 @needs_box
-@pytest.mark.parametrize("where", ["/tmp", "/var/tmp", "/home", "/run"])
+@pytest.mark.parametrize("where", ["/tmp", "/var/tmp", "/home", "/run", "/dev/shm"])
 def test_r6_a_write_past_the_test_cap_fails_inside(cfg, where):
     r = cfg.run(exec_='dd if=/dev/zero of="$1/small" bs=64k count=4 2>/dev/null && echo SMALL-OK; '
                       'dd if=/dev/zero of="$1/big" bs=64k count=64 2>/dev/null && echo BIG-OK; echo done',
@@ -1878,3 +1944,326 @@ def test_nit_a_forwarder_killed_with_sigkill_leaves_a_directory_that_the_next_la
     while os.listdir(cfg.tmpd) and time.time() < end:
         time.sleep(0.05)
     assert os.listdir(cfg.tmpd) == [], "the stale directory survived the next launch"
+
+
+# ---------------------------------------------------------------- round 4 (S1, S2): strict framing; HTTP/1.1 only
+
+class RawStub:
+    """An upstream that records EVERY byte it receives on each connection and answers nothing; it closes when the
+    forwarder shuts down its side. The assertions are on these received bytes, not on the client's status."""
+
+    def __init__(self):
+        self.received = []
+        self.lock = threading.Lock()
+        self.srv = socket.socket()
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind(("127.0.0.1", free_port()))
+        self.srv.listen(16)
+        self.port = self.srv.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._one, args=(c,), daemon=True).start()
+
+    def _one(self, c):
+        c.settimeout(8)
+        got = b""
+        try:
+            while True:
+                d = c.recv(65536)
+                if not d:
+                    break
+                got += d
+                with self.lock:
+                    self.received = [r for r in self.received if r[0] is not c] + [(c, got)]
+        except OSError:
+            pass
+        c.close()
+
+    def bytes_seen(self):
+        time.sleep(0.4)
+        with self.lock:
+            return b"".join(g for _, g in self.received)
+
+    def close(self):
+        self.srv.close()
+
+
+@pytest.fixture
+def raw_stub():
+    made = []
+
+    def mk():
+        s = RawStub()
+        made.append(s)
+        return s
+    yield mk
+    for s in made:
+        s.close()
+
+
+CHUNK_HEAD = b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nTransfer-Encoding: chunked\r\n\r\n"
+
+# (name, the bytes after the head, the disallowed bytes that must NEVER reach the upstream)
+SMUGGLE = [
+    ("bare LF in a chunk-size line, with an extension (the measured shape)",
+     b"0;x\n\r\nGET /api/other HTTP/1.1\r\nHost: x\r\n\r\n", [b"0;x", b"GET /api/other"]),
+    ("bare LF in a chunk-size line", b"0\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
+    ("bare CR in a chunk-size line", b"0\rGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
+    ("request-shaped trailer", b"0\r\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
+    ("a header-shaped trailer", b"0\r\nX-Trailer: t\r\n\r\n", [b"X-Trailer"]),
+    ("a chunk extension", b"5;ext=1\r\nhello\r\n0\r\n\r\n", [b";ext"]),
+    ("a space after the chunk size", b"5 \r\nhello\r\n0\r\n\r\n", [b"5 \r\n"]),
+    ("bare LF as the chunk terminator", b"5\r\nhello\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"\nG"]),
+    ("bare CR as the chunk terminator", b"5\r\nhello\rGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"\rG"]),
+]
+
+
+@pytest.mark.parametrize("name,body,banned", SMUGGLE, ids=[x[0] for x in SMUGGLE])
+def test_s1_strict_chunked_framing_refuses_and_the_upstream_receives_none_of_it(outer, raw_stub, name, body, banned):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + body)
+    status, _, _ = read_response(s)
+    assert status == 400, (name, status)
+    assert at_eof(s), name
+    got = stub.bytes_seen()
+    for b in banned:
+        assert b not in got, "the upstream received disallowed bytes %r: %r" % (b, got)
+
+
+def test_s1_strict_framing_still_passes_a_plain_chunked_body_and_the_empty_trailer(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    body = b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+    s.sendall(CHUNK_HEAD + body)
+    got = stub.bytes_seen()
+    assert got == CHUNK_HEAD + body, got
+    s.close()
+
+
+def test_s1_a_split_chunk_framing_is_still_framed(outer, raw_stub):
+    """Positive control: the strict reader must still work across partial reads (a split CRLF)."""
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    raw = CHUNK_HEAD + b"5\r\nhello\r\n0\r\n\r\n"
+    for i in range(0, len(raw), 3):
+        s.sendall(raw[i:i + 3])
+        time.sleep(0.01)
+    assert stub.bytes_seen() == raw
+    s.close()
+
+
+VERSIONS = [
+    ("HTTP/1.0 with Transfer-Encoding", b"POST /v1/messages HTTP/1.0\r\nHost: m\r\nTransfer-Encoding: chunked\r\n\r\n"
+                                        b"5\r\nhello\r\n0\r\n\r\nGET /evil HTTP/1.1\r\nHost: x\r\n\r\n", 505),
+    ("HTTP/1.0 plain", b"GET /v1/models HTTP/1.0\r\nHost: m\r\n\r\n", 505),
+    ("HTTP/2.0 text", b"GET /v1/models HTTP/2.0\r\nHost: m\r\n\r\n", 505),
+    ("HTTP/1.2", b"GET /v1/models HTTP/1.2\r\nHost: m\r\n\r\n", 505),
+    ("HTTP/0.9 shape", b"GET /v1/models HTTP/0.9\r\nHost: m\r\n\r\n", 505),
+    ("no version", b"GET /v1/models\r\nHost: m\r\n\r\n", 400),
+    ("lower-case http", b"GET /v1/models http/1.1\r\nHost: m\r\n\r\n", 400),
+]
+
+
+@pytest.mark.parametrize("name,raw,want", VERSIONS, ids=[x[0] for x in VERSIONS])
+def test_s2_only_http_1_1_nothing_else_reaches_the_upstream(outer, raw_stub, name, raw, want):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW + ", GET /v1/models")
+    s = o.connect()
+    s.sendall(raw)
+    status, _, _ = read_response(s)
+    assert status == want, (name, status)
+    assert at_eof(s), name
+    assert stub.bytes_seen() == b"", name
+
+
+def test_s2_http_1_1_is_still_forwarded(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 200
+
+
+# ---------------------------------------------------------------- round 4 (S6): protected paths are required
+
+def test_s6_protect_unset_or_empty_is_a_named_refusal(cfg, fake_bwrap):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_PROTECT", drop=("SANDBOX_PROTECT",))
+    assert_refused(cfg, fake_bwrap, "SANDBOX_PROTECT", SANDBOX_PROTECT="")
+
+
+def test_s6_the_old_dataset_variable_no_longer_stands_in(cfg, fake_bwrap):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_PROTECT", drop=("SANDBOX_PROTECT",), BEAM_PARQUET=cfg.prot_file)
+
+
+def test_s6_protect_entries_must_be_absolute_existing_and_nonempty(cfg, fake_bwrap):
+    nosuch = os.path.join(cfg.root, "no-such")
+    for val in ("relative/file", nosuch, cfg.prot_file + ":" + nosuch, cfg.prot_file + ":", ":" + cfg.prot_file,
+                cfg.prot_file + "::" + cfg.prot_keys):
+        assert_refused(cfg, fake_bwrap, "SANDBOX_PROTECT", SANDBOX_PROTECT=val)
+    _accepted(cfg, fake_bwrap, SANDBOX_PROTECT=cfg.prot_file)          # a file alone
+    _accepted(cfg, fake_bwrap, SANDBOX_PROTECT=cfg.prot_keys)          # a directory alone
+
+
+def test_s6_a_root_containing_a_protected_file_is_refused(cfg, fake_bwrap, tmp_path):
+    t = tmp_path / "ds"
+    (t / "inner").mkdir(parents=True)
+    f = str(t / "inner" / "data.bin")
+    open(f, "w").close()
+    for root in (str(t / "inner"), str(t)):
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "protected", SANDBOX_RO_BINDS=str(t / "inner"), SANDBOX_RO_ROOT=root,
+                 SANDBOX_PROTECT=f)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "protected", SANDBOX_RW_BINDS=str(t / "inner"), SANDBOX_RW_ROOT=root,
+                 SANDBOX_PROTECT=f)
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "protected", SANDBOX_SLOT=str(t), SANDBOX_PROTECT=f)
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(t / "inner"), SANDBOX_RO_ROOT=str(t / "inner"),
+              SANDBOX_PROTECT=cfg.prot_file)   # control: the same root is fine when the protected file is elsewhere
+
+
+def test_s6_a_root_or_entry_inside_a_protected_directory_is_refused(cfg, fake_bwrap, tmp_path):
+    keys = tmp_path / "keylists"
+    (keys / "a" / "b").mkdir(parents=True)
+    for d in (keys, keys / "a", keys / "a" / "b"):   # the directory itself, and anything beneath it
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "protected", SANDBOX_RO_BINDS=str(d), SANDBOX_RO_ROOT=str(d),
+                 SANDBOX_PROTECT=str(keys))
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", "protected", SANDBOX_RW_BINDS=str(d), SANDBOX_RW_ROOT=str(d),
+                 SANDBOX_PROTECT=str(keys))
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "protected", SANDBOX_SLOT=str(keys / "a"), SANDBOX_PROTECT=str(keys))
+    # a symlink does not hide it: a root that is a link to the protected directory resolves to it
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    os.symlink(str(keys), str(clean / "link"))
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", "protected", SANDBOX_RO_BINDS=str(clean / "link"),
+             SANDBOX_RO_ROOT=str(clean / "link"), SANDBOX_PROTECT=str(keys))
+
+
+# ---------------------------------------------------------------- round 4 (S3): the box's own paths
+
+def _run_user_dir():
+    """A directory under /run (the invoking user's runtime directory when it exists; else any directory beneath /run)."""
+    d = "/run/user/%d" % os.getuid()
+    if os.path.isdir(d):
+        return d
+    for n in sorted(os.listdir("/run")):
+        if os.path.isdir(os.path.join("/run", n)):
+            return os.path.join("/run", n)
+    pytest.fail("no directory under /run on this host to stand in for a runtime directory")
+
+
+def _word_for(path):
+    """The word the refusal carries: the home rule is checked first, so a path that is (or contains) some account's home
+    directory is named by it, and every other box path by the box rule."""
+    import pwd
+    homes = {os.path.realpath(u.pw_dir) for u in pwd.getpwall() if u.pw_dir}
+    path = os.path.realpath(path)
+    return "home directory" if any(h == path or h.startswith(path.rstrip("/") + "/") for h in homes) else "provides"
+
+
+def _a_subdir(root):
+    for n in sorted(os.listdir(root)):
+        p = os.path.join(root, n)
+        if os.path.isdir(p) and not os.path.islink(p):
+            return p
+    pytest.fail("no real subdirectory under " + root)
+
+
+def test_s3_slot_may_not_touch_what_the_box_provides(cfg, fake_bwrap):
+    # (/home, /tmp and /var/tmp are in the refusal set too, but a slot there is named first by the home, binary or protected
+    # rules in this fixture; the equality cell below binds the whole set.)
+    for slot in ("/etc", _run_user_dir(), "/run", "/usr", _a_subdir("/usr"), "/proc", "/dev"):
+        _refused(cfg, fake_bwrap, "SANDBOX_SLOT", _word_for(slot), SANDBOX_SLOT=slot)
+    _refused(cfg, fake_bwrap, "SANDBOX_SLOT", _word_for(_a_subdir("/etc")), SANDBOX_SLOT=_a_subdir("/etc"))
+
+
+def test_s3_roots_and_entries_may_not_touch_what_the_box_provides(cfg, fake_bwrap):
+    etc_sub, share_sub = _a_subdir("/etc"), _a_subdir("/usr/share")
+    for root, entry in (("/etc", etc_sub), ("/usr/share", share_sub), ("/usr/share", "/usr/share"), ("/usr", "/usr"),
+                        ("/run", _run_user_dir()), ("/dev", "/dev"), ("/proc", "/proc")):
+        _refused(cfg, fake_bwrap, "SANDBOX_RO_ROOT", _word_for(root), SANDBOX_RO_BINDS=entry, SANDBOX_RO_ROOT=root)
+        _refused(cfg, fake_bwrap, "SANDBOX_RW_ROOT", _word_for(root), SANDBOX_RW_BINDS=entry, SANDBOX_RW_ROOT=root)
+
+
+def test_s3_an_entry_alone_is_checked_when_its_root_is_clean(cfg, fake_bwrap, tmp_path):
+    """The root is a clean tree; the ENTRY resolves (through a link) into the box's own /etc: refused as an entry."""
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    os.symlink(_a_subdir("/etc"), str(clean / "toetc"))
+    _refused(cfg, fake_bwrap, "SANDBOX_RO_BINDS", "provides", SANDBOX_RO_BINDS=str(clean / "toetc"), SANDBOX_RO_ROOT=str(clean))
+    # control: an ordinary clean entry in a clean root is accepted
+    (clean / "ok").mkdir()
+    _accepted(cfg, fake_bwrap, SANDBOX_RO_BINDS=str(clean / "ok"), SANDBOX_RO_ROOT=str(clean))
+
+
+def _argv_dests(toks):
+    """The in-box destination paths of an argv (up to the first '--')."""
+    arity = {"--ro-bind-try": (2, 1), "--ro-bind": (2, 1), "--bind": (2, 1), "--bind-try": (2, 1), "--ro-bind-data": (2, 1),
+             "--ro-bind-fd": (2, 1), "--bind-fd": (2, 1), "--tmpfs": (1, 0), "--proc": (1, 0), "--dev": (1, 0),
+             "--remount-ro": (1, 0), "--dir": (1, 0), "--mqueue": (1, 0), "--symlink": (2, 1), "--size": (1, None),
+             "--perms": (1, None), "--setenv": (2, None), "--unset": (1, None), "--hostname": (1, None),
+             "--chdir": (1, None), "--uid": (1, None), "--gid": (1, None)}
+    out, i = [], 0
+    while i < len(toks) and toks[i] != "--":
+        t = toks[i]
+        if t in arity:
+            n, di = arity[t]
+            if di is not None:
+                out.append(toks[i + 1 + di])
+            i += 1 + n
+        else:
+            assert t.startswith("--") and t[2:].replace("-", "").isalpha(), "unrecognised bwrap token %r" % t
+            i += 1
+    return out
+
+
+def _inside(root, p):
+    return p == root or p.startswith(root.rstrip("/") + "/")
+
+
+def test_s3_the_refusal_set_is_the_set_of_paths_the_argv_provides(cfg, tmp_path, extra):
+    """One source of truth. A dry run builds the argv and logs the box paths the refusal reads; every path the argv
+    provides must lie in the refusal set, and every member of the set must be provided by the argv (the two named
+    exceptions: a path the box deliberately leaves out, and the directory the bridge socket is created in). A bind added
+    to the argv without the refusal, or the reverse, goes red."""
+    d = tmp_path / "fakebin-lines"
+    d.mkdir()
+    fdir, out = str(d), str(tmp_path / "argv-lines")
+    make_exe(str(d / "bwrap"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_BWRAP_OUT"\nexit 99\n')
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log,
+                SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor,
+                SANDBOX_RW_ROOT=extra.runout)
+    assert r.returncode == 99, r.stderr
+    toks = open(out).read().split("\n")[:-1]
+    dests = _argv_dests(toks)
+    line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]
+    f = dict(kv.split("=", 1) for kv in line.split()[1:])
+    members = [m for m in f["box_paths"].split(":") if m]
+    assert len(members) >= 10 and all(m.startswith("/") for m in members), members
+    caller = {os.path.realpath(x) for x in (cfg.slot, extra.tools, extra.proctor, cfg.binary)}
+    stray = [d for d in dests if d not in caller and not any(_inside(m, d) for m in members)]
+    assert not stray, "the argv provides paths the refusal set does not cover: %r" % stray
+    unprovided = [m for m in members if m not in dests]
+    assert sorted(unprovided) == sorted(["/sys", os.path.realpath(cfg.tmpd)]), unprovided
+    # the paths the task names are all there
+    for need in ("/usr", "/etc", "/proc", "/dev", "/run", "/tmp", "/var/tmp", "/home", "/dev/shm"):
+        assert need in members, need
+
+
+# ---------------------------------------------------------------- round 4 (S4): /dev/shm is capped
+
+@needs_box
+def test_s4_dev_shm_has_its_own_capped_tmpfs_and_dev_itself_is_not_writable(cfg):
+    r = cfg.run(exec_='dd if=/dev/zero of=/dev/shm/small bs=64k count=4 2>/dev/null && echo SMALL-OK; '
+                      'dd if=/dev/zero of=/dev/shm/big bs=64k count=64 2>/dev/null && echo BIG-OK; '
+                      '(touch /dev/x) 2>/dev/null && echo DEV-WRITABLE; echo done',
+                SANDBOX_TEST_TMP_CAP=str(1 * MIB))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["SMALL-OK", "done"], r.stdout   # 256 KiB fits, 4 MiB does not, /dev itself is read-only

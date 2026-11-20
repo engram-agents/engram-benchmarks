@@ -17,6 +17,8 @@
 #                         directories bound read-only / read-write at their own paths (the tools directory; the proctor
 #                         directory). Each ROOT is required with its binds and every entry must lie inside it. The slot,
 #                         each root and each entry obey the class rules in the R1/R2 block below.
+#   SANDBOX_PROTECT      REQUIRED. Colon-separated absolute EXISTING paths (files or directories) that no slot, root or entry
+#                         may equal, contain or lie inside: the dataset file, the key-list directory. Empty or unset is a refusal.
 #   SANDBOX_LOG          optional file (outside the box) for launch lines and per-connection counts/timings
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
@@ -30,7 +32,7 @@ refuse() { printf '%s: refused: %s\n' "$PROG" "$1" >&2; exit 2; }
 log() { [ -n "${SANDBOX_LOG:-}" ] && printf '%s\n' "$*" >> "$SANDBOX_LOG"; return 0; }
 
 # ---- S1: every refusal happens here, before anything is started or created --------------------------------
-for n in SANDBOX_SLOT SANDBOX_BINARY SANDBOX_BINARY_SHA256 SANDBOX_MODEL_HOST SANDBOX_MODEL_PORT; do
+for n in SANDBOX_SLOT SANDBOX_BINARY SANDBOX_BINARY_SHA256 SANDBOX_MODEL_HOST SANDBOX_MODEL_PORT SANDBOX_PROTECT; do
   [ -n "${!n:-}" ] || refuse "$n is not set or is empty"
 done
 [[ $SANDBOX_BINARY_SHA256 =~ ^[0-9a-fA-F]{64}$ ]] || refuse "SANDBOX_BINARY_SHA256 is not 64 hex characters"
@@ -85,8 +87,8 @@ SLOT=$(realpath -e -- "$SANDBOX_SLOT" 2>/dev/null) && [ -n "$SLOT" ] || refuse "
 
 # ---- R1/R2: an allow-list by declared roots. The slot, each ROOT and each entry obey the same class rules, all
 # generated from the host at run time (no path is named here): refused when it is "/", equal to or an ancestor of
-# ANY home directory in the account database (all users) or of the slot, contains the dataset file or the pinned
-# binary, or sits below a home directory at any depth through a path component that begins with "." (dot-directories
+# ANY home directory in the account database (all users) or of the slot, contains the pinned binary, is equal to,
+# contains or lies inside a SANDBOX_PROTECT path, touches a path the box provides (S3), or sits below a home directory at any depth through a path component that begins with "." (dot-directories
 # hold secrets, ssh keys, config, the ENGRAM home). Every RO entry must lie inside SANDBOX_RO_ROOT and every RW entry
 # inside SANDBOX_RW_ROOT, after realpath. (Round 3 withdrew the hand-listed protected array of round 2.)
 HOMES=()
@@ -98,21 +100,60 @@ if [ "${SANDBOX_TEST:-}" = 1 ] && [ -n "${SANDBOX_TEST_EXTRA_HOMES:-}" ]; then
   for h in "${XH[@]}"; do HOMES+=("$(realpath -m -- "$h")"); done
 fi
 [ "${#HOMES[@]}" -gt 0 ] || refuse "cannot read the account database"
-DATASET=""
-[ -z "${BEAM_PARQUET:-}" ] || DATASET=$(realpath -m -- "$BEAM_PARQUET")
+# SANDBOX_PROTECT (required): every entry an absolute path that exists (file or directory), resolved once here.
+[[ $SANDBOX_PROTECT == :* || $SANDBOX_PROTECT == *: || $SANDBOX_PROTECT == *::* ]] && refuse "SANDBOX_PROTECT has an empty entry"
+PROTECT=()
+IFS=: read -r -a PENTRIES <<< "$SANDBOX_PROTECT"
+for e in "${PENTRIES[@]}"; do
+  [[ $e == /* ]] || refuse "SANDBOX_PROTECT entry is not an absolute path: $e"
+  [ -e "$e" ] || refuse "SANDBOX_PROTECT entry does not exist: $e"
+  r=$(realpath -e -- "$e" 2>/dev/null) && [ -n "$r" ] || refuse "SANDBOX_PROTECT entry cannot be resolved: $e"
+  PROTECT+=("$r")
+done
+[ "${#PROTECT[@]}" -gt 0 ] || refuse "SANDBOX_PROTECT is not set or is empty"
+
+# ---- S3: ONE list of the paths the box provides (binds, masks or creates). The bwrap argv below is built from these
+# arrays, and the class rules refuse a slot, root or entry that touches any of them, so a path added to the box has to
+# be added here, where both read it. SOCKBASE is where the bridge socket directory is created.
+BOX_RO=(/usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc)   # system directories, read-only (with the /etc overlays)
+BOX_PSEUDO=(/proc /dev)                                     # the box's own /proc and /dev
+BOX_SHM=/dev/shm                                            # its own capped tmpfs, inside /dev
+BOX_TMPFS_BIG=(/tmp /var/tmp)                               # fresh tmpfs, the TMP cap
+BOX_HOME=/home; BOX_RUN=/run
+BOX_TMPFS_SMALL=("$BOX_HOME" "$BOX_RUN")                    # fresh tmpfs, the home/run cap
+BOX_ABSENT=(/sys)                                           # not provided at all: masked by absence
+SOCKBASE=${TMPDIR:-/tmp}
+# Classes of refusal. SYSTEM: equal, inside or an ancestor. FRESH (a fresh tmpfs whose host content is never shown, and the
+# socket base): equal or an ancestor only, because a bind placed under a fresh tmpfs shows only what the caller named.
+BOX_SYSTEM=("${BOX_RO[@]}" "${BOX_PSEUDO[@]}" "$BOX_SHM" "$BOX_RUN" "${BOX_ABSENT[@]}")
+BOX_FRESH=("${BOX_TMPFS_BIG[@]}" "$BOX_HOME" "$(realpath -m -- "$SOCKBASE")")
+box_paths() { printf '%s\n' "${BOX_RO[@]}" "${BOX_PSEUDO[@]}" "$BOX_SHM" "${BOX_TMPFS_BIG[@]}" "${BOX_TMPFS_SMALL[@]}" \
+  "${BOX_ABSENT[@]}" "$(realpath -m -- "$SOCKBASE")"; }
 
 inside() { [ "$1" = / ] && return 0; case "$2/" in "$1"/*) return 0 ;; esac; return 1; }   # $2 equal to or inside $1
 class_check() {   # $1 variable name, $2 resolved path, $3 kind: slot | ro | rw. Refuses; returns when the path is fine.
-  local v=$1 p=$2 kind=$3 h rel
+  local v=$1 p=$2 kind=$3 h rel q r
   [ "$p" != / ] || refuse "$v is the filesystem root"
   for h in "${HOMES[@]}"; do
     if inside "$p" "$h"; then refuse "$v $p is, or is an ancestor of, a home directory in the account database"; fi
   done
   if [ "$kind" != slot ] && inside "$p" "$SLOT"; then refuse "$v $p is, or is an ancestor of, the slot"; fi
-  if [ -n "$DATASET" ] && inside "$p" "$DATASET"; then refuse "$v $p contains the dataset file"; fi
   if inside "$p" "$BIN_REAL" && ! { [ "${SANDBOX_TEST:-}" = 1 ] && [ "${SANDBOX_TEST_ALLOW_BINARY_IN_RW:-}" = 1 ] && [ "$kind" != ro ]; }; then
     refuse "$v $p contains the pinned binary"
   fi
+  for q in "${PROTECT[@]}"; do
+    if inside "$p" "$q" || inside "$q" "$p"; then refuse "$v $p is, contains or lies inside a protected path (SANDBOX_PROTECT)"; fi
+  done
+  for q in "${BOX_SYSTEM[@]}"; do
+    for r in "$q" "$(realpath -m -- "$q")"; do
+      if inside "$r" "$p" || inside "$p" "$r"; then refuse "$v $p is, contains or lies inside a path the box provides: $q"; fi
+    done
+  done
+  for q in "${BOX_FRESH[@]}"; do
+    for r in "$q" "$(realpath -m -- "$q")"; do
+      if inside "$p" "$r"; then refuse "$v $p is, or contains, a path the box provides: $q"; fi
+    done
+  done
   for h in "${HOMES[@]}"; do
     [ "$h" != / ] && [ "$p" != "$h" ] && inside "$h" "$p" || continue
     rel=${p#"$h"/}
@@ -159,11 +200,12 @@ for d in "${RO_LIST[@]}"; do EXTRA_BINDS+=(--ro-bind "$d" "$d"); done
 for d in "${RW_LIST[@]}"; do EXTRA_BINDS+=(--bind "$d" "$d"); done
 RO_LOG=$(IFS=:; echo "${RO_LIST[*]}"); RW_LOG=$(IFS=:; echo "${RW_LIST[*]}")
 
-# ---- R4: /etc stays (read-only: removing it risks breaking the harness in ways the tests may not see), minus what
-# names other people. Overlaid read-only, all generated at launch:
+# ---- R4/S5: /etc stays (read-only: removing it risks breaking the harness in ways the tests may not see), minus what
+# names people or agents. Overlaid read-only, all generated at launch:
 #   /etc/passwd, /etc/group   synthetic: root and the invoking uid/gid only, the invoker's home is the slot
 #   /etc/machine-id           a fixed zero id;   /etc/hostname   "sandbox" (and the box has its own UTS namespace)
-#   every other readable regular file under /etc that contains "/home/" or another account's name: an empty file
+#   every other readable regular file under /etc that contains "/home/" or the name of any account with uid >= 1000
+#                             (nobody excluded) as a whole word, any delimiter: an empty file (system account names are not matched)
 # bwrap cannot create files in the read-only /etc, so an overlay applies only where the host file exists.
 ETCARGS=()
 overlay_data() {   # $1 destination, $2 content
@@ -208,9 +250,10 @@ else
   TESTMODE=0
 fi
 
-# ---- R6: tmpfs caps, so a student cannot fill host memory: /tmp and /var/tmp 2 GiB each, /home and /run 64 MiB.
+# ---- R6/S4: tmpfs caps, so a student cannot fill host memory: /tmp, /var/tmp and /dev/shm 2 GiB each, /home and /run
+# 64 MiB; /dev itself (a tmpfs of its own, half of host RAM) is remounted read-only after /dev/shm is mounted.
 # Overridable only in test mode, so a cell can show a write past a small cap failing.
-TMP_CAP=2147483648; HOME_CAP=67108864
+TMP_CAP=2147483648; HOME_CAP=67108864   # /dev/shm gets the TMP cap
 if [ "${SANDBOX_TEST:-}" = 1 ]; then
   for v in SANDBOX_TEST_TMP_CAP SANDBOX_TEST_HOME_RUN_CAP; do
     [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive byte count"; }
@@ -223,7 +266,6 @@ fi
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
 # watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
 # whose watched pid is gone, touching only the two files the launcher itself puts there.
-SOCKBASE=${TMPDIR:-/tmp}
 for d in "$SOCKBASE"/student-sandbox.*; do
   [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && [ -f "$d/watch.pid" ] && [ ! -L "$d/watch.pid" ] || continue
   wp=$(head -c 20 "$d/watch.pid" 2>/dev/null)
@@ -250,19 +292,20 @@ if [ ! -S "$SOCK" ]; then
 fi
 disown "$FPID" 2>/dev/null
 
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT test_exec=$TESTMODE ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
 # paths. bwrap creates the missing parent directories inside the tmpfs for the file bind.
+SYSARGS=(); for d in "${BOX_RO[@]}"; do SYSARGS+=(--ro-bind-try "$d" "$d"); done
+TMPARGS=()
+for d in "${BOX_TMPFS_BIG[@]}"; do TMPARGS+=(--size "$TMP_CAP" --tmpfs "$d"); done
+for d in "${BOX_TMPFS_SMALL[@]}"; do TMPARGS+=(--size "$HOME_CAP" --tmpfs "$d"); done
 BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc --unshare-uts --hostname sandbox
     --clearenv "${ENVARGS[@]}"
-    --proc /proc --dev /dev
-    --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin
-    --ro-bind-try /lib /lib --ro-bind-try /lib32 /lib32 --ro-bind-try /lib64 /lib64 --ro-bind-try /libx32 /libx32
-    --ro-bind-try /etc /etc "${ETCARGS[@]}"
-    --size "$HOME_CAP" --tmpfs /home --size "$TMP_CAP" --tmpfs /tmp --size "$TMP_CAP" --tmpfs /var/tmp
-    --size "$HOME_CAP" --tmpfs /run
+    --proc /proc --dev /dev --size "$TMP_CAP" --tmpfs "$BOX_SHM" --remount-ro /dev
+    "${SYSARGS[@]}" "${ETCARGS[@]}"
+    "${TMPARGS[@]}"
     --bind "$SLOT" "$SLOT"
     "${EXTRA_BINDS[@]}"
     --ro-bind "$SOCK" /run/sandbox-bridge.sock
