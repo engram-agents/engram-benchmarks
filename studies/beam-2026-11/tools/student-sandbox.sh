@@ -100,7 +100,11 @@ fi
 # (--ro-bind-fd), so the file hashed is the file bound: replacing the path after this point changes nothing. The
 # path the descriptor resolves to is where the box sees it. A hash mismatch is A9's "refuse on mismatch" in
 # launcher form.
+# R7-4: every descriptor the wrapper opens only for the box is recorded in BOX_FDS the moment it is opened; the outer
+# forwarder's launch line closes the whole array, so a descriptor (a new mask, say) cannot leak to it by being forgotten.
+BOX_FDS=()
 exec {BINFD}< "$SANDBOX_BINARY" || refuse "SANDBOX_BINARY could not be read"
+BOX_FDS+=("$BINFD")
 BIN_REAL=$(readlink -f -- "/proc/$$/fd/$BINFD" 2>/dev/null)
 [ -n "$BIN_REAL" ] && [ -f "$BIN_REAL" ] || refuse "SANDBOX_BINARY could not be resolved"
 BIN_SUM=$("$PY" -I -c '
@@ -261,6 +265,7 @@ overlay_data() {   # $1 destination, $2 content
   case $d in /etc/*) ;; *) return 0 ;; esac
   [ -f "$d" ] || return 0
   exec {fd}<<< "$2"
+  BOX_FDS+=("$fd")
   ETCARGS+=(--ro-bind-data "$fd" "$d")
 }
 PASSWD_TXT=$("$PY" -I "$FWD" account-file passwd --home "$SLOT" 2>/dev/null) || refuse "cannot read the invoking account"
@@ -276,7 +281,7 @@ ETC_MASKED=${#MASKS[@]}
 # One descriptor per mask: bwrap reads and closes each --ro-bind-data descriptor, and binding /dev/null instead gives
 # a device file that the nodev mount makes unreadable. The cap keeps the descriptor count far below any limit.
 [ "$ETC_MASKED" -le 200 ] || refuse "$ETC_MASKED files under /etc name a home or another account: more than this launcher masks"
-for f in "${MASKS[@]}"; do exec {fd}</dev/null; ETCARGS+=(--ro-bind-data "$fd" "$f"); done
+for f in "${MASKS[@]}"; do exec {fd}</dev/null; BOX_FDS+=("$fd"); ETCARGS+=(--ro-bind-data "$fd" "$f"); done
 
 # ---- the environment the caller passed, exactly (minus SANDBOX_*) -----------------------------------------
 # /proc/$$/environ is the block bash was started with, before bash adds PWD/SHLVL/_ of its own.
@@ -368,11 +373,11 @@ done
 # K2: the key listings in the box's own /proc, masked read-only after --proc has mounted it. The mask is an EMPTY FILE
 # from /dev/null's content (--ro-bind-data, as the /etc masks do), not a bind of the /dev/null device: the box's /proc is
 # a nodev mount, so a bound device file would answer every read with EACCES (measured) instead of zero bytes.
-PROCKEYARGS=(); KFDS=()
+PROCKEYARGS=()
 for f in "${BOX_PROC_KEY_FILES[@]}"; do
   [ -e "$f" ] || continue
   exec {KFD}</dev/null || refuse "cannot open /dev/null to mask $f"
-  KFDS+=("$KFD")   # closed again for the outer forwarder below, as BINFD and SECFD are
+  BOX_FDS+=("$KFD")
   PROCKEYARGS+=(--ro-bind-data "$KFD" "$f")
 done
 
@@ -393,6 +398,7 @@ fi
 exec {SECFD}<&-
 exec {SECFD}< "$SECFILE" || { rm -f -- "$SECFILE"; refuse "the seccomp program could not be opened"; }
 rm -f -- "$SECFILE"
+BOX_FDS+=("$SECFD")
 
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
@@ -414,10 +420,10 @@ FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watc
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone. It runs the
-# COPY of the forwarder, and holds none of the descriptors meant for bwrap (the binary, the seccomp program, the /proc masks).
+# COPY of the forwarder, and holds none of the descriptors meant for bwrap: all of BOX_FDS is closed for it (R7-4).
 (
-  for k in "${KFDS[@]}"; do eval "exec $k<&-"; done
-  exec "$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- {SECFD}<&-
+  for k in "${BOX_FDS[@]}"; do eval "exec $k<&-"; done
+  exec "$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1
 ) &
 FPID=$!
 for ((i = 0; i < 250; i++)); do [ -S "$SOCK" ] && break; sleep 0.02; done

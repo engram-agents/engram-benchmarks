@@ -3568,10 +3568,10 @@ def test_r7_2_a_forwarder_that_never_finds_the_cgroup_says_so(tmp_path):
     assert len(lines) == 1 and lines[0].startswith("box-cgroup unavailable reason="), (lines, o.stderr)
 
 
-# ---------------------------------------------------------------- round 7 (R7-3): the /proc mask descriptors do not reach the forwarder
+# ---------------------------------------------------------------- round 7 (R7-3, R7-4): no box-only descriptor reaches the forwarder
 
 @needs_box
-def test_r7_3_the_outer_forwarder_holds_no_descriptor_of_the_proc_masks(cfg):
+def test_r7_4_the_outer_forwarder_holds_no_descriptor_meant_for_the_box(cfg):
     p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 4", SANDBOX_LOG=cfg.log),
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
@@ -3579,13 +3579,14 @@ def test_r7_3_the_outer_forwarder_holds_no_descriptor_of_the_proc_masks(cfg):
         end = time.time() + 10
         while time.time() < end and not (os.path.exists(cfg.log) and "wrapper-launch " in open(cfg.log).read()):
             time.sleep(0.05)
-        masked = int(_launch_line_fields(cfg)["etc_masked"])
-        held = 0
+        assert int(_launch_line_fields(cfg)["etc_masked"]) > 0, "no /etc mask on this host: the cell could not see a leak of one"
+        held = []
         for fd in os.listdir("/proc/%d/fd" % pid):
-            if int(fd) > 2 and os.path.realpath("/proc/%d/fd/%s" % (pid, fd)) == os.devnull:
-                held += 1
-        # the /etc masks (one /dev/null descriptor each) are not this item; the two /proc masks must not be added to them
-        assert held <= masked, "the forwarder holds %d /dev/null descriptors with %d /etc masks" % (held, masked)
+            if int(fd) > 2:
+                target = os.readlink("/proc/%d/fd/%s" % (pid, fd))
+                if target == os.devnull or target.endswith("(deleted)"):    # a mask or an overlay: only bwrap may hold them
+                    held.append((fd, target))
+        assert not held, "the outer forwarder holds descriptors meant for the box: %r" % held
     finally:
         p.kill()
         p.wait()
