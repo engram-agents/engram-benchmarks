@@ -50,8 +50,7 @@ def _box_usable():
 
 
 # The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
-NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
-                    "manager that can start a capped scope: the sandbox is Linux-only")
+from conftest import NEEDS_BOX_REASON   # the one reason string (conftest.py)
 BOX_OK = _box_usable()
 needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
 

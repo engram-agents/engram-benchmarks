@@ -120,3 +120,12 @@ def install_stub_systemctl(dirpath):
         f.write(STUB_SYSTEMCTL)
     os.chmod(path, 0o755)
     return str(dirpath)
+
+
+# Cells that run a student session through the launch module start the real student-sandbox.sh's own machinery or its stand-in
+# on the host: they read /proc (start times, argv scans) and need bash 4, which a Mac does not have. One named marker, the SAME
+# reason string as test_student_sandbox.py's: on such a host they skip BY NAME instead of failing.
+LINUX_PROC = sys.platform.startswith("linux") and os.path.isdir("/proc/self")
+NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
+                    "manager that can start a capped scope: the sandbox is Linux-only")
+needs_linux_wrapper = pytest.mark.skipif(not LINUX_PROC, reason=NEEDS_BOX_REASON)

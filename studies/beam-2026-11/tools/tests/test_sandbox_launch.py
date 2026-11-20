@@ -9,7 +9,7 @@ the REAL wrapper (SANDBOX_TEST=1, a stub pinned binary) through the REAL feed4.S
 """
 import ast, hashlib, importlib.util, json, os, re, shutil, subprocess, sys
 import pytest
-from conftest import TOOLS, install_stub_systemctl
+from conftest import TOOLS, install_stub_systemctl, needs_linux_wrapper
 import test_student_sandbox as TSS
 
 MOD = os.path.join(TOOLS, "sandbox_launch.py")
@@ -262,6 +262,7 @@ def test_m3_a_claude_first_on_the_path_that_is_not_the_wrapper_is_refused(w):
     w.assert_nothing_started()
 
 
+@needs_linux_wrapper
 def test_m3_a_path_override_that_keeps_the_wrapper_first_is_fine_and_no_claude_at_all_is_refused(w):
     with pytest.raises(SL.LaunchRefused, match="not found"):
         w.launch(argv=w.argv(extra=("--env", "PATH=/nonexistent-dir")))
@@ -285,6 +286,7 @@ def test_m3_the_resolution_is_the_one_popen_makes_not_a_lookalike(w):
     ("http://localhost:{other}", "port"), ("http://127.0.0.1:%d", "ok"), ("http://[::1]:%d", "ok"), ("http://localhost", "port"),
     ("http://example.org:%d", "not loopback"), ("http://203.0.113.5:%d", "not loopback"), ("localhost:%d", "not loopback"),
 ])
+@needs_linux_wrapper
 def test_m3_the_model_url_must_be_loopback_on_the_sandbox_port(w, url, why):
     url = url.replace("{other}", str(w.cfg.model_port + 1))
     url = url % w.cfg.model_port if "%d" in url else url
@@ -345,6 +347,7 @@ def test_m1_a_session_without_a_sandbox_is_refused_and_so_is_a_name_that_is_not_
 
 
 # ====================================================================================== M2: what a session gets
+@needs_linux_wrapper
 def test_m2_the_wrapper_directory_holds_a_copy_of_the_wrapper_and_the_forwarder_first_on_the_path(w):
     r = w.launch()
     (rec,) = w.records()
@@ -354,6 +357,7 @@ def test_m2_the_wrapper_directory_holds_a_copy_of_the_wrapper_and_the_forwarder_
     assert r.returncode == 0 and not os.path.exists(rec["path0"]), "the wrapper directory is removed after the launch"
 
 
+@needs_linux_wrapper
 def test_m2_the_feeder_gets_every_required_setting_the_log_and_the_proctor_binds_as_env_pairs(w):
     out = w.out()
     w.launch(argv=w.argv(out))
@@ -370,6 +374,7 @@ def test_m2_the_feeder_gets_every_required_setting_the_log_and_the_proctor_binds
 
 
 # ====================================================================================== M4: after the session
+@needs_linux_wrapper
 def test_m4a_every_launch_gets_a_fresh_log_that_did_not_exist(w):
     r1, r2 = w.launch(), w.launch()
     assert r1.log != r2.log and os.path.exists(r1.log) and os.path.exists(r2.log)
@@ -377,6 +382,7 @@ def test_m4a_every_launch_gets_a_fresh_log_that_did_not_exist(w):
     assert sorted(os.listdir(w.logs)) == sorted(os.path.basename(x) for x in (r1.log, r2.log))
 
 
+@needs_linux_wrapper
 def test_m4b_log_verdict_runs_after_every_session_both_arms_setup_included(w):
     """A setup session is just another student session through the module: three sessions, three verdicts."""
     results = [w.launch(), w.launch(argv=w.argv(extra=("--first-session", "--setup-only"))), w.launch("unreachable")]
@@ -384,6 +390,7 @@ def test_m4b_log_verdict_runs_after_every_session_both_arms_setup_included(w):
     assert len({r.log for r in results}) == 3
 
 
+@needs_linux_wrapper
 def test_m4c_a_log_verdict_refusal_stops_with_its_text_and_is_never_not_flagged(w):
     with pytest.raises(SL.LaunchStop, match="log-verdict refused .*cannot read the log") as e:
         w.launch("nolaunch")                  # the log is missing: the refusal's own text is carried
@@ -394,16 +401,19 @@ def test_m4c_a_log_verdict_refusal_stops_with_its_text_and_is_never_not_flagged(
         w.launch("two")                       # a log merged from two launches is refused too
 
 
+@needs_linux_wrapper
 def test_m4c_flagged_is_a_verdict_not_a_stop(w):
     r = w.launch("unreachable")
     assert r.verdict == FLAGGED
 
 
+@needs_linux_wrapper
 def test_m4d_the_verdict_line_is_copied_verbatim(w):
     assert w.launch().verdict == "not-flagged"
     assert w.launch("unreachable").verdict == "flagged: endpoint unreachable, nothing reached it"
 
 
+@needs_linux_wrapper
 def test_m4_a_feeder_failure_is_carried_with_the_verdict_not_hidden(w):
     r = w.launch(rc=3)
     assert r.returncode == 3 and r.verdict == NOT_FLAGGED
@@ -427,6 +437,7 @@ def test_m4b_a_mismatched_file_refuses_before_any_student_process_and_no_launch_
 
 # ====================================================================================== M5: the launch-line hashes
 @pytest.mark.parametrize("mode,which", [("badwrapper", "wrapper_sha256"), ("badforwarder", "forwarder_sha256")])
+@needs_linux_wrapper
 def test_m5_a_launch_line_hash_that_differs_stops_before_the_answers_are_handed_on(w, mode, which):
     with pytest.raises(SL.LaunchStop) as e:
         w.launch(mode)
@@ -435,6 +446,7 @@ def test_m5_a_launch_line_hash_that_differs_stops_before_the_answers_are_handed_
     assert e.value.result.verdict == NOT_FLAGGED   # the verdict ran; the hash is what stopped it
 
 
+@needs_linux_wrapper
 def test_m5_a_matching_launch_line_passes_and_the_hashes_are_returned(w):
     r = w.launch()
     assert r.wrapper_sha256 == TSS.sha256_of(TSS.WRAPPER) and r.forwarder_sha256 == TSS.sha256_of(TSS.FWD)
@@ -844,6 +856,7 @@ def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_u
             caller.kill()
 
 
+@needs_linux_wrapper
 def test_k3_a_survivor_outside_the_scope_that_carries_the_bridge_socket_is_found_and_named(w):
     """Z(a): a process started OUTSIDE any unit whose argv carries this launch's bridge_sock path. The after-check names it;
     until it is gone the next launch refuses naming it too."""
@@ -875,6 +888,7 @@ def _helper():
     return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
 
 
+@needs_linux_wrapper
 def test_t_a_pid_that_is_a_different_process_is_not_the_forwarder_and_is_left_alone(w):
     """PID REUSE: the launch line names a live pid, but its start time is not the recorded one."""
     h = _helper()
@@ -885,6 +899,7 @@ def test_t_a_pid_that_is_a_different_process_is_not_the_forwarder_and_is_left_al
         h.kill(); h.wait()
 
 
+@needs_linux_wrapper
 def test_t_the_forwarder_that_is_still_the_same_process_is_terminated(w):
     h = _helper()
     try:
@@ -896,6 +911,7 @@ def test_t_the_forwarder_that_is_still_the_same_process_is_terminated(w):
             h.kill(); h.wait()
 
 
+@needs_linux_wrapper
 def test_t_a_launch_line_that_lacks_a_marker_is_a_named_stop(w):
     with pytest.raises(SL.LaunchStop, match="forwarder_start"):
         w.launch("nomarker")
@@ -916,6 +932,7 @@ def test_t_a_session_with_no_launch_line_has_nothing_to_stop_and_is_told_apart_b
     assert rec["state"] == "done" and "no launch line" in rec["note"]
 
 
+@needs_linux_wrapper
 def test_t_a_normal_session_closes_its_record_with_the_launch_fields(w):
     w.launch()
     (rec,) = records_in(w.state)
@@ -938,6 +955,7 @@ def _open_record(w, f_pid, f_start, name="launch-earlier"):
     (w.state / (name + ".json")).write_text(json.dumps({"log": str(log), "state": "open"}))
 
 
+@needs_linux_wrapper
 def test_b_an_earlier_launch_whose_forwarder_is_still_alive_refuses_the_next_naming_the_pid(w):
     h = _helper()
     try:
@@ -952,6 +970,7 @@ def test_b_an_earlier_launch_whose_forwarder_is_still_alive_refuses_the_next_nam
     assert all(r["state"] == "done" for r in records_in(w.state))
 
 
+@needs_linux_wrapper
 def test_b_an_earlier_launch_whose_pid_was_reused_by_another_process_does_not_refuse(w):
     h = _helper()
     try:
@@ -961,6 +980,7 @@ def test_b_an_earlier_launch_whose_pid_was_reused_by_another_process_does_not_re
         h.kill(); h.wait()
 
 
+@needs_linux_wrapper
 def test_b_an_open_record_whose_session_never_wrote_a_launch_line_is_closed_and_does_not_refuse(w):
     w.state.mkdir()
     (w.state / "launch-x.json").write_text(json.dumps({"log": str(w.d / "never-written.log"), "state": "open"}))
@@ -1055,6 +1075,7 @@ def test_f1_a_record_that_cannot_be_written_does_not_stop_the_scope_from_being_s
         TSS._systemctl("stop", scope_of(unit))
 
 
+@needs_linux_wrapper
 def test_f1_a_launch_line_without_a_scope_unit_is_a_named_stop(w):
     with pytest.raises(SL.LaunchStop, match="no scope_unit"):
         w.launch("nounit")
@@ -1129,6 +1150,7 @@ def test_f4_the_unit_scan_includes_every_unit_under_the_prefix_that_is_not_inact
 
 
 @pytest.mark.parametrize("unit", ["dbus.service", "user.slice", "student-sandbox-1-aa.scope", "x-1-ZZ", "{prefix}1-aa;rm"])
+@needs_linux_wrapper
 def test_f4_a_scope_unit_that_is_not_a_name_this_wrapper_makes_is_a_named_stop_and_is_never_stopped(w, monkeypatch, unit):
     unit = unit.replace("{prefix}", TSS.RUN_UNIT_PREFIX)
     calls, real = [], SL._systemctl
@@ -1226,6 +1248,7 @@ def test_f7_a_token_that_is_not_an_allowed_option_or_its_value_is_refused_naming
     w.assert_nothing_started()
 
 
+@needs_linux_wrapper
 def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_refused(w):
     with pytest.raises(SL.LaunchRefused, match="looks like an option"):
         w.launch(argv=w.argv(extra=("--env", "--env=PATH=/x")))
@@ -1235,6 +1258,7 @@ def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_re
     assert w.launch(argv=w.argv(extra=("--turns", "-1"))).returncode == 0       # a plain negative number is a value
 
 
+@needs_linux_wrapper
 def test_f7_the_exact_allowed_options_are_accepted(w):
     r = w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--ask", "a question",
                                     "--force-compact", "--first-session")))
@@ -1256,6 +1280,7 @@ def test_f7_the_test_stub_obeys_the_allow_list_of_the_feeder_it_stands_in_for(w)
     w.assert_nothing_started()
 
 
+@needs_linux_wrapper
 def test_f7_an_option_a_launcher_needs_that_is_not_in_the_dict_is_refused_loudly_by_design(w, monkeypatch):
     monkeypatch.setitem(SL.FEEDER_OPTIONS["feed2.py"], "--new-option", 1)
     assert w.launch(argv=w.argv(extra=("--new-option", "x"))).returncode == 0     # added to the dict: accepted
@@ -1374,6 +1399,7 @@ def test_l1_a_test_run_that_says_so_explicitly_may_pass_them(w):
     assert SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX=None), str(w.expected)).allow_test is False
 
 
+@needs_linux_wrapper
 def test_l1_a_launch_line_with_test_mode_1_in_a_real_run_is_a_launch_stop_and_a_clean_one_passes(w, monkeypatch):
     monkeypatch.setattr(SL, "active_units", lambda prefix=None: [])     # a real run scans the real prefix host-wide: keep the cell hermetic
     with pytest.raises(SL.LaunchStop, match="test_mode=1 test_exec=1"):
@@ -1382,6 +1408,7 @@ def test_l1_a_launch_line_with_test_mode_1_in_a_real_run_is_a_launch_stop_and_a_
     assert r.returncode == 0 and r.test_mode == "0" and r.test_exec == "0"
 
 
+@needs_linux_wrapper
 def test_l1_a_launch_line_that_lacks_the_test_flags_is_not_read_as_clean_in_a_real_run(w, monkeypatch):
     monkeypatch.setattr(SL, "active_units", lambda prefix=None: [])
     real = SL.read_launch_fields
@@ -1391,6 +1418,7 @@ def test_l1_a_launch_line_that_lacks_the_test_flags_is_not_read_as_clean_in_a_re
         w.launch("ok", sandbox=real_sandbox(w))
 
 
+@needs_linux_wrapper
 def test_l1_the_caps_on_the_launch_line_are_returned_for_the_record(w):
     r = w.launch()
     assert r.caps == {"cap_memory": "4294967296", "cap_tasks": "1024", "cap_tmp": "2147483648"}
@@ -1402,6 +1430,7 @@ def test_l1_the_caps_on_the_launch_line_are_returned_for_the_record(w):
     "http://user@127.0.0.1:%d", "http://user:pw@localhost:%d/v1", "http://127.0.0.1:%d/%%2e%%2e/x", "http://127.0.0.1:%d/v1?x=1",
     "http://127.0.0.1:%d/v1#frag", "https://127.0.0.1:%d", "HTTP://127.0.0.1:%d", "http://127.0.0.1:%d/a b", " http://127.0.0.1:%d",
     "http://127.0.0.1:%d/v1 ", "http://127.0.0.1:%d\\v1", "http://127.0.0.1.evil.com:%d", "http://localhost.evil.com:%d",
+    "http://127.0.0.1:%d/a\\b",                                 # a backslash in the PATH class
     "http://127.0.0.2:%d", "http://[::2]:%d", "http://localhost\x40evil.com:%d", "http://127.0.0.1", "http://127.0.0.1:",
 ])
 def test_l2_a_model_url_outside_the_strict_pattern_is_refused(w, url):
@@ -1430,3 +1459,51 @@ def test_l3_the_stub_systemctl_answers_as_an_empty_user_manager(tmp_path, monkey
     assert SL.active_units("x-") == [] and SL.unit_pids("x-1-aa") == []
     assert SL._systemctl("stop", "x-1-aa.scope").returncode == 0
     assert SL._systemctl("is-active", "x-1-aa.scope").stdout.strip() == "inactive"
+
+
+# ====================================================================================================== ROUND 5
+# L-S2: cells for what a mutation survived in the colleague's review (each has a mutant that reddens it).
+def test_s2_a_setting_that_is_not_a_sandbox_name_is_refused(w):
+    s = w.settings(); s["FOO_BAR"] = "1"
+    with pytest.raises(SL.LaunchRefused, match="FOO_BAR"):
+        mk_sandbox(s, str(w.expected))
+
+
+def test_s2_an_empty_path_entry_is_the_childs_working_directory_exactly_as_popen_resolves_it(w):
+    """The rule: an EMPTY PATH entry is the child's working directory (`<arm-home>/work`), a relative entry is relative to it;
+    first match in order wins. A cell runs the real Popen with the same PATH and cwd to show they agree."""
+    cwd, other = w.d / "cwd", w.d / "other"
+    (cwd / "rel").mkdir(parents=True); other.mkdir()
+    for d in (cwd, cwd / "rel", other):
+        TSS.make_exe(str(d / "claude"), "#!/bin/sh\necho %s\n" % d.name)
+    for path, want in ((":" + str(other), cwd), (str(other) + ":", other), ("rel:" + str(other), cwd / "rel"),
+                       (str(other) + ":" + "", other)):
+        got = SL.resolve_on_path("claude", path, str(cwd))
+        assert got == str(want / "claude"), (path, got)
+        out = _sp.run(["claude"], env={"PATH": path}, cwd=str(cwd), capture_output=True, text=True).stdout.strip()
+        assert out == want.name, (path, out)                       # what Popen really started
+
+
+def test_s2_launch_markers_with_a_non_positive_pid_or_start_is_refused():
+    good = {"scope_unit": "u", "forwarder_pid": "5", "forwarder_start": "7", "bridge_sock": "/s"}
+    assert SL.launch_markers(good)["forwarder_pid"] == 5
+    for k, v in (("forwarder_pid", "0"), ("forwarder_pid", "-3"), ("forwarder_start", "0"), ("forwarder_start", "-1")):
+        with pytest.raises(SL.LaunchMarkerError, match="not a real value"):
+            SL.launch_markers({**good, k: v})
+
+
+def test_s2_a_missing_log_directory_is_refused_named(w):
+    missing = str(w.d / "no-such-log-dir")
+    with pytest.raises(SL.LaunchRefused, match="log directory"):
+        SL._fresh_log(missing)
+    with pytest.raises(SL.LaunchRefused, match="log directory"):
+        w.launch(log_dir=missing)
+    w.assert_nothing_started()
+
+
+@pytest.mark.parametrize("stub_as", ["feed2.py", "feed4.py"])
+def test_s2_a_real_feeder_option_that_is_not_in_the_dict_is_refused(w, stub_as):
+    assert "--model" not in SL.FEEDER_OPTIONS[stub_as]
+    with pytest.raises(SL.LaunchRefused, match="'--model'"):
+        w.launch(argv=w.argv(extra=("--model", "some-model")), stub_as=stub_as)
+    w.assert_nothing_started()

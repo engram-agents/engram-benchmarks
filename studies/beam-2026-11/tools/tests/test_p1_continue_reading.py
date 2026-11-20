@@ -9,7 +9,7 @@ slices exchanges[start - 1: turns]) and a few mutant behaviours chosen by STUB_P
 import hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, needs_linux_wrapper
 from test_p1_session import (P1S, TOOL, SESSION, STAMP, World, bytes_and_mtimes, make_home, tree)
 
 K_DEFAULT = dict(start="4", through="9", per_round="3")  # exchanges 4..9 = 2 rounds of 3; (4-1)%3 == 0, 6%3 == 0
@@ -404,6 +404,7 @@ def test_c3_a_wrong_turns_count_instead_of_the_end_index_is_visible_on_the_real_
 
 
 # =============================================================================================================== C4
+@needs_linux_wrapper
 def test_c4_the_run_is_feed4_with_exactly_the_contract_arguments(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -415,6 +416,7 @@ def test_c4_the_run_is_feed4_with_exactly_the_contract_arguments(w, ollama):
     assert w.mark.read_text() == "student run\n"
 
 
+@needs_linux_wrapper
 def test_c4_the_slot_is_a_copy_of_the_end_state_and_the_end_state_is_not_opened_for_writing(w, ollama):
     before = bytes_and_mtimes(w.pres)
     r = cr_run(w, ollama_url=ollama["url"])
@@ -423,6 +425,7 @@ def test_c4_the_slot_is_a_copy_of_the_end_state_and_the_end_state_is_not_opened_
 
 
 # =============================================================================================================== C5
+@needs_linux_wrapper
 def test_c5_setup_txt_records_the_server_version_the_model_and_its_digest(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -438,6 +441,7 @@ def test_c5_the_default_model_recorded_is_the_one_feed4_uses():
     assert m and m.group(1) == P1S.SERVING_MODEL == MODEL
 
 
+@needs_linux_wrapper
 def test_c5_an_expect_serving_file_equal_to_the_record_is_accepted(w, ollama):
     exp = w.root / "expect-serving.txt"
     exp.write_text("serving: ollama version 0.9.9\nserving: model " + MODEL + "\nserving: model digest sha256:abc123def456\n")
@@ -462,6 +466,7 @@ def test_c5_a_model_missing_from_the_tags_is_exit_3_with_a_named_line(w, ollama)
 
 
 # =============================================================================================================== C6
+@needs_linux_wrapper
 def test_c6_a_good_run_saves_a_copy_of_the_slot_and_hashes_it(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -477,6 +482,7 @@ def test_c6_a_good_run_saves_a_copy_of_the_slot_and_hashes_it(w, ollama):
 
 
 @pytest.mark.parametrize("name,envover,code", [("feed4 failed", {"STUB_RC": "1"}, 3), ("delivery failed", {"STUB_DROP": "1"}, 1)])
+@needs_linux_wrapper
 def test_c6_a_failed_run_creates_no_saved_end_state(w, ollama, name, envover, code):
     r = cr_run(w, ollama_url=ollama["url"], **envover)
     assert r.returncode == code, (r.returncode, r.stdout, r.stderr)
@@ -488,6 +494,7 @@ def test_c6_a_dry_run_saves_nothing(w, ollama):
     assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
 
 
+@needs_linux_wrapper
 def test_c6_a_saved_end_state_is_removed_with_a_line_when_a_protected_home_changed(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], STUB_ACTION="protected", STUB_TARGET=str(w.pres2))
     assert r.returncode == 5, (r.stdout, r.stderr)
@@ -496,6 +503,7 @@ def test_c6_a_saved_end_state_is_removed_with_a_line_when_a_protected_home_chang
 
 
 # =============================================================================================================== C7
+@needs_linux_wrapper
 def test_c7_after_equals_before_and_the_saved_end_state_is_not_in_the_before_set(w, ollama):
     bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
     r = cr_run(w, ollama_url=ollama["url"])
@@ -507,6 +515,7 @@ def test_c7_after_equals_before_and_the_saved_end_state_is_not_in_the_before_set
     assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm
 
 
+@needs_linux_wrapper
 def test_c7_a_write_into_the_end_state_during_a_continue_run_is_exit_5_naming_it(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], STUB_ACTION="protected", STUB_TARGET=str(w.pres))
     assert r.returncode == 5, (r.stdout, r.stderr)
@@ -514,6 +523,7 @@ def test_c7_a_write_into_the_end_state_during_a_continue_run_is_exit_5_naming_it
 
 
 # =============================================================================================================== C8
+@needs_linux_wrapper
 def test_c8_a_reading_run_that_dropped_a_round_is_exit_1_from_the_reading_delivery_check(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], STUB_DROP="1")
     assert r.returncode == 1 and "FAIL" in (w.runs / "p1-t1" / "delivery.txt").read_text()
@@ -557,6 +567,7 @@ def no_saved(w):
 
 
 # ---- R1: quiescence before the save, and the saved copy's store hash against the slot's
+@needs_linux_wrapper
 def test_r1_a_live_slot_process_at_save_time_refuses_the_save_naming_the_pids_and_creates_nothing(w, ollama):
     pidfile = w.root / "survivor.pid"
     try:
@@ -574,6 +585,7 @@ def test_r1_a_live_slot_process_at_save_time_refuses_the_save_naming_the_pids_an
                 pass
 
 
+@needs_linux_wrapper
 def test_r1_a_saved_copy_whose_store_hash_differs_from_the_slots_is_removed_with_a_line_exit_3(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "mutate"))
     assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
@@ -583,6 +595,7 @@ def test_r1_a_saved_copy_whose_store_hash_differs_from_the_slots_is_removed_with
 
 
 # ---- R2: a preserved end state carries no disposable marker
+@needs_linux_wrapper
 def test_r2_the_saved_end_state_has_no_marker_the_slot_keeps_its_own_and_setup_says_so(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -590,6 +603,7 @@ def test_r2_the_saved_end_state_has_no_marker_the_slot_keeps_its_own_and_setup_s
     assert any(".disposable-copy" in l and "removed" in l for l in setup_lines(w))
 
 
+@needs_linux_wrapper
 def test_r2_plant_control_refuses_the_saved_end_state_on_its_missing_marker(w, ollama):
     from test_plant_control import run_tool
     assert cr_run(w, ollama_url=ollama["url"]).returncode == 0
@@ -598,6 +612,7 @@ def test_r2_plant_control_refuses_the_saved_end_state_on_its_missing_marker(w, o
 
 
 # ---- R3: the save-failure branches
+@needs_linux_wrapper
 def test_r3_a_failing_copy_is_exit_3_leaves_no_saved_path_and_says_it_removed_the_partial_one(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "fail"))
     assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
@@ -606,6 +621,7 @@ def test_r3_a_failing_copy_is_exit_3_leaves_no_saved_path_and_says_it_removed_th
     assert "step 9b save the end state: exit 1" in setup_lines(w)  # a copy failure records cp's own exit code, like step 5
 
 
+@needs_linux_wrapper
 def test_r3_a_saved_store_that_cannot_be_hashed_is_exit_3_with_no_saved_path_and_a_removal_line(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], **fake_cp_env(w, "corrupt"))
     assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
@@ -703,6 +719,7 @@ def plant_hook(w, name, body):
     return hook_script(w, name, "save = os.environ['R8_SAVE']\n" + body)
 
 
+@needs_linux_wrapper
 def test_r8_a_save_path_planted_after_step_1_is_exit_3_and_the_planted_path_is_byte_identical(w, ollama):
     hook = plant_hook(w, "plant-save.py", "os.makedirs(os.path.join(save, 'mine'))\nopen(os.path.join(save, 'mine', 'f'), 'w').write('planted')\n")
     r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R8_SAVE=str(w.saved))
@@ -713,6 +730,7 @@ def test_r8_a_save_path_planted_after_step_1_is_exit_3_and_the_planted_path_is_b
     assert "step 9b save the end state: exit 3" in setup_lines(w)
 
 
+@needs_linux_wrapper
 def test_r8_a_hashes_path_planted_after_step_1_is_exit_3_and_the_planted_file_is_byte_identical(w, ollama):
     hook = plant_hook(w, "plant-hashes.py", "open(save + '.hashes.txt', 'w').write('planted')\n")
     r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R8_SAVE=str(w.saved))
@@ -723,6 +741,7 @@ def test_r8_a_hashes_path_planted_after_step_1_is_exit_3_and_the_planted_file_is
     assert f"saved end state removed: {w.saved}" in setup_lines(w)
 
 
+@needs_linux_wrapper
 def test_r8_a_failure_after_a_successful_create_removes_exactly_the_created_paths(w, ollama):
     (w.root / "saved-end.keep").write_text("a neighbour\n"); (w.root / "saved-end.hashes.txt.keep").write_text("another\n")
     before = sorted(os.listdir(w.root))
@@ -777,6 +796,7 @@ def test_r9_an_after_hashes_file_that_cannot_be_written_is_the_same_own_line_in_
     assert "step 10 after-hashes: exit 3" in setup_lines(w)
 
 
+@needs_linux_wrapper
 def test_r9_a_real_change_is_still_exit_5_even_when_the_proof_file_cannot_be_written(w, ollama):
     hook = hook_script(w, "block-after.py", "os.makedirs(os.path.join(os.environ['R9_RUNDIR'], 'after-hashes.txt'))\n")
     r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R9_RUNDIR=str(w.runs / "p1-t1"),
@@ -785,6 +805,7 @@ def test_r9_a_real_change_is_still_exit_5_even_when_the_proof_file_cannot_be_wri
 
 
 # ---- R10: the saved copy is checked the way the next run will check it
+@needs_linux_wrapper
 def test_r10_an_absolute_symlink_to_a_protected_home_in_the_slot_is_exit_3_and_no_saved_end_state_remains(w, ollama):
     hook = hook_script(w, "plant-link.py", "os.symlink(os.environ['R10_TARGET'], os.path.join(sys.argv[1], 'evil-link'))\n")
     bm = {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)}
@@ -796,6 +817,7 @@ def test_r10_an_absolute_symlink_to_a_protected_home_in_the_slot_is_exit_3_and_n
 
 
 # ------------------------------------------------------------------ the sandbox launch module (the reading session is a student session too)
+@needs_linux_wrapper
 def test_sb_c_continue_reading_records_the_sandbox_lines(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -838,6 +860,7 @@ def start_from(w, path, label="t2", **kw):
                   P1_PROTECTED=f"{w.pres}:{w.pres2}:{path}", **kw)
 
 
+@needs_linux_wrapper
 def test_f5_a_flagged_session_saves_the_end_state_only_under_the_quarantine_name_and_says_why_in_words(w, ollama):
     flagged_run(w, ollama)
     q = str(w.saved) + ".flagged"
@@ -848,6 +871,7 @@ def test_f5_a_flagged_session_saves_the_end_state_only_under_the_quarantine_name
     assert "QUARANTINED" in text and "FLAGGED" in text and "excluded" in text and "endpoint was unreachable" in text
 
 
+@needs_linux_wrapper
 def test_f5_evidence_is_kept_the_log_the_verdict_and_the_transcript_stay_and_only_the_clean_state_path_is_absent(w, ollama):
     flagged_run(w, ollama)
     run = w.runs / "p1-t1"
@@ -858,6 +882,7 @@ def test_f5_evidence_is_kept_the_log_the_verdict_and_the_transcript_stay_and_onl
     assert not os.path.lexists(str(w.saved))
 
 
+@needs_linux_wrapper
 def test_f5_a_clean_session_saves_under_the_clean_name_with_its_not_flagged_record(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -887,6 +912,7 @@ def test_f5_reader_an_unrecognised_verdict_is_refused(w):
     cr_refusal(w, over={"--end-state": str(s)}, expect="unrecognised verdict", P1_PROTECTED=f"{w.pres}:{w.pres2}:{s}")
 
 
+@needs_linux_wrapper
 def test_f5_a_rename_does_not_launder_a_quarantined_end_state(w, ollama):
     """A flagged session's end state is renamed to a clean name, together with its record: the flagged verdict in the record
     still refuses it (by content). Renamed alone, without its record, it has no verdict line and is refused too."""
@@ -919,6 +945,7 @@ def test_f5_a_foreign_file_at_the_quarantine_path_is_refused_and_survives_byte_i
     ("hashes", "open(save + '.flagged.hashes.txt', 'w').write('planted')\n", ".hashes.txt"),
     ("verdict", "open(save + '.flagged.verdict.txt', 'w').write('planted')\n", ".verdict.txt"),
 ])
+@needs_linux_wrapper
 def test_f5_a_foreign_path_appearing_between_the_check_and_the_write_survives_and_only_this_runs_creates_are_removed(
         w, ollama, name, body, planted):
     hook = plant_hook(w, f"plant-{name}.py", body)
@@ -935,3 +962,30 @@ def test_f5_a_foreign_path_appearing_between_the_check_and_the_write_survives_an
         mine = [x for x in (q, q + ".hashes.txt", q + ".verdict.txt") if x != q + planted]
         assert not any(os.path.lexists(x) for x in mine), mine
     assert not os.path.lexists(str(w.saved))
+
+
+# ------------------------------------------------------------------ round 5 (security seat, review 6000327021)
+# Z1: every path a flagged save creates is checked against the paths the launcher makes or protects, not only for existence.
+# The quarantine paths are suffixes of the save path, so the only overlap that is not also an existing path is with a path that
+# does not exist yet: the run directory (made after step 1). A label that ends in the suffix makes them equal.
+@pytest.mark.parametrize("which", ["hashes", "verdict"])
+def test_z1_a_quarantine_path_equal_to_a_launcher_path_is_refused_named(w, which):
+    label = f"x.flagged.{which}.txt"
+    save = w.runs / "p1-x"
+    r = cr_refusal(w, over={"--label": label, "--save-end-state": str(save)}, expect=f"quarantine {which}")
+    assert "run directory" in r.stdout + r.stderr
+
+
+# Z2: the save step's directory gets an explicit mode (0700), not the umask default and not the slot's own mode (cp -a copies it).
+@needs_linux_wrapper
+@pytest.mark.parametrize("stub_sandbox,suffix", [("ok", ""), ("unreachable", ".flagged")])
+def test_z2_the_saved_end_state_directory_is_0700_even_under_umask_0(w, ollama, stub_sandbox, suffix):
+    import stat as _stat
+    old = os.umask(0)
+    try:
+        r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX=stub_sandbox)
+    finally:
+        os.umask(old)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    saved = str(w.saved) + suffix
+    assert _stat.S_IMODE(os.stat(saved).st_mode) == 0o700

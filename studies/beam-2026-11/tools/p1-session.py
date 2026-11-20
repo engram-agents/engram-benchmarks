@@ -502,6 +502,8 @@ def continue_step1(a, env, end, paths):
     refuse_overlap("the hashes file", hashes, paths)
     refuse_overlap("the verdict record", save + VERDICT_SUFFIX, paths)
     refuse_overlap("the quarantine name", save + QUARANTINE_SUFFIX, paths)
+    refuse_overlap("the quarantine hashes file", save + QUARANTINE_SUFFIX + ".hashes.txt", paths)    # every path a flagged save creates
+    refuse_overlap("the quarantine verdict record", save + QUARANTINE_SUFFIX + VERDICT_SUFFIX, paths)
     if not os.path.isdir(os.path.dirname(save)):
         raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
     expect_serving = None
@@ -704,7 +706,7 @@ def save_end_state(a, c, steps):
         return 3
 
     try:
-        os.mkdir(c["save"]); c["created"].append(c["save"])
+        os.mkdir(c["save"], 0o700); c["created"].append(c["save"])   # explicit restrictive mode, not the umask default
         hashes_file = os.fdopen(os.open(c["hashes"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
         c["created"].append(c["hashes"])
         verdict_file = os.fdopen(os.open(c["verdict_rec"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
@@ -718,6 +720,7 @@ def save_end_state(a, c, steps):
         r = subprocess.run(["cp", "-a", "--", os.path.join(c["slot"], "."), c["save"]])  # the slot's CONTENTS into the directory made above
         if r.returncode:
             return fail(r.returncode, "STOP: copying the slot to --save-end-state failed")
+        os.chmod(c["save"], 0o700)   # cp -a copied the slot's own mode onto the directory made above: set the restrictive mode again
         marker = os.path.join(c["save"], ".disposable-copy")  # a preserved end state is not a disposable copy
         if os.path.lexists(marker):
             os.unlink(marker)

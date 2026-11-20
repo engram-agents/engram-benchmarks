@@ -300,7 +300,7 @@ def resolve_on_path(name, path, cwd):
     entries in order (an empty entry is the child's working directory)."""
     for d in path.split(os.pathsep):
         d = d if d else "."
-        cand = os.path.join(d if os.path.isabs(d) else os.path.join(cwd, d), name)
+        cand = os.path.normpath(os.path.join(d if os.path.isabs(d) else os.path.join(cwd, d), name))
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     return None

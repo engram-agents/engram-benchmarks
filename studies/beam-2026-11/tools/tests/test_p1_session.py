@@ -10,7 +10,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS, install_stub_systemctl
+from conftest import TOOLS, install_stub_systemctl, needs_linux_wrapper
 
 TOOL = os.path.join(TOOLS, "p1-session.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -392,6 +392,7 @@ def test_refuses_when_the_aside_path_already_exists(w):
 
 
 # ------------------------------------------------------------------ the happy path and its artifacts
+@needs_linux_wrapper
 def test_clean_run_exits_0_and_writes_every_artifact(w):
     r = w.run()
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -417,6 +418,7 @@ def test_clean_run_exits_0_and_writes_every_artifact(w):
     assert [x for x in dump[0] if x not in ("--dump-plan",)][:2] == ["--arm-home", str(w.slot)]
 
 
+@needs_linux_wrapper
 def test_before_hashes_cover_every_protected_home_by_the_store_hash_and_the_memory_files(w):
     assert w.run().returncode == 0
     text = (w.runs / "p1-t1" / "before-hashes.txt").read_text()
@@ -429,6 +431,7 @@ def test_before_hashes_cover_every_protected_home_by_the_store_hash_and_the_memo
     assert "3 files" in text and "0 files" in text
 
 
+@needs_linux_wrapper
 def test_setup_txt_first_line_is_the_commit_then_the_hashes_and_exit_codes(w):
     assert w.run().returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -441,12 +444,14 @@ def test_setup_txt_first_line_is_the_commit_then_the_hashes_and_exit_codes(w):
     assert "start" in body and "end" in body and "exit" in body
 
 
+@needs_linux_wrapper
 def test_the_fake_slot_process_is_stopped_before_the_copy(w):
     proc = w.start_fake_process()
     assert w.run().returncode == 0
     assert proc.wait(timeout=10) is not None
 
 
+@needs_linux_wrapper
 def test_a_pre_existing_slot_is_moved_aside_never_deleted(w):
     old = tree(w.slot)
     assert w.run().returncode == 0
@@ -454,6 +459,7 @@ def test_a_pre_existing_slot_is_moved_aside_never_deleted(w):
     assert tree(aside) == old and (aside / "old.txt").read_text() == "what the slot held before\n"
 
 
+@needs_linux_wrapper
 def test_an_absent_slot_is_fine_and_nothing_is_moved(w):
     shutil.rmtree(w.slot)
     assert w.run().returncode == 0
@@ -473,6 +479,7 @@ def changed_homes_printed(stdout):
     return [l[len("changed home: "):] for l in stdout.splitlines() if l.startswith("changed home: ")]
 
 
+@needs_linux_wrapper
 def test_a_write_into_a_protected_store_is_exit_5_and_names_the_home(w):
     target = os.path.join(w.pres2, ".engram", "knowledge.db")
     r = w.run(STUB_ACTION="protected", STUB_TARGET=target)
@@ -481,6 +488,7 @@ def test_a_write_into_a_protected_store_is_exit_5_and_names_the_home(w):
     assert changed_homes_printed(r.stdout) == [os.path.realpath(w.pres2)]
 
 
+@needs_linux_wrapper
 def test_a_write_into_the_slot_only_is_exit_0(w):
     r = w.run(STUB_ACTION="slot")
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -501,6 +509,7 @@ def test_a_change_to_a_protected_memory_file_is_exit_5(w):
     assert changed_homes_printed(r.stdout) == [os.path.realpath(w.pres)]
 
 
+@needs_linux_wrapper
 def test_exit_5_overrides_a_feed4_failure(w):
     target = os.path.join(w.pres2, ".engram", "knowledge.db")
     r = w.run(STUB_ACTION="protected", STUB_TARGET=target, STUB_RC="1")
@@ -531,6 +540,7 @@ def test_feed4_nonzero_is_exit_3(w):
     assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
 
 
+@needs_linux_wrapper
 def test_a_failed_delivery_check_is_exit_1(w):
     r = w.run(STUB_SKIPQ="1")
     assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
@@ -541,6 +551,7 @@ def test_a_failed_delivery_check_is_exit_1(w):
 PLANT = ["--plant-builtin", "BuiltinFactAA", "--plant-engram", "EngramFactBB", "--plant-absent", "AbsentFactCC"]
 
 
+@needs_linux_wrapper
 def test_plant_runs_plant_control_with_the_slots_venv_python_and_the_run_evidence_dir(w):
     r = w.run(*PLANT, "--plant-question", "What is it?")
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -554,6 +565,7 @@ def test_plant_runs_plant_control_with_the_slots_venv_python_and_the_run_evidenc
     assert log["prot"] == f"{w.pres}:{w.pres2}"
 
 
+@needs_linux_wrapper
 def test_plant_without_a_question_passes_no_question_flag(w):
     assert w.run(*PLANT).returncode == 0
     assert "--question" not in json.loads(w.plant_log.read_text())["argv"]
@@ -692,6 +704,7 @@ def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
     assert bytes_and_mtimes(wal_home) == before
 
 
+@needs_linux_wrapper
 def test_the_launcher_leaves_a_wal_mode_protected_home_untouched_bytes_and_mtimes(w):
     keeper = sqlite3.connect(os.path.join(w.pres, ".engram", "knowledge.db"))
     try:
@@ -771,6 +784,7 @@ def test_refuses_an_absolute_symlink_back_into_the_end_state_itself(w):
     refusal(w, expect="symlink")
 
 
+@needs_linux_wrapper
 def test_a_relative_symlink_that_stays_inside_the_end_state_is_fine(w):
     os.symlink("projects", os.path.join(w.pres, ".claude", "rel-link"))  # like a venv's lib64 -> lib
     r = w.run()
@@ -778,6 +792,7 @@ def test_a_relative_symlink_that_stays_inside_the_end_state_is_fine(w):
     assert os.readlink(str(w.slot / ".claude" / "rel-link")) == "projects"
 
 
+@needs_linux_wrapper
 def test_a_symlink_to_an_unrelated_outside_path_proceeds_and_the_count_is_printed(w):
     outside = w.root / "unrelated-outside"; outside.mkdir()
     os.symlink(str(outside), os.path.join(w.pres, "work", "link-out"))
@@ -802,6 +817,7 @@ def test_refuses_a_chain_of_relative_links_whose_second_hop_leaves_the_end_state
     refusal(w, expect="symlink")
 
 
+@needs_linux_wrapper
 def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine(w):
     """work/up -> ../.claude/projects climbs one level but never above the end state's own root."""
     os.symlink("../.claude/projects", os.path.join(w.pres, "work", "up"))
@@ -868,6 +884,7 @@ def test_refuses_a_relative_link_that_climbs_even_to_an_unrelated_outside_path(w
     refusal(w, expect="climb")
 
 
+@needs_linux_wrapper
 def test_a_relative_link_to_an_absolute_link_outside_that_does_not_climb_is_allowed(w):
     """The real homes' venvs: python -> python3 (relative, does not climb) where python3 -> an interpreter (absolute)."""
     b = os.path.join(w.pres, ".engram", "venv", "bin")
@@ -954,6 +971,7 @@ def record_three_channel_run(w):
     return normalized_plan_record(w, log)
 
 
+@needs_linux_wrapper
 def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_subset_change(w):
     got = record_three_channel_run(w)
     assert [g["tool"] for g in got] == ["plant-control", "feed4", "feed4"]  # plant, plan dump, student run
@@ -968,6 +986,7 @@ def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_s
 ENGRAM_ONLY = ["--plant-engram", "EngramFactBB", "--plant-absent", "AbsentFactCC"]
 
 
+@needs_linux_wrapper
 def test_engram_plus_absent_is_accepted_and_plant_control_is_called_without_builtin_fact_or_question(w):
     r = w.run(*ENGRAM_ONLY)
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -1033,6 +1052,7 @@ def test_a_dry_run_still_plants_engram_only(w):
     (ENGRAM_ONLY, "plant mode: engram-only (no built-in plant)"),
     (PLANT, "plant mode: both channels"),
 ])
+@needs_linux_wrapper
 def test_setup_txt_records_the_plant_mode_on_its_own_line(w, plant, mode):
     assert w.run(*plant).returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -1060,6 +1080,7 @@ def test_the_registered_prefix_is_the_one_stated_in_provenance_md():
     assert stated == [P1S.REGISTERED_PARQUET_PREFIX], stated
 
 
+@needs_linux_wrapper
 def test_setup_txt_says_which_dataset_check_ran_the_override(w):
     assert w.run().returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -1099,6 +1120,7 @@ def test_the_real_constant_is_the_only_prefix_accepted_without_the_hook(w):
     refusal(w, expect=P1S.REGISTERED_PARQUET_PREFIX, **kw)
 
 
+@needs_linux_wrapper
 def test_a_parquet_matching_the_expected_prefix_runs_and_setup_txt_records_its_full_sha256(w):
     assert w.run().returncode == 0
     full = P1S.file_sha256(w.parquet)  # the launcher's own function
@@ -1166,6 +1188,7 @@ def test_sb_a_model_url_off_the_sandbox_port_is_refused_in_step_1(w):
     refusal(w, expect="port", BEAM_OLLAMA_URL="http://127.0.0.1:%d" % (int(w.env()["SANDBOX_MODEL_PORT"]) + 1))
 
 
+@needs_linux_wrapper
 def test_sb_both_feed4_invocations_go_through_the_module_the_plan_dump_unwrapped_and_the_session_wrapped(w):
     r = w.run()
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -1181,6 +1204,7 @@ def test_sb_both_feed4_invocations_go_through_the_module_the_plan_dump_unwrapped
     assert pairs["SANDBOX_RW_ROOT"] == str(w.runs / "p1-t1" / "run") and pairs["SANDBOX_RW_BINDS"] == pairs["SANDBOX_RW_ROOT"] + "/proctor"
 
 
+@needs_linux_wrapper
 def test_sb_setup_txt_records_the_log_the_verdict_verbatim_and_the_launch_line_hashes(w):
     assert w.run().returncode == 0
     text = setup_text(w); lines = text.splitlines()
@@ -1195,6 +1219,7 @@ def test_sb_setup_txt_records_the_log_the_verdict_verbatim_and_the_launch_line_h
     assert "feed4 override (P1_FEED4)" in text      # the hook is on record, and the stub was wrapped all the same
 
 
+@needs_linux_wrapper
 def test_sb_flagged_is_recorded_verbatim_not_a_stop(w):
     r = w.run(STUB_SANDBOX="unreachable")
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -1212,6 +1237,7 @@ def test_sb_a_log_verdict_refusal_is_exit_3_with_a_stop_line_and_no_answer_is_re
     assert "sandbox verdict: none" in setup_text(w)
 
 
+@needs_linux_wrapper
 def test_sb_a_launch_line_hash_that_differs_is_exit_3_naming_it_and_no_answer_is_read(w):
     r = w.run(STUB_SANDBOX="badwrapper")
     assert r.returncode == 3, (r.stdout, r.stderr)
@@ -1230,6 +1256,7 @@ def test_sb_a_pre_launch_hash_mismatch_refuses_before_the_student_starts(w, whic
     assert [p.name for p in (w.runs / "p1-t1").iterdir() if p.name.startswith("sandbox-")] == []   # no log was made
 
 
+@needs_linux_wrapper
 def test_sb_a_leftover_of_an_earlier_launch_refuses_the_session_and_the_count_is_recorded(w):
     """Round 2: the launch module refuses while anything of an earlier launch is alive. p1-session gives it the state
     directory <BEAM_RUNS_DIR>/sandbox-launches/ and records how many leftovers it found."""
@@ -1265,6 +1292,7 @@ def test_l1_a_test_mode_setting_reaches_the_module_only_under_p1_test_hooks(w):
     assert P1S.sandbox_input(a, real, slot_real, c).allow_test is False
 
 
+@needs_linux_wrapper
 def test_l1_the_caps_and_the_test_flags_of_the_launch_line_are_written_to_setup_txt(w):
     assert w.run().returncode == 0
     lines = setup_text(w).splitlines()
