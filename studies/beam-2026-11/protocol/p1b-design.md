@@ -210,6 +210,19 @@ plus the new reading-continuation mode in section 1.
   behind a user or host boundary, never behind a file mode on a user the student shares: a mode bit is not a seal when
   the owner's processes run the exam. *Our-side control from 2026-11-20:* each morning, the value-blind scan over every
   student transcript written since the last scan, one line to the design owner.
+- **A11. The k = 1 reading starts tonight, overnight (design owner, Office crossing 33156, 2026-11-20; written before
+  the first k = 1 round).** *Lei's words,* 8:04 PM New York on 2026-11-19, relayed verbatim by the design owner: "How
+  about we run another away night practice tonight? I'll leave the machine on, and Borges can run through the night?
+  ... Tonight we rehearse the whole routine and make sure everything will work smoothly in the week I'm away." *The
+  changed start rule:* A8's "starts only if it can start at or before 9:00 AM New York" existed because the night was
+  closed to the card. Lei opens tonight, so the k = 1 reading runs as one unbroken overnight reading starting tonight
+  instead, and the design owner's 8:00 PM bound is lifted for tonight by the same word. There is no daylight cut-off
+  tonight. A hang guard of 20 hours (about twice the projected 9.5 to 10.6 hours) stops a stuck run, and a run stopped
+  by it is reported, not used. *Unchanged:* the A9 pin, verified by hand at launch and recorded; the A10 custody
+  terms. It is unwrapped, as the K = 3 reading was. It is still the LAST run under the security seat's allowance (no
+  objection from Zephyr, Office crossing 33159, conditions restated there). The falsifier and the value-blind scan
+  with its control run the moment it ends, before any number is used. Any out-of-home path that is not a planted
+  control means the run is discarded. Nothing about the run's content, K, exchanges, end state or analysis changes.
 
 ## 7. Cost (requirement 6)
 
