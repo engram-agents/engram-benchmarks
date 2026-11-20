@@ -159,8 +159,13 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   over its size limit, a request over the per-request or total buffered-bytes cap, a connection past the connection
   cap, refused before any request is read, and a request left half-sent past the idle read timeout). The fourth is
   NETWORK-CAPABLE SHELL CALLS, counted from the transcript, whether or not anything was reached, by a rule fixed
-  before the first scored run. A line of a fifth kind, `upstream`, is the bridge's own failure to reach the model endpoint
-  (it answers 502): it is not a count and never a student attempt, but a flagged harness fault (section 14). The per-reason breakdown is reported beside the counts as description, never as an
+  before the first scored run. Lines of a fifth kind, `upstream`, record the bridge's own trouble with the model
+  endpoint (reasons: connect-failed, send-failed, upstream-reset, rejected-early); they are not network counts and never a
+  student attempt. They are reported per arm as UPSTREAM ERRORS, a descriptive count read by hand with its per-reason
+  breakdown; only section 14's flag rule can make an unreachable endpoint a harness fault. The bridge decides
+  rejected-early (the endpoint answered before the request was fully sent) from the response bytes relayed since that
+  request's send began, so a client that pipelines requests can be mislabelled between rejected-early and send-failed;
+  no reason flags a run, so a wrong label can distort only this descriptive breakdown. The per-reason breakdown is reported beside the counts as description, never as an
   outcome. (Amended 2026-11-20, design owner, team crossings 33426, 33428 and 33430: the count named ALLOW-LIST
   REFUSALS when this section was merged is renamed RULE REFUSALS, because it holds more than allow-list misses;
   FRAMING REFUSALS and CAP REFUSALS are added, because a request the bridge refused as unparseable or over a cap
@@ -229,7 +234,8 @@ error), whether ENGRAM's write check fired and what the student did next; ENGRAM
 the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
 preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation; the four
 network counts of section 7 (rule refusals, framing refusals, cap refusals, network-capable shell calls) with the
-per-reason breakdown beside them; every wrapper-log line of kind `upstream` (section 14); the wrapper's launch line,
+per-reason breakdown beside them; the UPSTREAM ERRORS count with its per-reason breakdown (section 7)
+and the wrapper's verdict on the endpoint (section 14); the wrapper's launch line,
 from the wrapper log.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
@@ -270,12 +276,21 @@ Consequence, a stated bound: run-to-run noise within a cell is not measured.
 
 ## 14. Exclusions and re-runs
 
+An event is a harness fault only if the student cannot cause it; anything the student can cause is counted and
+reported, never flagged, re-run or excluded. (Amended 2026-11-20, design owner, team crossings 33494, 33496, 33501, 33503
+and 33506, after the security seat showed a student could make the bridge write an endpoint-failure line by sending a
+large body the endpoint rejects early.)
 A run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails;
 the student process dies; a timeout (any one turn the proctor sends, in either arm, running past 3,600 s:
 reading, the forced /compact, answering, and arm 2's setup turns alike); the ENGRAM first session does not
 complete (arm 2); the session's tool list differs from section 7's; a scored run with no wrapper launch line
-in the wrapper log (SANDBOX_LOG, section 7); the bridge cannot reach the model endpoint (a wrapper-log line of
-kind `upstream`, section 7: the bridge answers 502). The guard is per scored run: the exam session's own launch line
+in the wrapper log (SANDBOX_LOG, section 7); the model endpoint was never reachable in the run, as decided by the
+wrapper's `log-verdict` (the one place this rule lives): flagged only when the run's wrapper log holds a connect-failed
+line and no first-request marker, the line the bridge writes once per launch after its first send that moves bytes
+upstream (a missing wrapper log is already the fault above: no launch line). An endpoint that dies DURING a run
+(connect-failed after the marker) is never an automatic re-run or exclusion: the study lead reports it with the
+endpoint's own log and the co-load sampler, and the design owner decides re-run or keep before anyone has read that
+run's answers; the decision and its reason are reported, and the same rule holds for both arms. The guard is per scored run: the exam session's own launch line
 counts, and arm 2's setup session, which also runs inside the wrapper, logs its own. The launch line that
 counts carries the sha256 of the wrapper file itself, logged per run, so it shows which wrapper ran, not only
 that one did; a scored run found outside the wrapper is reported to the security seat before any re-run.
@@ -290,8 +305,8 @@ have 94 to 196 each, 2,409 in all; the eight longer than 135 are conversations 1
 16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of 2026-11-19, a private
 working file, sha256 60cf1a810f72ac8e8f6a5201f1b551ee84098f1039ed88d0a5f96b281c95afdf). Too low a value flags slow but healthy runs and costs
 re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a
-fault: it cannot succeed (section 7), and the four network counts are reported per arm. A line of kind `upstream` is the harness fault listed above,
-never a student attempt. Each flagged run may
+fault: it cannot succeed (section 7), and the four network counts are reported per arm. Upstream lines are counted (section 7); only
+the endpoint verdict above flags a run. Each flagged run may
 be re-run once, with the reason logged before the re-run; a second failure stays excluded. A wrong or empty
 answer is never a harness fault. A book-closed run in which the student opens its own transcript is NOT a
 harness fault: it is the student's behaviour, flagged in the report and reported as it stands, never re-run
