@@ -3036,3 +3036,32 @@ def test_peer_c5_inside_the_real_box_every_capability_set_reads_zero(cfg):
     sets = dict(l.split(":\t") for l in r.stdout.strip().splitlines())
     assert sorted(sets) == ["CapAmb", "CapBnd", "CapEff", "CapInh", "CapPrm"], sets
     assert all(int(v, 16) == 0 for v in sets.values()), sets
+
+
+def _chunked_of_exact_size(total):
+    """A chunked request (CHUNK_HEAD, one chunk, the last chunk) whose whole length is exactly `total` bytes."""
+    for size in range(1, total):
+        raw = CHUNK_HEAD + b"%x\r\n" % size + b"x" * size + b"\r\n0\r\n\r\n"
+        if len(raw) == total:
+            return raw
+    raise AssertionError("no chunked request of %d bytes" % total)
+
+
+def test_peer_a2_the_per_request_cap_is_exact_for_a_chunked_request_too(outer, http_stub, raw_stub):
+    """The overflow here is a few bytes of framing (the last chunk's size line and CRLF), which no per-chunk size check
+    sees: only the running count of the request's own bytes refuses it."""
+    cap = 2048
+    exact, over = _chunked_of_exact_size(cap), _chunked_of_exact_size(cap + 1)
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW, max_request=cap)
+    s = o.connect()
+    s.sendall(exact)
+    assert read_response(s)[0] == 200
+    s.close()
+    raw = raw_stub()
+    o2 = outer(raw, allow=ALLOW, max_request=cap)
+    s2 = o2.connect()
+    s2.sendall(over)
+    status, _, _ = read_response(s2)
+    assert status == 413, status
+    assert raw.bytes_seen() == b""
