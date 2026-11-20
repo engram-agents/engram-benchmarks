@@ -297,6 +297,14 @@ empty, the document changed: re-read and re-commit as above.
   The first half is wrong: by the score-review principles (section 5, "phase 3 is not blind"), the project lead knows
   which answer is the official one, and the phase-3 export carries it. What stays hidden from phase 3 is which arm
   wrote each agent answer. The condition's timing rule itself is unchanged.
+- 2026-11-20, the tool fix for the routing gap (benchmarks PR 7, head d8b85f6, approved by the colleague reviewer):
+  besides the routing rule and the letters-only `reveal`, it now refuses any secret seed that is not 64 lowercase hex
+  characters, because the colleague review showed that `reveal`'s public output (item id, letters, the key file's
+  sha256) leaves only the seed unknown, and a short seed was recovered from one reveal in 14.6 s on a test fixture.
+  This pilot's two seeds were checked by form by the key holder (both 64 lowercase hex), so the pilot was not exposed.
+  The reviewer's stated limit, recorded as she put it (design owner, team crossing 33415): "the rule enforces the form
+  (64 lowercase hex), not randomness; all zeros passes." The map re-run on the same witnessed inputs counts only if it
+  prints exactly the counts stated before it: pending 12, control_settled 4, phase2_pending 4, not_reviewed 0.
 
 ## Operations (key holder, Aleph)
 
