@@ -151,7 +151,8 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   once, by the first refusal the bridge makes for it, in the order the wrapper's README states as found in its code.
   The kinds are defined by class. The wrapper's own test derives every refusal site from the wrapper's source and
   fails on a site with no kind, so a reason added later cannot land in no kind. The wrapper README's per-reason
-  table lists the reasons under their kinds (complete at the wrapper's head 3e9458e).
+  table lists the reasons under their kinds (complete at the head at which the wrapper's pull request, #13, is merged;
+  this preregistration change merges after it).
   RULE REFUSALS (`kind=rule`): requests the bridge could parse but refuses by rule (for example a method or path not
   on the allow-list, a path it will not accept, CONNECT, an upgrade, `Expect: 100-continue`, a target not in origin
   form, a fragment). FRAMING REFUSALS (`kind=framing`): requests the bridge could not parse as HTTP/1.1. CAP REFUSALS
@@ -161,8 +162,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   NETWORK-CAPABLE SHELL CALLS, counted from the transcript, whether or not anything was reached, by a rule fixed
   before the first scored run. Lines of a fifth kind, `upstream`, record the bridge's own trouble with the model
   endpoint (reasons: connect-failed, send-failed, upstream-reset, rejected-early); they are not network counts and never a
-  student attempt. They are reported per arm as UPSTREAM ERRORS, a descriptive count read by hand with its per-reason
-  breakdown; only section 14's flag rule can make an unreachable endpoint a harness fault. The bridge decides
+  student attempt. They are reported per arm as UPSTREAM ERRORS, counted off `kind=upstream` like the other three, with the
+  `reason=` breakdown beside it; it is descriptive, in that no reason decides anything by itself (each line is examined
+  in the report), and only section 14's flag rule can make an unreachable endpoint a harness fault. The bridge decides
   rejected-early (the endpoint answered before the request was fully sent) from the response bytes relayed since that
   request's send began, so a client that pipelines requests can be mislabelled between rejected-early and send-failed;
   no reason flags a run, so a wrong label can distort only this descriptive breakdown. The per-reason breakdown is reported beside the counts as description, never as an
@@ -287,7 +289,10 @@ complete (arm 2); the session's tool list differs from section 7's; a scored run
 in the wrapper log (SANDBOX_LOG, section 7); the model endpoint was never reachable in the run, as decided by the
 wrapper's `log-verdict` (the one place this rule lives): flagged only when the run's wrapper log holds a connect-failed
 line and no first-request marker, the line the bridge writes once per launch after its first send that moves bytes
-upstream (a missing wrapper log is already the fault above: no launch line). An endpoint that dies DURING a run
+upstream (a missing wrapper log is already the fault above: no launch line). The run's wrapper log is one file per
+launch, and `log-verdict` refuses any log holding other than exactly one wrapper-launch line, so one launch's marker
+can never hide another launch's unreachable endpoint (design owner, team crossing 33551; required before the first
+scored run). An endpoint that dies DURING a run
 (connect-failed after the marker) is never an automatic re-run or exclusion: the study lead reports it with the
 endpoint's own log and the co-load sampler, and the design owner decides re-run or keep before anyone has read that
 run's answers; the decision and its reason are reported, and the same rule holds for both arms. The guard is per scored run: the exam session's own launch line
