@@ -2800,3 +2800,28 @@ Claude Code `version` that wrote it). Versions by session:
   plain-words comparison of section 14's flagged-run rule against a round-level rule, with the study lead's
   recommendation. The design owner reads section 14 himself.
 - Nothing runs on the GPU until the student wrapper (PR 13) has its colleague read.
+
+### P1b R: the two post hoc readings and the outcome (2026-11-20; under the ruling logged above)
+
+- **Gate:** the script change (branch `study/p1b-ratio-posthoc`, head `284a406`, two commits on `0ccd5ab`) was read by
+  an outside seat (Sol) on synthetic rows only: no-flag behaviour byte-identical on 33 old-vs-new pairs (stdout,
+  stderr, exit code); every dropped or counted row printed; the two folds of his first read verified by the mutants he
+  ran. Cleared before any real record was read.
+- **Inputs:** the two turns records whose sha256 prefixes are `96c933ec` (K = 3) and `d26db32c` (k = 1), as logged at
+  each run's end.
+- **Registered R (no flag):** refused, `row 17: is_error is set`, exit 2. NOT OBTAINED, as ruled.
+- **(c), post hoc, exchanges 61-63 dropped from both arms** (`--posthoc-exclude 61-63`; dropped: the K = 3 row holding
+  [61, 62, 63], 439.0 s; the k = 1 rows [61] 196.5 s, [62] 185.7 s with is_error, [63] 401.6 s):
+  K = 3 29 rows, 21,299.4 s, 244.82 s per exchange; k = 1 87 rows, 24,747.3 s, 284.45 s per exchange.
+  **R (post hoc) = 0.8607.**
+- **(b), post hoc, the errored round counted** (`--posthoc-count-errored`; counted: k = 1 row [62], 185.7 s):
+  K = 3 30 rows, 21,738.4 s, 241.54 s per exchange; k = 1 90 rows, 25,531.1 s, 283.68 s per exchange.
+  **R (post hoc) = 0.8514.**
+- **Outcome by the rule fixed before either number existed: both are above 0.75. P1b STOPS.** No answering sessions;
+  K = 3 is not adopted; the registered study stays at k = 1; no re-run. Neither reading is primary, and neither is the
+  registered R. The bound printed by the script applies to both: one run per k, a single measured ratio, not an
+  interval.
+- **Limits:** the descriptive readings rest on one run per arm. The design owner and the study lead both saw a crude
+  ratio (about 0.85) before the rule was fixed (disclosed above). The custody exposure bound of A10 travels with these
+  numbers. Display nit: the excluded-rows block names both files by their shared basename (`turns.jsonl`); each row
+  is identified by its exchanges.
