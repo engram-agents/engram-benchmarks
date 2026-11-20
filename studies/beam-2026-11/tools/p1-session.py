@@ -109,6 +109,18 @@ of asking questions, then saves the resulting home as a new preserved end state:
   proved byte-equal. In this mode a step-10 failure that is not a difference (the after-hashes cannot be computed or
   written, for example the run directory was removed) prints `AFTER-HASHES UNAVAILABLE: <reason>` and is exit 3, never
   `PROTECTED CHANGED`; the answering mode keeps its pinned behaviour (an unprovable pass counts as every home changed).
+A FLAGGED SESSION AND ITS END STATE (design owner's ruling, option C). After a FLAGGED log-verdict in continue-reading mode the end
+state is still saved, but under the QUARANTINE name `<--save-end-state>.flagged` (hashes `.flagged.hashes.txt`, record
+`.flagged.verdict.txt`), and setup.txt says in words that the run is excluded (`saved end state QUARANTINED: ...`); the session's
+wrapper log, verdict line and transcript stay in the run directory. A clean session saves to `<--save-end-state>` with its record
+`<--save-end-state>.verdict.txt` (`sandbox verdict:`, `sandbox log:`, `run record:` lines). Every one of these paths is created
+EXCLUSIVELY (os.mkdir without exist_ok, O_CREAT | O_EXCL), recorded in c["created"] at the moment of its own create, and a
+failure removes only the paths recorded there: a path that already existed was never recorded, so it is never touched. Step 1
+refuses if any of the clean or quarantine names already exists. THE READER refuses by name and by content, before anything is
+touched (exit 2): an --end-state under a quarantine name (`*.flagged`); one whose own record (`<end state>.verdict.txt`, looked for
+beside the path as given and beside its realpath) carries a flagged verdict, so renaming a quarantined state together with its
+record does not launder it; one with no verdict line at all (a state saved by an older tool, or copied by hand: such a state needs
+a record written for it before continue-reading will start from it).
 Exit codes: 0 all good; 1 delivery check failed; 2 refused (the sandbox module's pre-launch refusals included); 3 copy, plan check,
 feed4, a sandbox STOP (log-verdict refusal, launch-line hash mismatch) or (continue-reading) the save or the after-hashes proof
 failed; 4 plant failed; 5 a protected home changed (overrides every other code).
@@ -422,9 +434,46 @@ def serving_record(env):
     return [f"serving: ollama version {version}", f"serving: model {SERVING_MODEL}", f"serving: model digest {digest}"]
 
 
+QUARANTINE_SUFFIX = ".flagged"
+VERDICT_SUFFIX = ".verdict.txt"
+
+
+def end_state_verdict_problem(path):
+    """The continue-reading reader's check of an end state, BY NAME AND BY CONTENT (design owner's ruling on F5, option C).
+    The end state's own record is the file `<path>.verdict.txt` beside it (the layout `save_end_state` writes: the hashes
+    file is `<path>.hashes.txt`); it holds the line `sandbox verdict: <the session's log-verdict line>`. Returns the reason
+    to refuse, or None. Refused: (a) a quarantine name (`*.flagged`); (b) a record whose verdict is flagged (so renaming a
+    quarantined state together with its record does not launder it); (c) no record, or no verdict line in it (a state saved
+    by an older tool, or copied by hand). The record is looked for beside the path as given and beside its realpath."""
+    for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
+        if os.path.basename(cand).endswith(QUARANTINE_SUFFIX):
+            return (f"the end state {cand} is under a quarantine name ({QUARANTINE_SUFFIX}): it was saved by a FLAGGED "
+                    "session, and an excluded run's end state is never read as a start")
+    verdicts = []
+    for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
+        rec = cand + VERDICT_SUFFIX
+        try:
+            lines = open(rec, encoding="utf-8").read().splitlines()
+        except OSError:
+            continue
+        verdicts += [(rec, l[len("sandbox verdict: "):]) for l in lines if l.startswith("sandbox verdict: ")]
+    if not verdicts:
+        return (f"the end state {path} has no verdict line: there is no record {os.path.abspath(path)}{VERDICT_SUFFIX} "
+                "holding `sandbox verdict: ...` (a state saved by an older tool, or copied by hand, is refused)")
+    for rec, v in verdicts:
+        if v.startswith("flagged"):
+            return f"the end state {path} has a FLAGGED verdict in its own record {rec} ({v}): an excluded run's end state is never read as a start"
+        if v != "not-flagged":
+            return f"the end state {path} has an unrecognised verdict {v!r} in its record {rec}"
+    return None
+
+
 def continue_step1(a, env, end, paths):
     """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
     also before anything is touched). Returns the fields the later steps need."""
+    why = end_state_verdict_problem(a.end_state)
+    if why:
+        raise Refusal(why)
     if a.per_round < 1:
         raise Refusal(f"--per-round must be at least 1 (got {a.per_round})")
     if a.start < 2:
@@ -445,8 +494,14 @@ def continue_step1(a, env, end, paths):
         raise Refusal(f"--save-end-state {save} already exists (a saved end state is never overwritten)")
     if os.path.lexists(hashes):
         raise Refusal(f"the hashes file {hashes} already exists (it is written beside --save-end-state and never overwritten)")
+    for extra in (save + VERDICT_SUFFIX, save + QUARANTINE_SUFFIX, save + QUARANTINE_SUFFIX + ".hashes.txt",
+                  save + QUARANTINE_SUFFIX + VERDICT_SUFFIX):
+        if os.path.lexists(extra):   # a flagged session saves under the quarantine name: that name must be free too
+            raise Refusal(f"{extra} already exists (the end state's record and its quarantine name are never overwritten)")
     refuse_overlap("--save-end-state", save, paths)  # the save path and the hashes path against EVERY path the launcher makes or protects
     refuse_overlap("the hashes file", hashes, paths)
+    refuse_overlap("the verdict record", save + VERDICT_SUFFIX, paths)
+    refuse_overlap("the quarantine name", save + QUARANTINE_SUFFIX, paths)
     if not os.path.isdir(os.path.dirname(save)):
         raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
     expect_serving = None
@@ -458,7 +513,7 @@ def continue_step1(a, env, end, paths):
     serving = serving_record(env)
     if expect_serving is not None and expect_serving != serving:
         raise Refusal(f"the recorded serving setup differs from --expect-serving {a.expect_serving}\n  recorded: {serving}\n  expected: {expect_serving}")
-    return {"save": save, "hashes": hashes, "serving": serving}
+    return {"save": save, "hashes": hashes, "verdict_rec": save + VERDICT_SUFFIX, "serving": serving}
 
 
 def step1(a):
@@ -626,17 +681,23 @@ def save_end_state(a, c, steps):
     now: if either does, exit 3 and nothing of the caller's is touched. Any later failure removes only what this run
     created (c["created"])."""
     step = "9b save the end state"
+    flagged = bool(c.get("flagged_verdict"))
+    if flagged:   # (C): saved, but under the quarantine name; every path moves together
+        c["save"] = c["save"] + QUARANTINE_SUFFIX
+        c["hashes"] = c["save"] + ".hashes.txt"
+        c["verdict_rec"] = c["save"] + VERDICT_SUFFIX
     left = slot_pids(c["slot"])  # quiescence: the stop step's grace period has passed; a live slot process could still write
     if left:
         steps.append((step, 3))
         print(f"STOP: slot process(es) {left} still running after the stop step's grace period; nothing saved")
         return 3
-    hashes_file = None
+    hashes_file = verdict_file = None
 
     def fail(code, msg):
         steps.append((step, code)); print(msg)
-        if hashes_file is not None:
-            hashes_file.close()
+        for f in (hashes_file, verdict_file):
+            if f is not None:
+                f.close()
         remove_saved(c)
         return 3
 
@@ -644,6 +705,8 @@ def save_end_state(a, c, steps):
         os.mkdir(c["save"]); c["created"].append(c["save"])
         hashes_file = os.fdopen(os.open(c["hashes"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
         c["created"].append(c["hashes"])
+        verdict_file = os.fdopen(os.open(c["verdict_rec"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
+        c["created"].append(c["verdict_rec"])
     except FileExistsError as e:
         return fail(3, f"STOP: {e.filename} appeared after step 1 (it exists now); this run never overwrites or removes a path "
                        "it did not create; nothing saved")
@@ -663,11 +726,22 @@ def save_end_state(a, c, steps):
         check_end_state_links(c["save"], c["protected"])  # the check the NEXT run's step 1 will make on this end state
         rec = home_record(c["save"])
         hashes_file.write(rec); hashes_file.close()
+        info = c.get("sandbox_info") or []
+        verdict_file.write("".join(l + "\n" for l in info if l.startswith(("sandbox verdict: ", "sandbox log: "))))
+        verdict_file.write(f"run record: {os.path.join(os.path.basename(c['rundir']), 'setup.txt')}\n")
+        verdict_file.close()
     except Refusal as e:
         return fail(3, f"STOP: the saved end state would be refused by the next run ({e})")
     except Exception as e:  # noqa: BLE001
         return fail(3, f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
     c["saved_lines"] = [f"saved end state: {c['save']}", "saved end state: .disposable-copy marker removed (the slot keeps its own)"] + rec.splitlines()
+    c["saved_lines"].append(f"saved end state verdict record: {c['verdict_rec']}")
+    if flagged:
+        c["saved_lines"].append(
+            f"saved end state QUARANTINED: {c['save']}: the session's sandbox verdict was FLAGGED (the model endpoint was "
+            "unreachable and nothing reached it), so this run is excluded and its end state is kept only under the "
+            f"quarantine name {QUARANTINE_SUFFIX}; continue-reading refuses it by that name and by the flagged verdict in "
+            f"{os.path.basename(c['verdict_rec'])}. The session's wrapper log, verdict line and transcript stay in the run directory.")
     print("".join(l + "\n" for l in c["saved_lines"]), end="")
     steps.append((step, 0))
     return 0
@@ -791,6 +865,7 @@ def work(a, c, steps):
     print(open(os.path.join(rundir, "delivery.txt")).read(), end="")
     steps.append(("9 after the run (delivery check)", drc))
     if a.continue_reading and not frc and not drc:
+        c["flagged_verdict"] = str(res.verdict or "").startswith("flagged")
         return save_end_state(a, c, steps)
     return 3 if frc else (1 if drc else 0)
 

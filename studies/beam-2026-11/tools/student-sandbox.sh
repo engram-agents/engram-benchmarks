@@ -40,6 +40,15 @@ for n in SANDBOX_SLOT SANDBOX_BINARY SANDBOX_BINARY_SHA256 SANDBOX_MODEL_HOST SA
   [ -n "${!n:-}" ] || refuse "$n is not set or is empty"
 done
 [[ $SANDBOX_BINARY_SHA256 =~ ^[0-9a-fA-F]{64}$ ]] || refuse "SANDBOX_BINARY_SHA256 is not 64 hex characters"
+# The scope unit's name prefix: `student-sandbox-` in a real run, which is the only value there. A test run may give its own
+# (SANDBOX_TEST_UNIT_PREFIX, test mode only, so that two test runs on one host never see each other's units); set outside
+# test mode, or set but malformed, it is a refusal. The launch module's before-launch scan and its unit-name check use the same prefix.
+UNIT_PREFIX=student-sandbox-
+if [ -n "${SANDBOX_TEST_UNIT_PREFIX+x}" ]; then
+  [ "${SANDBOX_TEST:-}" = 1 ] || refuse "SANDBOX_TEST_UNIT_PREFIX is accepted only with SANDBOX_TEST=1 (a real run names its scopes student-sandbox-<pid>-<hex>)"
+  [[ $SANDBOX_TEST_UNIT_PREFIX =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*-$ ]] || refuse "SANDBOX_TEST_UNIT_PREFIX is not a prefix (letters, digits, . _ - and a trailing -)"
+  UNIT_PREFIX=$SANDBOX_TEST_UNIT_PREFIX
+fi
 [[ $SANDBOX_MODEL_PORT =~ ^[0-9]{1,5}$ ]] && ((10#$SANDBOX_MODEL_PORT >= 1 && 10#$SANDBOX_MODEL_PORT <= 65535)) \
   || refuse "SANDBOX_MODEL_PORT is not a port number (1-65535)"
 PORT=$((10#$SANDBOX_MODEL_PORT))
@@ -358,7 +367,7 @@ SCOPE_PROPS=(-p "TasksMax=$BOX_TASKS" -p "MemoryMax=$BOX_MEM" -p MemorySwapMax=0
              -p OOMPolicy=continue)   # continue: the kernel kills the hog alone; the default (stop) would SIGTERM the whole box
 # R7-2: the box's scope has a NAME (this wrapper's pid and a short random suffix), on the launch line, so the run's cap hits
 # can be found afterwards: by the outer forwarder's box-cgroup line, and by the journal for the named unit.
-SCOPE_UNIT=$(printf 'student-sandbox-%s-%04x%04x' "$$" "$RANDOM" "$RANDOM")
+SCOPE_UNIT=$(printf '%s%s-%04x%04x' "$UNIT_PREFIX" "$$" "$RANDOM" "$RANDOM")
 SCOPE=(systemd-run --user --scope --quiet --collect --unit "$SCOPE_UNIT" "${SCOPE_PROPS[@]}")
 XDG_RUNTIME_DIR=$SCOPE_RT systemd-run --user --scope --quiet --collect "${SCOPE_PROPS[@]}" -- "$PY" -I -c pass >/dev/null 2>&1 \
   || refuse "systemd-run could not start a user scope with TasksMax and MemoryMax: the box's process and memory caps cannot be applied (needs a user systemd manager with the pids and memory controllers delegated)"

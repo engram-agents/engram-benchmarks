@@ -42,6 +42,27 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # The single list of student-starting implementations. Every process invocation of one by a launcher goes through
 # run_feeder; the no-second-door cell reads this tuple, not a hand list.
 FEEDERS = ("feed.py", "feed2.py", "feed4.py")
+# The no-second-door gate (a cell in tests/test_sandbox_launch.py reads this dict). Every file in this directory (any extension,
+# outside tests/) whose text mentions a feeder (feed, feed2, feed4) or the word `claude` must be exactly one of: this module; a
+# feeder in FEEDERS; a file carrying the RETIRED-LAUNCHER marker in its first three lines; or listed HERE with a one-line
+# reason: files that only read a feeder's text or constants, or name `claude` in prose. A "consumer:" entry is a file that starts
+# students only through run_feeder (the cell checks it really calls it). Adding a name here is the review point: nothing else
+# lets a launcher through.
+NON_LAUNCHERS = {
+    "README.md": "documentation: names the feeders and claude in prose, starts nothing",
+    "analyze-gate2.redacted.py": "analysis of gate runs; imports feed's exchanges() for a count check, starts no student",
+    "answer-delivery-check.py": "reads the turns.jsonl a feeder wrote; starts nothing",
+    "reading-delivery-check.py": "reads the turns.jsonl a feeder wrote; starts nothing",
+    "check-port-identity.py": "imports feed and feed2 in a subprocess to compare their constants; never uses Student",
+    "control-source-check.py": "reads files a feeder and the planting step wrote; starts nothing",
+    "coverage.py": "imports feed.py's renderer to count coverage; starts nothing",
+    "gate-input-evidence.py": "rebuilds the messages feed.py renders and compares them with a run's transcripts; starts nothing",
+    "pilot-memcheck.sh": "lists memory folders under the arm home's .claude directory; starts nothing",
+    "plant-control.py": "plants facts into an arm home's stores (names .claude paths); starts no student",
+    "setup-id.py": "hashes the feed scripts and their imports into a setup id; starts nothing",
+    "student-sandbox.sh": "the wrapper itself: it is the file named claude on the PATH and starts the box, not a feeder",
+    "p1-session.py": "consumer: starts every student session only through sandbox_launch.run_feeder",
+}
 WRAPPER_SRC = os.path.join(HERE, "student-sandbox.sh")
 FORWARDER_SRC = os.path.join(HERE, "sandbox-forward.py")
 # Every SANDBOX_* name student-sandbox.sh refuses without (a cell derives this set from the wrapper's own source).
@@ -132,12 +153,87 @@ def check_settings(settings):
     return dict(settings)
 
 
+TEST_PREFIX_NAME = "SANDBOX_TEST_UNIT_PREFIX"
+_PREFIX_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*-")
+
+
+def unit_prefix(settings):
+    """The prefix the wrapper names this launch's scope with: `student-sandbox-` in a real run (the only value there), or the
+    test-only SANDBOX_TEST_UNIT_PREFIX, accepted ONLY together with SANDBOX_TEST=1 so that two test runs on one host can be
+    told apart. A named refusal otherwise."""
+    p = settings.get(TEST_PREFIX_NAME)
+    if p is None:
+        return UNIT_PREFIX
+    if settings.get("SANDBOX_TEST") != "1":
+        raise LaunchRefused(f"{TEST_PREFIX_NAME} is refused without SANDBOX_TEST=1: a real run names its scopes "
+                            f"{UNIT_PREFIX}<pid>-<hex> and has no other prefix")
+    if not _PREFIX_RE.fullmatch(p):
+        raise LaunchRefused(f"{TEST_PREFIX_NAME} {p!r} is not a prefix (letters, digits, . _ - and a trailing -)")
+    return p
+
+
+def unit_name_re(prefix):
+    """The wrapper's scope naming (SCOPE_UNIT in student-sandbox.sh): <prefix><wrapper pid>-<8 hex>, with `.scope` optional."""
+    return re.compile(re.escape(prefix) + r"[0-9]+-[0-9a-f]+(\.scope)?")
+
+
 class Sandbox:
     """What a launch needs besides the feeder call: the SANDBOX_* settings and the expected hashes."""
     def __init__(self, settings, expected_file):
         self.settings = check_settings(settings)
+        self.prefix = unit_prefix(self.settings)
         self.expected = load_expected(expected_file)
         self.expected_file = expected_file
+
+
+# DEFAULT DENY on a feeder's argv (the security seat's recommendation). argparse (feed2.py's and feed4.py's parsers use its
+# defaults) maps several spellings onto one option: `--opt=value` and any unambiguous prefix (`--en`, `--ou`, `--arm-hom`). The
+# module's guards read only the exact `--flag VALUE` spelling (the PATH check, the model-URL check, the refusal of a caller's
+# SANDBOX_* pair, the proctor binds), so any other spelling would be applied by the feeder and be invisible to them. Instead of
+# listing the spellings to refuse, ONE dict names what a launcher may pass: {feeder basename: {exact long option: arity}}, and
+# run_feeder refuses, named, before anything starts, any argv token that is not exactly an allowed option, the value of one,
+# or (nothing else exists) anything at all. That covers `--env=K=V`, abbreviations, short flags and any option a feeder adds
+# later, by construction. ARITY (0: a flag, 1: takes the next token as its value) is stated here and a cell checks it against
+# the feeder's own add_argument call. A launcher that needs a new feeder option adds it here, in the PR that adds it, or its
+# launch is refused (loud, by design).
+# The options below are what the in-tree callers pass. feed4.py: exactly what p1-session.py passes (the answering run, the
+# continue-reading run and both plan dumps). feed2.py: no in-tree launcher passes feed2 through the module yet, so this is the
+# options the retired run-engram-full.sh used (--arm-home --out --conv --turns --first-session --setup-only --force-compact --ask)
+# plus --env, which the module itself passes to every feeder. feed.py: no in-tree caller; its first-turn options only, and note
+# that feed.py declares no --env, which the module passes, so feed.py cannot be launched through the module until it does.
+FEEDER_OPTIONS = {
+    "feed4.py": {"--arm-home": 1, "--out": 1, "--conv": 1, "--turns": 1, "--resume": 1, "--start": 1, "--per-round": 1,
+                 "--question-file": 1, "--expect-components": 1, "--env": 1, "--force-compact": 0, "--dump-plan": 0},
+    "feed2.py": {"--arm-home": 1, "--out": 1, "--conv": 1, "--turns": 1, "--first-session": 0, "--setup-only": 0,
+                 "--force-compact": 0, "--ask": 1, "--env": 1},
+    "feed.py": {"--arm-home": 1, "--out": 1, "--conv": 1, "--turns": 1},
+}
+_NEG_NUMBER = re.compile(r"-[0-9]+(\.[0-9]+)?")
+
+
+def check_argv_options(argv, options, feeder):
+    """Refuse (LaunchRefused, naming the token) any argv token that is not exactly an allowed option or the value of one.
+    An option is told from a value by position: after an allowed option of arity 1 the next token is its value (it may not
+    look like an option: a leading `-` is refused unless it is a plain negative number); after one of arity 0, or after a
+    value, the next token must be an allowed option again. Nothing else is a token: a positional or an unknown option is
+    refused."""
+    expect_value = None
+    for tok in argv:
+        if expect_value is not None:
+            if tok.startswith("-") and not _NEG_NUMBER.fullmatch(tok):
+                raise LaunchRefused(f"the feeder argument {tok!r} follows {expect_value} but looks like an option, not a "
+                                    f"value: {os.path.basename(feeder)} launches only take exact long options "
+                                    f"({sorted(options)}) and their values")
+            expect_value = None
+            continue
+        if tok in options:
+            expect_value = tok if options[tok] == 1 else None
+            continue
+        raise LaunchRefused(f"the feeder argument {tok!r} is not an option {os.path.basename(feeder)} may be launched with "
+                            f"through this module (exact long options only, no `--opt=value`, no abbreviation: "
+                            f"{sorted(options)}); add a needed option to FEEDER_OPTIONS in the PR that needs it")
+    if expect_value is not None:
+        raise LaunchRefused(f"the feeder option {expect_value} has no value")
 
 
 def env_pairs(argv):
@@ -241,15 +337,12 @@ def _fresh_log(log_dir):
 
 
 def read_launch_hashes(log):
-    """wrapper_sha256 and forwarder_sha256 from the log's launch line ({} entries missing if the line lacks them)."""
-    out = {}
-    with open(log, "rb") as f:
-        for line in f.read().decode("utf-8", "replace").splitlines():
-            if line.startswith("wrapper-launch "):
-                for field in ("wrapper_sha256", "forwarder_sha256"):
-                    m = re.search(r"(?:^| )%s=([0-9A-Za-z]*)(?: |$)" % field, line)
-                    out[field] = m.group(1) if m else None
-    return out
+    """wrapper_sha256 and forwarder_sha256 from the log's launch line (the FIRST one, as read_launch_fields: one place parses
+    the line); {} when there is none, None for a field the line lacks."""
+    fields = read_launch_fields(log)
+    if fields is None:
+        return {}
+    return {k: fields.get(k) for k in ("wrapper_sha256", "forwarder_sha256")}
 
 
 def read_verdict(wrapper_dir, log):
@@ -305,7 +398,8 @@ def read_launch_fields(log):
 
 
 def launch_markers(fields):
-    """The four teardown markers from a launch line's fields, validated; LaunchMarkerError names what is missing."""
+    """The four teardown markers from a launch line's fields, strictly validated (the before-launch check uses this);
+    LaunchMarkerError names what is missing."""
     missing = [k for k in LAUNCH_MARKERS if not fields.get(k)]
     if missing:
         raise LaunchMarkerError("the launch line lacks " + ", ".join(missing))
@@ -317,6 +411,29 @@ def launch_markers(fields):
         raise LaunchMarkerError("the launch line's forwarder_pid or forwarder_start is not a real value")
     return {"scope_unit": fields["scope_unit"], "forwarder_pid": pid, "forwarder_start": start,
             "bridge_sock": fields["bridge_sock"]}
+
+
+def partial_markers(fields):
+    """The teardown's reading of a launch line: (markers, unchecked). `scope_unit` is the one marker the stop needs; the
+    forwarder's pid and start time and the bridge socket path feed checks (ii) and (iii). A marker that is missing or not a
+    real value (the wrapper writes forwarder_start=0 if the forwarder died before its start time could be read) is None, and
+    `unchecked` says which check could not run: that is reported, never read as clean."""
+    m = {"scope_unit": fields.get("scope_unit"), "forwarder_pid": None, "forwarder_start": None,
+         "bridge_sock": fields.get("bridge_sock") or None}
+    unchecked = []
+    try:
+        pid, start = int(fields.get("forwarder_pid", "")), int(fields.get("forwarder_start", ""))
+        if pid > 0 and start > 0:
+            m["forwarder_pid"], m["forwarder_start"] = pid, start
+    except ValueError:
+        pass
+    if m["forwarder_pid"] is None:
+        unchecked.append("check (ii) (the forwarder pid and start time) could not run: forwarder_pid or forwarder_start is "
+                         f"missing or 0 on the launch line (forwarder_pid={fields.get('forwarder_pid')!r}, "
+                         f"forwarder_start={fields.get('forwarder_start')!r})")
+    if m["bridge_sock"] is None:
+        unchecked.append("check (iii) (the bridge socket path in any argv) could not run: bridge_sock is missing on the launch line")
+    return m, unchecked
 
 
 def proc_start(pid):
@@ -342,37 +459,65 @@ def argv_pids(path):
 
 
 def unit_pids(unit):
-    """The pids in the unit's own cgroup (the cgroup path is read from the unit); [] when the unit is gone."""
+    """The pids in the unit's own cgroup (the cgroup path is read from the unit); [] when the unit is gone. FAIL CLOSED: an
+    unreadable or missing `cgroup.procs` while the unit still exists is not clean, it is a SystemctlError naming the unit.
+    Only a unit that has vanished between the two reads counts as empty."""
     unit = scope_name(unit)
-    r = _systemctl("show", "-p", "ControlGroup", "--value", unit)
-    if r.returncode != 0:
-        raise SystemctlError(f"`systemctl --user show {unit}` failed: {r.stderr.strip()}")
-    cg = r.stdout.strip()
+
+    def control_group():
+        r = _systemctl("show", "-p", "ControlGroup", "--value", unit)
+        if r.returncode != 0:
+            raise SystemctlError(f"`systemctl --user show {unit}` failed: {r.stderr.strip()}")
+        return r.stdout.strip()
+
+    cg = control_group()
     if not cg:
         return []
     try:
         return [int(x) for x in open("/sys/fs/cgroup%s/cgroup.procs" % cg).read().split()]
-    except (OSError, ValueError):
-        return []
+    except FileNotFoundError:
+        if not control_group():   # the unit went away between the two reads: that is empty
+            return []
+        raise SystemctlError(f"cgroup.procs of {unit} is missing while the unit still exists (cgroup {cg}): its processes "
+                             "cannot be listed, which is not the same as none")
+    except (OSError, ValueError) as e:
+        raise SystemctlError(f"cgroup.procs of {unit} cannot be read ({type(e).__name__}) while the unit still exists "
+                             f"(cgroup {cg}): its processes cannot be listed, which is not the same as none")
 
 
-def active_units():
-    r = _systemctl("list-units", "--type=scope", "--state=active", "--no-legend", "--plain", UNIT_PREFIX + "*")
+def active_units(prefix=UNIT_PREFIX):
+    """Every scope unit named under `prefix` that is not `inactive`: querying `systemctl --user list-units --type=scope --all
+    '<prefix>*'` and keeping activating, active, deactivating and reloading units, and a `failed` unit that still has
+    processes in its cgroup (an `inactive` or processless failed unit holds nothing)."""
+    r = _systemctl("list-units", "--type=scope", "--all", "--no-legend", "--plain", prefix + "*")
     if r.returncode != 0:
         raise SystemctlError(f"`systemctl --user list-units` failed: {r.stderr.strip()}")
-    return [l.split()[0] for l in r.stdout.splitlines() if l.strip()]
+    out = []
+    for line in r.stdout.splitlines():
+        cols = line.split()
+        if len(cols) < 3 or not cols[0].startswith(prefix):
+            continue
+        unit, state = cols[0], cols[2]
+        if state == "inactive":
+            continue
+        if state == "failed" and not unit_pids(unit):
+            continue
+        out.append(unit)
+    return out
 
 
 def leftovers(m):
-    """What of the launch described by markers `m` is still there: {pid: [why, ...]}. The three checks of the teardown."""
+    """What of the launch described by markers `m` is still there: {pid: [why, ...]}. The three checks of the teardown; a
+    check whose marker is None cannot run (see partial_markers: the caller reports that, never reads it as clean)."""
     left = {}
     for pid in unit_pids(m["scope_unit"]):                                  # (i) the scope's own cgroup
         left.setdefault(pid, []).append(f"still in the cgroup of scope {m['scope_unit']}")
-    start = proc_start(m["forwarder_pid"])                                  # (ii) the forwarder: same pid AND same start time
-    if start == m["forwarder_start"]:
-        left.setdefault(m["forwarder_pid"], []).append("the launch's outer forwarder (same pid and start time) is still alive")
-    for pid in argv_pids(m["bridge_sock"]):                                 # (iii) the bridge socket path in any argv
-        left.setdefault(pid, []).append(f"its argv carries this launch's bridge_sock {m['bridge_sock']}")
+    if m.get("forwarder_pid") is not None:                                  # (ii) the forwarder: same pid AND same start time
+        if proc_start(m["forwarder_pid"]) == m["forwarder_start"]:
+            left.setdefault(m["forwarder_pid"], []).append("the launch's outer forwarder (same pid and start time) is still alive")
+    if m.get("bridge_sock"):                                                # (iii) the bridge socket path in any argv
+        for pid in argv_pids(m["bridge_sock"]):
+            left.setdefault(pid, []).append(f"its argv carries this launch's bridge_sock {m['bridge_sock']}")
     return left
 
 
@@ -390,11 +535,12 @@ def _describe(left):
 
 
 def teardown(m):
-    """Stop the launch's scope, then make sure nothing of it remains. Returns what is left ({} when clean)."""
+    """Stop the launch's scope FIRST (whatever the other markers say), then make sure nothing of it remains. Returns what is
+    left ({} when clean). A missing forwarder or socket marker means a check could not run: the caller reports that."""
     _systemctl("stop", scope_name(m["scope_unit"]))   # the exit code is not read: a unit that is already gone is exactly the goal
     left = _settle(m, _SETTLE_S)
-    pid = m["forwarder_pid"]
-    if pid in left and proc_start(pid) == m["forwarder_start"]:   # still the very process the launch started: end it
+    pid = m.get("forwarder_pid")
+    if pid is not None and pid in left and proc_start(pid) == m["forwarder_start"]:   # still the very process the launch started
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.kill(pid, sig)
@@ -416,10 +562,11 @@ def _write_record(path, rec):
     os.replace(tmp, path)
 
 
-def check_before_launch(state_dir):
+def check_before_launch(state_dir, prefix=UNIT_PREFIX):
     """B: refuse to launch while anything earlier is alive. Two positive markers, no process search: (1) every record in
     `state_dir` not marked done is re-checked with the teardown's three checks (a record whose session never wrote a launch
-    line has nothing to check and is closed); (2) any active user scope unit named with the wrapper's own prefix."""
+    line has nothing to check and is closed); (2) any user scope unit under the launch's prefix (`student-sandbox-` in a real
+    run) that is not inactive. A record whose scope_unit is not a name this wrapper makes is refused, never stopped."""
     problems, count = [], 0
     try:
         for name in sorted(os.listdir(state_dir)):
@@ -443,6 +590,11 @@ def check_before_launch(state_dir):
             except LaunchMarkerError as e:
                 problems.append(f"the earlier launch {name}: {e}"); count += 1
                 continue
+            if not unit_name_re(prefix).fullmatch(m["scope_unit"]):
+                problems.append(f"the earlier launch {name} names scope_unit {m['scope_unit']!r}, which is not a unit this "
+                                f"wrapper makes ({prefix}<pid>-<hex>): it is not touched")
+                count += 1
+                continue
             left = _settle(m, _SETTLE_S)
             if left:
                 problems.append(f"the earlier launch {name} left something alive: {_describe(left)} (stop it with: "
@@ -452,7 +604,7 @@ def check_before_launch(state_dir):
             else:
                 rec.update(m, state="done", note="found gone at a later launch")
                 _write_record(path, rec)
-        for unit in active_units():
+        for unit in active_units(prefix):
             problems.append(f"the scope unit {unit} is active (stop it with: systemctl --user stop {unit})")
             count += 1
     except SystemctlError as e:
@@ -464,51 +616,76 @@ def check_before_launch(state_dir):
         raise err
 
 
-def _close_launch(rec_path, rec, log, res):
+def _close_launch(rec_path, rec, log, res, prefix=UNIT_PREFIX):
     """T: after the feeder returned (whatever its exit code). Returns None when the launch is torn down and its record is
     closed, else the LaunchStop that names what remains. A session whose wrapper wrote no launch line (it refused before
-    launching) is told apart by exactly that: there is nothing to stop."""
+    launching) is told apart by exactly that: there is nothing to stop. Whenever a launch line names a scope_unit that is a
+    unit this wrapper makes, that scope is stopped FIRST, whatever the other markers say and whether or not the record can be
+    written; the three checks then run with what the line has, and a check that could not run is reported, never read as clean."""
     fields = read_launch_fields(log)
     if fields is None:
-        rec.update(state="done", note="no launch line in the log: the wrapper refused before it launched, nothing to stop")
-        _write_record(rec_path, rec)
+        try:
+            rec.update(state="done", note="no launch line in the log: the wrapper refused before it launched, nothing to stop")
+            _write_record(rec_path, rec)
+        except OSError as e:
+            return LaunchStop(f"teardown: nothing to stop (no launch line), but the launch record could not be closed ({e})", res)
         return None
+    unit = fields.get("scope_unit")
+    if not unit:
+        return LaunchStop("teardown: the launch line has no scope_unit, so the launch's scope cannot be stopped by name", res)
+    if not unit_name_re(prefix).fullmatch(unit):
+        return LaunchStop(f"teardown: the launch line's scope_unit {unit!r} is not a unit this wrapper makes "
+                          f"({prefix}<pid>-<hex>); it is NOT stopped", res)
+    m, unchecked = partial_markers(fields)
     try:
-        m = launch_markers(fields)
-    except LaunchMarkerError as e:
-        return LaunchStop(f"teardown: {e}, so the launch's scope and forwarder cannot be checked", res)
-    rec.update(m)
-    _write_record(rec_path, rec)
-    try:
-        left = teardown(m)
+        left = teardown(m)                 # the stop comes first inside; nothing before it can skip it
     except SystemctlError as e:
         return LaunchStop(f"teardown: {e}", res)
+    rec_err = None
+    try:
+        rec.update({k: v for k, v in m.items() if v is not None})
+        _write_record(rec_path, rec)
+    except OSError as e:
+        rec_err = e
+    problems = []
     if left:
-        return LaunchStop(f"teardown: after `systemctl --user stop {scope_name(m['scope_unit'])}` something of this launch remains: "
-                          f"{_describe(left)}", res)
-    rec.update(state="done", note="torn down")
-    _write_record(rec_path, rec)
+        problems.append(f"after `systemctl --user stop {scope_name(unit)}` something of this launch remains: {_describe(left)}")
+    problems += unchecked
+    if rec_err is not None:
+        problems.append(f"the launch record {rec_path} could not be written ({type(rec_err).__name__}); the scope was stopped")
+    if problems:
+        return LaunchStop("teardown: " + "; ".join(problems), res)
+    try:
+        rec.update(state="done", note="torn down")
+        _write_record(rec_path, rec)
+    except OSError as e:
+        return LaunchStop(f"teardown: the scope is stopped and nothing remains, but the record could not be closed ({e})", res)
     return None
 
 
 def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, state_dir=None, env=None, test_stub=False,
-               **run_kw):
+               stub_as="feed4.py", **run_kw):
     """Run `py -I feeder *argv`. See the module docstring. `sandbox` is a Sandbox for a student session; None only for a
     call that starts no student (`--dump-plan`). `log_dir` is where this session's SANDBOX_LOG is chosen (or `log_path`
     names it; it must not exist). `state_dir` (required for a student session, no default) holds one record per launch.
     `test_stub=True` lets a test substitute a stub script for a feeder (the P1_FEED4 hook, refused outside
-    P1_TEST_HOOKS=1): the stub is wrapped like a feeder, so every check still runs on it.
+    P1_TEST_HOOKS=1): the stub is wrapped like a feeder, so every check still runs on it, and its argv obeys the allow-list
+    of the feeder it stands in for (`stub_as`, feed4.py by default).
     Extra keyword arguments go to subprocess.run (stdout=...)."""
     if os.path.basename(feeder) not in FEEDERS and not test_stub:
         raise LaunchRefused(f"{feeder} is not one of the feeders {FEEDERS}")
     env = dict(os.environ if env is None else env)
     argv = list(argv)
+    check_argv_options(argv, FEEDER_OPTIONS[os.path.basename(feeder) if os.path.basename(feeder) in FEEDER_OPTIONS else stub_as],
+                       feeder)
     if "--dump-plan" in argv:   # starts no student: no wrapper, no log
         return LaunchResult(subprocess.run([py, "-I", feeder, *argv], env=env, **run_kw).returncode)
     if sandbox is None:
         raise LaunchRefused("a feeder call that starts a student needs the sandbox (only --dump-plan runs without it)")
     if not state_dir:
         raise LaunchRefused("a student session needs a state directory for its launch record (the module has no default)")
+    if not env.get("PATH"):
+        raise LaunchRefused("the caller's environment has no PATH: the wrapper directory must go first on the PATH the feeder gets")
     for k, _ in env_pairs(argv):
         if k.startswith("SANDBOX_"):
             raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
@@ -523,7 +700,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
     log_path = os.path.abspath(log_path)
     check_model_url(model_url(argv, env), sandbox.settings["SANDBOX_MODEL_PORT"])
     os.makedirs(state_dir, mode=0o700, exist_ok=True)
-    check_before_launch(state_dir)   # B: nothing of an earlier launch may be alive
+    check_before_launch(state_dir, sandbox.prefix)   # B: nothing of an earlier launch may be alive
     wdir = _prepare_dir()
     try:
         wrapper = os.path.join(wdir, "claude")
@@ -548,11 +725,11 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         try:
             res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=env, **run_kw).returncode
         except BaseException as exc:   # a feeder that could not run, or was interrupted: still torn down
-            td = _close_launch(rec_path, rec, log_path, res)
+            td = _close_launch(rec_path, rec, log_path, res, sandbox.prefix)
             if td is not None and hasattr(exc, "add_note"):
                 exc.add_note(str(td))
             raise
-        td = _close_launch(rec_path, rec, log_path, res)   # T: the log is final once the launch is torn down
+        td = _close_launch(rec_path, rec, log_path, res, sandbox.prefix)   # T: the log is final once the launch is torn down
         vs = None
         try:
             rc, line, err = read_verdict(wdir, log_path)

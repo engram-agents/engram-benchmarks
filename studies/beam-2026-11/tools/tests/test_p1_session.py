@@ -119,7 +119,8 @@ def emulate_wrapper(a):
     me = os.getpid()   # the stub stands in for the forwarder too: it is gone when the module looks (its start time is real)
     start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
-    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+    pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
             f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
@@ -200,6 +201,7 @@ class World:
         self.mark = root / "student-ran.txt"
         self.argv_log = root / "stub-argv.jsonl"
         self.sbx_log = root / "stub-sandbox-pairs.jsonl"
+        self.unit_prefix = "p1sbxt%s-" % os.urandom(3).hex()   # this world's own scope-name prefix (hermetic cells)
         # the sandbox input of a real run: the expected hashes are those of the files in this tree, the settings are
         # placeholders (a stub starts no student, so nothing executes them) with the port of feed.py's default model URL
         self.expected = root / "sandbox-expected.txt"
@@ -216,7 +218,9 @@ class World:
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
              "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
              "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
-             "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres)}
+             "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres),
+             # test mode and this run's own scope-name prefix: the before-launch scan sees only this run's units (hermetic)
+             "SANDBOX_TEST": "1", "SANDBOX_TEST_UNIT_PREFIX": self.unit_prefix}
         e.update({k: v for k, v in over.items() if v is not None})
         for k, v in over.items():
             if v is None:
@@ -1102,7 +1106,7 @@ def test_the_docstring_names_both_plant_sets_and_beam_parquet():
         assert phrase in doc, phrase
 
 
-# ------------------------------------------------------------------ the sandbox launch module (design A10; team crossing 33600)
+# ------------------------------------------------------------------ the sandbox launch module (design A10; the design owner's ruling)
 # Every student session goes through sandbox_launch.py. The stub feeder stands in for feed4.py and writes the log line the
 # wrapper would (emulate_wrapper), so the module's pre-launch and post-session checks run for real; STUB_SANDBOX picks a
 # variant. How the P1_FEED4 hook interacts with the wrapper (a decision recorded in the handoff): the stub is run by the
@@ -1227,9 +1231,9 @@ def test_sb_a_leftover_of_an_earlier_launch_refuses_the_session_and_the_count_is
     try:
         start = open("/proc/%d/stat" % helper.pid).read().rsplit(")", 1)[1].split()[19]
         log = w.root / "earlier.log"
-        log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=student-sandbox-none-1 "
+        log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=%s1-aa "
                        "forwarder_pid=%d forwarder_start=%s bridge_sock=%s model=h:1\n"
-                       % ("a" * 64, "b" * 64, helper.pid, start, w.root / "earlier.sock"))
+                       % ("a" * 64, "b" * 64, w.unit_prefix, helper.pid, start, w.root / "earlier.sock"))
         state = w.runs / "sandbox-launches"; state.mkdir()
         (state / "earlier.json").write_text(json.dumps({"log": str(log), "state": "open"}))
         r = w.run()

@@ -12,6 +12,10 @@ WRAPPER = os.path.join(TOOLS, "student-sandbox.sh")
 FWD = os.path.join(TOOLS, "sandbox-forward.py")
 FEED4 = os.path.join(TOOLS, "feed4.py")
 PY = "/usr/bin/python3"
+# Every test RUN names its box scopes with a prefix of its own (the wrapper's SANDBOX_TEST_UNIT_PREFIX, test mode only), so a
+# cell's before-launch scan and unit listing see only this run's units: another seat's student-sandbox-* unit on the host
+# cannot redden a cell, and this run never lists, stops or counts anyone else's.
+RUN_UNIT_PREFIX = "ssbxt%s-" % os.urandom(3).hex()
 # The only names the wrapper itself puts under /run inside the box.
 OWN_RUN_NAMES = {"sandbox-bridge.sock", "sandbox-forward.py"}
 
@@ -162,6 +166,7 @@ class Cfg:
              "SANDBOX_PROTECT": self.prot_file + ":" + self.prot_keys}
         if test:
             e["SANDBOX_TEST"] = "1"
+            e["SANDBOX_TEST_UNIT_PREFIX"] = RUN_UNIT_PREFIX   # this test RUN's own scope-name prefix (F3: hermetic cells)
         if exec_ is not None:
             e["SANDBOX_TEST_EXEC"] = exec_
         e.update(extra)
@@ -179,7 +184,6 @@ class Cfg:
 # (`--bind <slot> <slot>`, the bridge socket under the cell's TMPDIR), so a unit counts as this cell's exactly when a process
 # in its cgroup has the cell's root in its argv. A unit is never picked by name, so another run's box is never touched.
 # Every unit so attributed is recorded in CREATED_UNITS; the last cell of this file asserts none of them is still active.
-SCOPE_PREFIX = "student-sandbox-"
 CREATED_UNITS = []
 
 
@@ -190,7 +194,7 @@ def _systemctl(*args, timeout=60):
 
 def active_scope_units():
     try:
-        r = _systemctl("list-units", "--type=scope", "--state=active", "--no-legend", "--plain", SCOPE_PREFIX + "*")
+        r = _systemctl("list-units", "--type=scope", "--state=active", "--no-legend", "--plain", RUN_UNIT_PREFIX + "*")
     except (OSError, subprocess.TimeoutExpired):
         return []
     return [l.split()[0] for l in r.stdout.splitlines() if l.strip()]
@@ -3600,7 +3604,18 @@ CG_BOMB = ("import os, time\n"
 
 def test_r7_2_the_launch_line_names_the_scope_unit(cfg, fake_bwrap):
     f, _ = _launch_fields(cfg, fake_bwrap)
-    assert re.fullmatch(r"student-sandbox-[0-9]+-[0-9a-f]{4,}", f.get("scope_unit", "")), f
+    # a real run names it student-sandbox-<pid>-<hex>; a test-mode run under its own prefix (F3) names it <prefix><pid>-<hex>
+    assert re.fullmatch(re.escape(RUN_UNIT_PREFIX) + r"[0-9]+-[0-9a-f]{4,}", f.get("scope_unit", "")), f
+
+
+def test_f3_the_wrapper_refuses_the_test_unit_prefix_without_sandbox_test(cfg, fake_bwrap):
+    """A real run has no prefix but student-sandbox-: the override is refused, named, outside test mode."""
+    assert_refused(cfg, fake_bwrap, "SANDBOX_TEST_UNIT_PREFIX", test=False, SANDBOX_TEST_UNIT_PREFIX="mine-")
+
+
+@pytest.mark.parametrize("bad", ["", "no-dash", "-lead-", "has space-", "a/b-"])
+def test_f3_a_malformed_test_unit_prefix_is_refused_named(cfg, fake_bwrap, bad):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_TEST_UNIT_PREFIX", SANDBOX_TEST_UNIT_PREFIX=bad)
 
 
 @needs_box

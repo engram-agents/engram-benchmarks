@@ -55,7 +55,8 @@ def emulate_wrapper(a):
     me = os.getpid()   # the stub stands in for the forwarder too: it is gone when the module looks (its start time is real)
     start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
-    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+    pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
             f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
@@ -169,6 +170,8 @@ def w(tmp_path):
     world = World(tmp_path)
     world.cr_stub = tmp_path / "stub-feed4-cr.py"; world.cr_stub.write_text(STUB_FEED4_CR)
     world.saved = tmp_path / "saved-end"
+    # the start state's own record (design owner's ruling on F5): a verdict line beside it. Without one the reader refuses.
+    open(str(world.pres) + ".verdict.txt", "w").write("sandbox verdict: not-flagged\n")
     yield world
     if world.proc is not None and world.proc.poll() is None:
         world.proc.kill()
@@ -548,7 +551,8 @@ def fake_cp_env(w, mode):
 
 
 def no_saved(w):
-    return not os.path.lexists(str(w.saved)) and not os.path.lexists(str(w.saved) + ".hashes.txt")
+    return (not os.path.lexists(str(w.saved)) and not os.path.lexists(str(w.saved) + ".hashes.txt")
+            and not os.path.lexists(str(w.saved) + ".verdict.txt"))
 
 
 # ---- R1: quiescence before the save, and the saved copy's store hash against the slot's
@@ -804,3 +808,129 @@ def test_sb_c_a_log_verdict_refusal_is_exit_3_and_no_end_state_is_saved(w, ollam
     assert "STOP: sandbox launch module" in r.stdout
     assert not w.saved.exists() and not os.path.lexists(str(w.saved) + ".hashes.txt")
     assert not (w.runs / "p1-t1" / "delivery.txt").exists()
+
+
+# ------------------------------------------------------------------ F5 (design owner's ruling, option C): a FLAGGED continue-reading
+# session still saves its end state, but only under a QUARANTINE name, with its verdict line beside it; and the reader refuses
+# by name AND by content. The rule: a flagged session saves to <--save-end-state>.flagged (hashes: .flagged.hashes.txt, record:
+# .flagged.verdict.txt). The end state's own record is the file <end state>.verdict.txt beside it, holding `sandbox verdict: ...`.
+FLAGGED_LINE = "flagged: endpoint unreachable, nothing reached it"
+
+
+def flagged_run(w, ollama, **kw):
+    r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX="unreachable", **kw)
+    assert r.returncode == 0, (r.stdout, r.stderr)     # a flagged verdict is recorded, not a stop
+    return r
+
+
+def copy_end_state(w, name, record):
+    """A copy of the preserved end state at a new protected path, with `record` as its verdict record (None: no record)."""
+    dst = w.root / name
+    subprocess.run(["cp", "-a", "--", str(w.pres), str(dst)], check=True)
+    if record is not None:
+        open(str(dst) + ".verdict.txt", "w").write(record)
+    return dst
+
+
+def start_from(w, path, label="t2", **kw):
+    return cr_run(w, over={"--end-state": str(path), "--label": label, "--save-end-state": str(w.root / "saved-next")},
+                  P1_PROTECTED=f"{w.pres}:{w.pres2}:{path}", **kw)
+
+
+def test_f5_a_flagged_session_saves_the_end_state_only_under_the_quarantine_name_and_says_why_in_words(w, ollama):
+    flagged_run(w, ollama)
+    q = str(w.saved) + ".flagged"
+    assert not os.path.lexists(str(w.saved)) and not os.path.lexists(str(w.saved) + ".hashes.txt")   # no reusable state
+    assert os.path.isdir(q) and os.path.isfile(q + ".hashes.txt")
+    assert f"sandbox verdict: {FLAGGED_LINE}" in open(q + ".verdict.txt").read().splitlines()        # the verdict, beside it
+    text = " ".join(setup_lines(w))
+    assert "QUARANTINED" in text and "FLAGGED" in text and "excluded" in text and "endpoint was unreachable" in text
+
+
+def test_f5_evidence_is_kept_the_log_the_verdict_and_the_transcript_stay_and_only_the_clean_state_path_is_absent(w, ollama):
+    flagged_run(w, ollama)
+    run = w.runs / "p1-t1"
+    logs = [p for p in run.iterdir() if p.name.startswith("sandbox-") and p.name.endswith(".log")]
+    assert len(logs) == 1 and "wrapper-launch " in logs[0].read_text()
+    assert f"sandbox verdict: {FLAGGED_LINE}" in setup_lines(w)
+    assert (run / "transcripts").is_dir() and (run / "delivery.txt").exists()
+    assert not os.path.lexists(str(w.saved))
+
+
+def test_f5_a_clean_session_saves_under_the_clean_name_with_its_not_flagged_record(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert w.saved.is_dir() and not os.path.lexists(str(w.saved) + ".flagged")
+    assert "sandbox verdict: not-flagged" in open(str(w.saved) + ".verdict.txt").read().splitlines()
+    assert "QUARANTINED" not in " ".join(setup_lines(w))
+
+
+def test_f5_reader_a_quarantine_name_is_refused_by_name(w):
+    q = copy_end_state(w, "old.flagged", "sandbox verdict: not-flagged\n")      # a clean record: only the NAME can refuse it
+    cr_refusal(w, over={"--end-state": str(q)}, expect="quarantine name", P1_PROTECTED=f"{w.pres}:{w.pres2}:{q}")
+
+
+def test_f5_reader_a_flagged_verdict_in_the_record_is_refused_by_content(w):
+    s = copy_end_state(w, "cleanname", f"sandbox verdict: {FLAGGED_LINE}\n")    # a clean name: only the CONTENT can refuse it
+    cr_refusal(w, over={"--end-state": str(s)}, expect="FLAGGED verdict", P1_PROTECTED=f"{w.pres}:{w.pres2}:{s}")
+
+
+@pytest.mark.parametrize("record", [None, "", "run record: p1-x/setup.txt\n"])
+def test_f5_reader_an_end_state_with_no_verdict_line_is_refused(w, record):
+    s = copy_end_state(w, "noverdict", record)
+    cr_refusal(w, over={"--end-state": str(s)}, expect="no verdict line", P1_PROTECTED=f"{w.pres}:{w.pres2}:{s}")
+
+
+def test_f5_reader_an_unrecognised_verdict_is_refused(w):
+    s = copy_end_state(w, "odd", "sandbox verdict: something else\n")
+    cr_refusal(w, over={"--end-state": str(s)}, expect="unrecognised verdict", P1_PROTECTED=f"{w.pres}:{w.pres2}:{s}")
+
+
+def test_f5_a_rename_does_not_launder_a_quarantined_end_state(w, ollama):
+    """A flagged session's end state is renamed to a clean name, together with its record: the flagged verdict in the record
+    still refuses it (by content). Renamed alone, without its record, it has no verdict line and is refused too."""
+    flagged_run(w, ollama)
+    q = str(w.saved) + ".flagged"
+    clean = w.root / "looks-clean"
+    os.rename(q, clean)
+    os.rename(q + ".verdict.txt", str(clean) + ".verdict.txt")
+    r = start_from(w, clean)
+    assert r.returncode == 2 and "FLAGGED verdict" in r.stdout + r.stderr, (r.stdout, r.stderr)
+    assert not (w.runs / "p1-t2").exists()                         # refused before anything was touched
+    alone = w.root / "renamed-alone"
+    os.rename(clean, alone)                                         # the record stays behind under the old name
+    r = start_from(w, alone, label="t3")
+    assert r.returncode == 2 and "no verdict line" in r.stdout + r.stderr, (r.stdout, r.stderr)
+
+
+# ---- F5 (C), exclusive create under the caller-derived quarantine path: nothing foreign is overwritten or removed
+def test_f5_a_foreign_file_at_the_quarantine_path_is_refused_and_survives_byte_identical(w, ollama):
+    foreign = str(w.saved) + ".flagged"
+    open(foreign, "w").write("mine, not yours")
+    r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX="unreachable")
+    assert r.returncode == 2 and "already exists" in r.stdout + r.stderr and foreign in r.stdout + r.stderr, (r.stdout, r.stderr)
+    assert open(foreign).read() == "mine, not yours"
+    assert not (w.runs / "p1-t1").exists() and not os.path.lexists(str(w.saved))     # refused before anything was touched
+
+
+@pytest.mark.parametrize("name,body,planted", [
+    ("dir", "os.makedirs(os.path.join(save + '.flagged', 'mine'))\nopen(os.path.join(save + '.flagged', 'mine', 'f'), 'w').write('planted')\n", ""),
+    ("hashes", "open(save + '.flagged.hashes.txt', 'w').write('planted')\n", ".hashes.txt"),
+    ("verdict", "open(save + '.flagged.verdict.txt', 'w').write('planted')\n", ".verdict.txt"),
+])
+def test_f5_a_foreign_path_appearing_between_the_check_and_the_write_survives_and_only_this_runs_creates_are_removed(
+        w, ollama, name, body, planted):
+    hook = plant_hook(w, f"plant-{name}.py", body)
+    r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX="unreachable", P1_AFTER_COPY_HOOK=hook, R8_SAVE=str(w.saved))
+    assert r.returncode == 3, (r.returncode, r.stdout, r.stderr)
+    assert "appeared after step 1" in r.stdout
+    q = str(w.saved) + ".flagged"
+    if name == "dir":
+        assert tree(q) == {"mine": "dir", os.path.join("mine", "f"): hashlib.sha256(b"planted").hexdigest()}
+        assert not os.path.lexists(q + ".hashes.txt") and not os.path.lexists(q + ".verdict.txt")
+    else:
+        assert open(q + planted).read() == "planted"
+        # what THIS run created at the quarantine paths (recorded at each exclusive create) is gone, the planted path is not
+        mine = [x for x in (q, q + ".hashes.txt", q + ".verdict.txt") if x != q + planted]
+        assert not any(os.path.lexists(x) for x in mine), mine
+    assert not os.path.lexists(str(w.saved))

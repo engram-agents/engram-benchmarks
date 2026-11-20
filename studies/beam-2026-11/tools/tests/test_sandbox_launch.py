@@ -1,6 +1,6 @@
 """Cells for tools/sandbox_launch.py (the one door through which a student session starts) and for the retired practice
-launchers. Contract-first: the cells state the contract of the spec (design A10, team crossings 33592, 33600, 33601,
-33605); synthetic fixtures only, no real data, no student model, no Ollama, no host path.
+launchers. Contract-first: the cells state the contract of the spec (design A10 and the design owner's rulings on it);
+synthetic fixtures only, no real data, no student model, no Ollama, no host path.
 
 Two kinds of cell. Most use a STUB FEEDER that stands in for feed4.py: it records what the module handed it (argv, PATH,
 the `--env` pairs) and writes the log lines the real wrapper would (a launch line carrying the sha256 of the `claude` and
@@ -50,17 +50,36 @@ if mode == "reuse-same":             # a live process that IS what the launch li
 if mode == "reuse-diff":             # the pid is alive but is a different process (same pid, another start time)
     fpid = int(os.environ["HELPER_PID"]); fstart = str(int(start_of(fpid)) + 1)
 sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me) if log else ""
-line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit=student-sandbox-stub-{me} "
+prefix = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+unit = os.environ.get("STUB_UNIT") or f"{prefix}{me}-{me:x}"
+if mode == "zerostart":              # the wrapper writes forwarder_start=0 when the forwarder died before its start time was read
+    fstart = "0"
+if os.environ.get("STUB_REALSCOPE"):  # a REAL transient scope with a process in it, which only the module's stop can end
+    import subprocess, time
+    env2 = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--unit", unit, "--", "sleep", "120"], env=env2,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    for _ in range(200):
+        r = subprocess.run(["systemctl", "--user", "is-active", unit + ".scope"], env=env2, capture_output=True, text=True)
+        if r.stdout.strip() == "active":
+            break
+        time.sleep(0.1)
+line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={unit} "
         f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1")
 if mode == "nomarker":
     line = line.replace(f"forwarder_start={fstart} ", "")
+if mode == "nounit":
+    line = line.replace(f"scope_unit={unit} ", "")
 CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
 body = {"ok": [line, "fwd-first-request"], "unreachable": [line, CF], "nolaunch": [], "nowrapper": ["fwd-first-request"], "two": [line, line, "fwd-first-request"],
         "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"],
-        "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
+        "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"],
+        "zerostart": [line, "fwd-first-request"], "rostate": [line, "fwd-first-request"], "nounit": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
 if log and mode != "nolaunch":
     with open(log, "a") as f:
         f.write("".join(l + "\n" for l in body))
+if mode == "rostate":   # the state directory becomes unwritable mid-run: the module's record write at teardown fails
+    os.chmod(os.environ["STATE_DIR"], 0o500)
 if mode == "plant":   # a survivor OUTSIDE any scope: its argv carries this launch's bridge socket path
     import subprocess
     p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", sock], start_new_session=True)
@@ -122,7 +141,8 @@ class World:
         return str(self.d / f"out{self.n}")
 
     def env(self, **over):
-        e = dict(os.environ, REC=str(self.rec), BEAM_OLLAMA_URL="http://localhost:%d" % self.cfg.model_port)
+        e = dict(os.environ, REC=str(self.rec), STATE_DIR=str(self.state),
+                 BEAM_OLLAMA_URL="http://localhost:%d" % self.cfg.model_port)
         e.update(over)
         return e
 
@@ -132,6 +152,7 @@ class World:
     def launch(self, mode="ok", *, feeder=None, argv=None, sandbox=None, rc=0, env=None, **kw):
         kw.setdefault("log_dir", str(self.logs))
         kw.setdefault("state_dir", str(self.state))
+        kw.setdefault("stub_as", "feed2.py")    # the module cells' stub stands in for feed2 (its option set is the broader one)
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -456,90 +477,53 @@ def test_d2_the_modules_required_set_equals_the_set_the_wrapper_refuses_without(
     assert len(set(SL.REQUIRED_SANDBOX)) == len(SL.REQUIRED_SANDBOX)
 
 
-# ====================================================================================== D1: no second door
-def _is_shell(path):
-    if path.endswith(".sh"):
-        return True
-    try:
-        first = open(path, errors="replace").readline()
-    except OSError:
-        return False
-    return first.startswith("#!") and re.search(r"\b(ba|z|da)?sh\b", first) is not None
+# ====================================================================================== D1: no second door (F2: classify)
+# An allow-list that fails closed, not a search for invocation patterns: every file in the tools tree (any extension, any
+# shebang, outside tests/) whose text mentions a feeder (feed, feed2, feed4) or the word `claude` must be exactly one of: the
+# module; a feeder in FEEDERS; a file carrying the RETIRED-LAUNCHER marker in its first three lines; or a file listed in the
+# module's NON_LAUNCHERS dict with its one-line reason. A new or changed file that mentions them and is in none of these fails,
+# naming the file. A "consumer:" entry (a file that starts students only through the module) must also really call
+# run_feeder( and name sandbox_launch: the OLD p1-session.py, which started feed4 directly, does neither.
+# What this cannot see: a feeder or `claude` name assembled at run time (string concatenation, read from a variable, an
+# environment value), a file outside this directory, and a launcher that lives in a file already listed (the list is the gate:
+# a reviewer reads every line added to NON_LAUNCHERS).
+MENTION = re.compile(r"\bfeed(?:2|4)?\b|\bclaude\b")
 
 
-FEEDER_RE = r"feed[0-9]?\.py"
-SH_FEEDER = re.compile(r"(\$\{?\w+\}?|\"\$\{?\w+\}?\"|python3?)\s+(-\S+\s+)*\S*" + FEEDER_RE)
-SH_CLAUDE = re.compile(r"(^|[;&|(]|\bthen\b|\bdo\b|\btimeout\s+\S+|\bexec\b|\benv\s+(\S+=\S*\s+)*)\s*claude(\s|$)")
-PY_CALLS = {"run", "Popen", "call", "check_call", "check_output", "system", "popen", "execv", "execve", "execvp", "execvpe",
-            "execl", "execle", "execlp", "execlpe", "spawnv", "spawnl", "spawnvp", "spawnlp"}
+def tools_tree_violations(tools_dir, feeders, non_launchers):
+    """[(relative file, why)] for every file in the tools tree that mentions a feeder or `claude` and is in no category."""
+    out = []
+    for root, dirs, files in os.walk(tools_dir):
+        dirs[:] = sorted(d for d in dirs if not (root == tools_dir and d == "tests") and d != "__pycache__")
+        for fn in sorted(files):
+            path = os.path.join(root, fn)
+            rel = os.path.relpath(path, tools_dir)
+            text = open(path, "rb").read().decode("utf-8", "replace")
+            if not MENTION.search(text):
+                continue
+            if rel == "sandbox_launch.py" or rel in feeders:
+                continue
+            if any("RETIRED-LAUNCHER" in l for l in text.splitlines()[:3]):
+                continue
+            if rel in non_launchers:
+                if non_launchers[rel].startswith("consumer:") and not ("run_feeder(" in text and "sandbox_launch" in text):
+                    out.append((rel, "listed as a consumer of the launch module but does not call run_feeder( through it"))
+                continue
+            out.append((rel, "mentions a feeder or `claude` and is the module, a feeder, retired, or listed in NON_LAUNCHERS: none"))
+    return out
 
 
-def _strings(node):
-    for n in ast.walk(node):
-        if isinstance(n, ast.Constant) and isinstance(n.value, str):
-            yield n.value
+def test_d1_every_file_that_mentions_a_feeder_or_claude_is_classified():
+    assert tools_tree_violations(TOOLS, SL.FEEDERS, SL.NON_LAUNCHERS) == []
 
 
-def _py_sites(path, feeders):
-    tree = ast.parse(open(path, encoding="utf-8").read())
-    sites = []
-    fre = re.compile(r"(^|[/\s])(%s)(\s|$)" % "|".join(re.escape(f) for f in feeders))
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Call):
-            f = n.func
-            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
-            if name in PY_CALLS:
-                for s in _strings(ast.Module(body=[ast.Expr(a) for a in list(n.args) + [k.value for k in n.keywords]], type_ignores=[])):
-                    if fre.search(s) or s == "claude" or re.match(r"\s*claude\s", s):
-                        sites.append((n.lineno, "process call naming %r" % s))
-        if isinstance(n, (ast.Name, ast.Attribute)):
-            if (n.id if isinstance(n, ast.Name) else n.attr) == "Student":
-                sites.append((n.lineno, "a use of Student"))
-        if isinstance(n, ast.ImportFrom) and any(a.name == "Student" for a in n.names):
-            sites.append((n.lineno, "imports Student"))
-    return sites
-
-
-def _sh_sites(path):
-    sites = []
-    for i, line in enumerate(open(path, errors="replace").read().splitlines(), 1):
-        if line.lstrip().startswith("#"):
-            continue
-        if SH_FEEDER.search(line):
-            sites.append((i, "shell invocation of a feeder"))
-        elif SH_CLAUDE.search(line):
-            sites.append((i, "shell call of claude"))
-    return sites
-
-
-def student_starters(tools_dir, feeders):
-    """Every site in the tools tree (outside tests/) that starts a student and is neither the launch module, a feeder
-    implementation, nor a file carrying the RETIRED-LAUNCHER marker within its first three lines. SEES: Python process
-    calls (subprocess.*, os.system/exec*/spawn*) with a feeder name or `claude` as an argument string, any use or import
-    of a feeder's Student, shell lines that run a feeder through an interpreter or call `claude` at a command position.
-    DOES NOT SEE: a feeder path or the name `claude` assembled by string concatenation or read from a variable, a launcher
-    in another directory or language, a call through an alias, a student started by a program the tools tree does not
-    name. Those are the limits of a search, which is why the launchers are retired by marker and the module refuses a
-    session that did not come through it."""
-    found = []
-    for name in sorted(os.listdir(tools_dir)):
-        path = os.path.join(tools_dir, name)
-        if not os.path.isfile(path) or name == "sandbox_launch.py" or name in feeders:
-            continue
-        if name.endswith(".py"):
-            sites = _py_sites(path, feeders)
-        elif _is_shell(path):
-            sites = _sh_sites(path)
-        else:
-            continue
-        if sites and any("RETIRED-LAUNCHER" in l for l in open(path, errors="replace").read().splitlines()[:3]):
-            continue
-        found += [(name, ln, why) for ln, why in sites]
-    return found
-
-
-def test_d1_no_second_door_in_the_tools_tree():
-    assert student_starters(TOOLS, SL.FEEDERS) == []
+def test_d1_non_launchers_has_no_stale_entry_and_every_entry_has_a_reason():
+    for rel, reason in SL.NON_LAUNCHERS.items():
+        path = os.path.join(TOOLS, rel)
+        assert os.path.isfile(path), f"{rel} is listed in NON_LAUNCHERS but does not exist"
+        assert MENTION.search(open(path, "rb").read().decode("utf-8", "replace")), f"{rel} no longer mentions a feeder or claude: drop it"
+        assert isinstance(reason, str) and len(reason.split()) >= 3 and "\n" not in reason, rel
+        assert rel not in SL.FEEDERS and "RETIRED-LAUNCHER" not in "".join(open(path).read().splitlines()[:3]), rel
 
 
 def _copy_tools(tmp_path):
@@ -548,42 +532,68 @@ def _copy_tools(tmp_path):
     return str(dst)
 
 
-@pytest.mark.parametrize("name,text,why", [
-    ("new-launcher.py", "import subprocess\nsubprocess.run(['py', '-I', 'feed4.py', '--out', 'x'])\n", "process call naming"),
-    ("new-launcher2.py", "import subprocess, os\nsubprocess.Popen([os.path.join(HERE, 'feed2.py')])\n", "process call naming"),
-    ("new-claude.py", "import subprocess\nsubprocess.Popen(['claude', '-p'])\n", "process call naming 'claude'"),
-    ("new-student.py", "import feed4\nstudent = feed4.Student(None)\n", "Student"),
-    ("new-launcher.sh", "#!/usr/bin/env bash\n$PY -I $BEAM_TOOLS/feed4.py --out x\n", "shell invocation"),
-    ("new-launcher2.sh", "#!/usr/bin/env bash\n\"$PY\" -I \"$T/feed.py\" --out x\n", "shell invocation"),
-    ("new-claude.sh", "#!/usr/bin/env bash\nset -u\ntimeout 60 claude -p hi\n", "shell call of claude"),
-])
-def test_d1_the_search_finds_a_planted_unretired_launcher(tmp_path, name, text, why):
+# the launcher this PR replaced: p1-session.py as it was at f1cefc32, which started feed4 through a variable-held path
+OLD_P1_SESSION_EXTRACT = '''
+import os, subprocess
+HERE = os.path.dirname(os.path.abspath(__file__))
+def work(py, a, c, rundir):
+    feed4 = os.environ.get("P1_FEED4") or os.path.join(HERE, "feed4.py")
+    frc = subprocess.run([py, "-I", feed4, *feed4_args(a, c, os.path.join(rundir, "run"))]).returncode
+    return frc
+'''
+
+
+def old_p1_session():
+    """The real p1-session.py at f1cefc32 when the repository's history is there, else the extract above."""
+    r = subprocess.run(["git", "-C", TOOLS, "show", "f1cefc32:studies/beam-2026-11/tools/p1-session.py"], capture_output=True)
+    return r.stdout.decode("utf-8") if r.returncode == 0 and r.stdout else OLD_P1_SESSION_EXTRACT
+
+
+def test_d1_the_old_p1_session_restored_into_a_scratch_tree_is_flagged_by_name(tmp_path):
+    """The door the old pattern search was blind to: p1-session.py as it was before this PR, in a scratch copy of the tree."""
     d = _copy_tools(tmp_path)
-    assert student_starters(d, SL.FEEDERS) == [], "the copy must start clean"
+    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
+    open(os.path.join(d, "p1-session.py"), "w").write(old_p1_session())
+    found = tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    assert [f[0] for f in found] == ["p1-session.py"] and "run_feeder" in found[0][1], found
+
+
+@pytest.mark.parametrize("name,text", [
+    ("new-setsid.sh", "#!/usr/bin/env bash\nsetsid claude -p hi\n"),
+    ("new-nohup.sh", "#!/usr/bin/env bash\nnohup claude -p hi &\n"),
+    ("new-launcher", "#!/usr/bin/env python3\nimport feed4\nfeed4.main()\n"),                       # extensionless, python shebang
+    ("new-from-import.py", "from feed4 import Student\n"),
+    ("new-runpy.py", "import runpy\nrunpy.run_path('feed4.py', run_name='__main__')\n"),
+    ("new-plain.sh", "#!/usr/bin/env bash\n$PY -I $BEAM_TOOLS/feed4.py --out x\n"),
+    ("new-claude.py", "import subprocess\nsubprocess.Popen(['claude', '-p'])\n"),
+    ("notes.txt", "run claude here\n"),                                                            # any extension
+])
+def test_d1_a_new_file_that_mentions_a_feeder_or_claude_and_is_in_no_category_is_flagged_by_name(tmp_path, name, text):
+    d = _copy_tools(tmp_path)
     open(os.path.join(d, name), "w").write(text)
-    found = student_starters(d, SL.FEEDERS)
-    assert found and all(f[0] == name for f in found) and any(why in f[2] for f in found), found
+    found = tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)
+    assert [f[0] for f in found] == [name], found
 
 
-def test_d1_a_planted_launcher_with_the_marker_in_its_first_three_lines_is_passed_and_the_fourth_line_is_not(tmp_path):
+def test_d1_the_marker_in_the_first_three_lines_classifies_and_the_fourth_line_does_not(tmp_path):
     d = _copy_tools(tmp_path)
     open(os.path.join(d, "x.sh"), "w").write("#!/usr/bin/env bash\n# RETIRED-LAUNCHER: x\nexit 2\n$PY -I feed4.py\n")
-    assert student_starters(d, SL.FEEDERS) == []
+    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
     open(os.path.join(d, "y.sh"), "w").write("#!/usr/bin/env bash\n\n\n# RETIRED-LAUNCHER: y\n$PY -I feed4.py\n")
-    assert [f[0] for f in student_starters(d, SL.FEEDERS)] == ["y.sh"]
+    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["y.sh"]
 
 
-def test_d1_a_launcher_that_uses_only_the_module_is_not_a_second_door(tmp_path):
+def test_d1_a_file_that_does_not_mention_a_feeder_or_claude_needs_no_entry(tmp_path):
     d = _copy_tools(tmp_path)
-    open(os.path.join(d, "ok.py"), "w").write("import sandbox_launch\nsandbox_launch.run_feeder('py', 'feed4.py', [])\n")
-    assert student_starters(d, SL.FEEDERS) == []
+    open(os.path.join(d, "other.py"), "w").write("print('hello')\n")
+    assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS) == []
 
 
 def test_d1_the_search_reads_the_feeder_list_from_the_module_not_a_hand_list(tmp_path):
     d = _copy_tools(tmp_path)
-    open(os.path.join(d, "g.py"), "w").write("import subprocess\nsubprocess.run(['py', 'feed9.py'])\n")
-    assert student_starters(d, SL.FEEDERS) == []
-    assert [f[0] for f in student_starters(d, SL.FEEDERS + ("feed9.py",))] == ["g.py"]
+    open(os.path.join(d, "feed9.py"), "w").write("# a feeder-looking file\nclaude = 1\n")
+    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["feed9.py"]
+    assert tools_tree_violations(d, SL.FEEDERS + ("feed9.py",), SL.NON_LAUNCHERS) == []
 
 
 # ====================================================================================== R: the retired launchers
@@ -603,18 +613,16 @@ def test_r_a_retired_launcher_carries_the_marker_and_refuses_at_once(name, tmp_p
     assert os.listdir(work) == []     # it created nothing
 
 
-def test_r_the_marker_is_what_the_search_reads_removing_one_makes_the_search_and_that_files_cell_fail(tmp_path):
+def test_r_the_marker_is_what_the_classification_reads_removing_one_flags_that_file(tmp_path):
     d = _copy_tools(tmp_path)
     p = os.path.join(d, "pilot-run.sh")
-    text = open(p).read().replace("# RETIRED-LAUNCHER", "# retired-launcher")
-    open(p, "w").write(text)
-    found = student_starters(d, SL.FEEDERS)
-    assert found and {f[0] for f in found} == {"pilot-run.sh"}
+    text = open(p).read()
+    open(p, "w").write(text.replace("# RETIRED-LAUNCHER", "# retired-launcher"))
+    assert [f[0] for f in tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS)] == ["pilot-run.sh"]
 
 
 # ====================================================================================================== ROUND 2
-# No box or bridge outlives its session (teardown finding, 2026-11-20; design owner crossings 33620 and 33624, security
-# seat 33623). W: the launch line carries the per-launch markers. T: teardown after every session. B: refuse to launch
+# No box or bridge outlives its session (teardown finding, 2026-11-20; the design owner's and the security seat's rulings). W: the launch line carries the per-launch markers. T: teardown after every session. B: refuse to launch
 # while anything earlier is alive. K1-K3 and Z(a): the cells. The cells that start a real box leave nothing behind (the `w`
 # fixture stops any box attributed to its scratch root, and asserts nothing had to be ended).
 import itertools, signal, stat, time
@@ -709,7 +717,7 @@ def test_w_the_launch_line_carries_the_forwarders_real_pid_start_time_and_socket
         assert b"outer" in argv and argv[argv.index(b"--sock") + 1] == sock.encode(), argv   # THE forwarder, and its socket
         assert start_ticks(pid) == int(f["forwarder_start"])
         assert stat.S_ISSOCK(os.stat(sock).st_mode) and sock.startswith(w.cfg.tmpd)
-        assert f["scope_unit"].startswith("student-sandbox-")
+        assert f["scope_unit"].startswith(TSS.RUN_UNIT_PREFIX)     # named under the test-only prefix (F3)
     finally:
         TSS._systemctl("stop", scope_of(launch_fields(log)["scope_unit"])) if launch_fields(log) else None
         p.wait(timeout=60)
@@ -854,7 +862,7 @@ def test_t_a_session_with_no_launch_line_has_nothing_to_stop_and_is_told_apart_b
 def test_t_a_normal_session_closes_its_record_with_the_launch_fields(w):
     w.launch()
     (rec,) = records_in(w.state)
-    assert rec["state"] == "done" and rec["scope_unit"].startswith("student-sandbox-") and rec["forwarder_start"]
+    assert rec["state"] == "done" and rec["scope_unit"].startswith(TSS.RUN_UNIT_PREFIX) and rec["forwarder_start"]
 
 
 # ---------------------------------------------------------------------------------------------------- B: the before-launch refusal
@@ -867,8 +875,8 @@ def test_b_a_state_directory_is_required_for_a_student_session(w):
 def _open_record(w, f_pid, f_start, name="launch-earlier"):
     log = w.d / (name + ".log")
     sock = str(w.d / (name + ".sock"))
-    log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=student-sandbox-none-1 "
-                   "forwarder_pid=%d forwarder_start=%d bridge_sock=%s model=h:1\n" % ("a" * 64, "b" * 64, f_pid, f_start, sock))
+    log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=%s1-aa "
+                   "forwarder_pid=%d forwarder_start=%d bridge_sock=%s model=h:1\n" % ("a" * 64, "b" * 64, TSS.RUN_UNIT_PREFIX, f_pid, f_start, sock))
     w.state.mkdir(exist_ok=True)
     (w.state / (name + ".json")).write_text(json.dumps({"log": str(log), "state": "open"}))
 
@@ -905,7 +913,7 @@ def test_b_an_open_record_whose_session_never_wrote_a_launch_line_is_closed_and_
 
 @TSS.needs_box
 def test_b_an_active_scope_unit_with_the_wrappers_prefix_refuses_the_next_launch_naming_it(w):
-    unit = "student-sandbox-btest-%s" % os.urandom(4).hex()
+    unit = "%sbtest-%s" % (TSS.RUN_UNIT_PREFIX, os.urandom(4).hex())   # under this run's prefix (a real student-sandbox-* unit would break other seats' runs)
     p = subprocess.Popen(["systemd-run", "--user", "--scope", "--quiet", "--unit", unit, "--", "sleep", "120"],
                          env=dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()))
     try:
@@ -935,3 +943,272 @@ def test_fresh_log_is_bounded_and_then_a_named_refusal(w, monkeypatch):
 def test_the_vanilla_hello_retired_line_names_the_module_not_p1_session():
     line = open(os.path.join(TOOLS, "vanilla-hello.sh")).read().splitlines()[2]
     assert "sandbox_launch.py" in line and "p1-session.py" not in line
+
+
+# ====================================================================================================== ROUND 3
+# F1 teardown always stops a known scope; F3 hermetic cells (a unit prefix per test run); F4 fail closed; F6 nits.
+import subprocess as _sp
+
+
+def real_scope(unit):
+    """A harmless transient scope (a `sleep`) named `unit`, started by the test, outside any launch."""
+    env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    p = _sp.Popen(["systemd-run", "--user", "--scope", "--quiet", "--unit", unit, "--", "sleep", "120"], env=env,
+                  stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+    end = time.time() + 20
+    while unit_state(unit) != "active" and time.time() < end:
+        time.sleep(0.1)
+    assert unit_state(unit) == "active"
+    return p
+
+
+def unique_unit(prefix):
+    return "%s%d-%s" % (prefix, os.getpid(), os.urandom(4).hex())
+
+
+def unit_gone(unit):
+    return unit_state(unit) != "active" and TSS.scope_procs(unit) == []
+
+
+# ---------------------------------------------------------------------------------------------------- F1
+@TSS.needs_box
+def test_f1_a_forwarder_marker_of_zero_still_stops_the_scope_and_the_stop_says_check_ii_did_not_run(w):
+    """The wrapper writes forwarder_start=0 if the forwarder died after binding. The scope is known (scope_unit is on the
+    line): it is stopped FIRST, and the STOP says check (ii) could not run (never read as clean)."""
+    unit = unique_unit(TSS.RUN_UNIT_PREFIX)
+    try:
+        with pytest.raises(SL.LaunchStop) as e:
+            w.launch("zerostart", env={"STUB_REALSCOPE": "1", "STUB_UNIT": unit})
+        assert "check (ii)" in str(e.value) and "forwarder_start" in str(e.value) and "could not run" in str(e.value)
+        assert unit_gone(unit), "the scope of a launch whose forwarder marker is 0 was not stopped"
+    finally:
+        TSS._systemctl("stop", scope_of(unit))    # by name, the unit being this cell's own (a stub made it)
+
+
+@TSS.needs_box
+def test_f1_a_record_that_cannot_be_written_does_not_stop_the_scope_from_being_stopped(w):
+    unit = unique_unit(TSS.RUN_UNIT_PREFIX)
+    try:
+        with pytest.raises(SL.LaunchStop) as e:
+            w.launch("rostate", env={"STUB_REALSCOPE": "1", "STUB_UNIT": unit})
+        assert "could not be written" in str(e.value) and "the scope was stopped" in str(e.value)
+        assert unit_gone(unit), "the scope was not stopped when the record write failed"
+    finally:
+        os.chmod(w.state, 0o700)
+        TSS._systemctl("stop", scope_of(unit))
+
+
+def test_f1_a_launch_line_without_a_scope_unit_is_a_named_stop(w):
+    with pytest.raises(SL.LaunchStop, match="no scope_unit"):
+        w.launch("nounit")
+
+
+# ---------------------------------------------------------------------------------------------------- F3
+@TSS.needs_box
+def test_f3_a_unit_under_another_prefix_does_not_affect_a_cell_under_its_own(w):
+    """A harmless scope under a SECOND unique test prefix stands in for another seat's student-sandbox-* unit (a real
+    student-sandbox-* unit would break other seats' runs). A launch under this run's own prefix is unaffected."""
+    other = unique_unit("ssbxo%s-" % os.urandom(3).hex())
+    p = real_scope(other)
+    try:
+        assert w.launch().returncode == 0
+    finally:
+        TSS._systemctl("stop", scope_of(other)); p.wait(timeout=60)
+
+
+@TSS.needs_box
+def test_f3_the_scan_under_a_given_prefix_refuses_on_a_unit_under_that_prefix(w):
+    pre = "ssbxo%s-" % os.urandom(3).hex()
+    other = unique_unit(pre)
+    p = real_scope(other)
+    w.state.mkdir()
+    try:
+        with pytest.raises(SL.LaunchRefused) as e:
+            SL.check_before_launch(str(w.state), pre)
+        assert other in str(e.value)
+        SL.check_before_launch(str(w.state), TSS.RUN_UNIT_PREFIX)           # the run's own prefix does not see it
+    finally:
+        TSS._systemctl("stop", scope_of(other)); p.wait(timeout=60)
+
+
+def test_f3_a_prefix_override_is_refused_outside_test_mode_and_when_malformed(w):
+    with pytest.raises(SL.LaunchRefused, match="SANDBOX_TEST=1"):
+        SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected))
+    for bad in ("", "no-dash", "has space-", "-x-"):
+        with pytest.raises(SL.LaunchRefused, match="not a prefix"):
+            SL.Sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX=bad), str(w.expected))
+    assert SL.Sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected)).prefix == "mine-"
+    assert SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX=None), str(w.expected)).prefix == "student-sandbox-"
+
+
+# ---------------------------------------------------------------------------------------------------- F4
+def _cp(out, rc=0):
+    return _sp.CompletedProcess(["systemctl"], rc, stdout=out, stderr="")
+
+
+def test_f4_an_unreadable_cgroup_procs_while_the_unit_exists_is_not_clean(monkeypatch):
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: _cp("/no-such-cgroup-for-the-test\n"))
+    with pytest.raises(SL.SystemctlError, match="cgroup.procs"):
+        SL.unit_pids("x-1-aa")
+
+
+def test_f4_a_unit_that_vanished_between_the_two_reads_is_empty(monkeypatch):
+    answers = iter(["/no-such-cgroup-for-the-test\n", "\n"])
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: _cp(next(answers)))
+    assert SL.unit_pids("x-1-aa") == []
+
+
+def test_f4_the_unit_scan_includes_every_unit_under_the_prefix_that_is_not_inactive(monkeypatch):
+    listing = ("p-1-aa.scope loaded active running d\np-2-bb.scope loaded deactivating stop-sigterm d\n"
+               "p-3-cc.scope loaded activating start d\np-4-dd.scope loaded inactive dead d\n"
+               "p-5-ee.scope loaded failed failed d\nq-9-ff.scope loaded active running other-prefix\n")
+    asked = []
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (asked.append(a), _cp(listing))[1])
+    monkeypatch.setattr(SL, "unit_pids", lambda u: [123] if u.startswith("p-5") else [])
+    assert SL.active_units("p-") == ["p-1-aa.scope", "p-2-bb.scope", "p-3-cc.scope", "p-5-ee.scope"]
+    assert "--all" in asked[0] and "p-*" in asked[0]            # what is queried: every scope under the prefix, any state
+    monkeypatch.setattr(SL, "unit_pids", lambda u: [])
+    assert "p-5-ee.scope" not in SL.active_units("p-")           # a failed unit with no processes holds nothing
+
+
+@pytest.mark.parametrize("unit", ["dbus.service", "user.slice", "student-sandbox-1-aa.scope", "x-1-ZZ", "{prefix}1-aa;rm"])
+def test_f4_a_scope_unit_that_is_not_a_name_this_wrapper_makes_is_a_named_stop_and_is_never_stopped(w, monkeypatch, unit):
+    unit = unit.replace("{prefix}", TSS.RUN_UNIT_PREFIX)
+    calls, real = [], SL._systemctl
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
+    with pytest.raises(SL.LaunchStop, match="not a unit this wrapper makes"):
+        w.launch(env={"STUB_UNIT": unit})
+    assert not [c for c in calls if c[0] == "stop"], calls
+
+
+def test_f4_a_recorded_scope_unit_that_is_not_a_wrapper_name_is_refused_not_acted_on(w, monkeypatch):
+    log = w.d / "earlier.log"
+    log.write_text("wrapper-launch time=1 pid=2 scope_unit=dbus.service forwarder_pid=1 forwarder_start=1 bridge_sock=/x/y.sock\n")
+    w.state.mkdir()
+    (w.state / "launch-earlier.json").write_text(json.dumps({"log": str(log), "state": "open"}))
+    calls, real = [], SL._systemctl
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
+    with pytest.raises(SL.LaunchRefused, match="not a unit this wrapper makes"):
+        w.launch()
+    assert not [c for c in calls if c[0] in ("stop", "kill")]
+
+
+# ---------------------------------------------------------------------------------------------------- F6
+def test_f6_a_caller_environment_with_no_path_is_a_named_refusal_not_a_keyerror(w):
+    with pytest.raises(SL.LaunchRefused, match="no PATH"):
+        SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
+                      state_dir=str(w.state), env={"HOME": str(w.d)}, test_stub=True)
+    w.assert_nothing_started()
+
+
+# ---------------------------------------------------------------------------------------------------- F7: default-deny argv
+# argparse accepts `--opt=value` and any unambiguous prefix (`--en`, `--ou`, `--arm-hom`) for the same option, but the module's
+# guards read only the exact `--flag VALUE` spelling. FEEDER_OPTIONS names what a launcher may pass; anything else is refused.
+def test_f7_the_feeders_parsers_really_accept_those_spellings_so_the_class_is_real():
+    for f in ("feed2.py", "feed4.py"):
+        src = open(os.path.join(TOOLS, f)).read()
+        assert "ap = argparse.ArgumentParser()" in src and "allow_abbrev" not in src, f    # defaults: abbreviations accepted
+
+
+@pytest.mark.parametrize("feeder", sorted(SL.FEEDER_OPTIONS) if os.path.exists(MOD) else [])
+def test_f7_every_option_in_feeder_options_is_declared_by_that_feeder_with_that_arity(feeder):
+    """The DERIVED cell against drift in the other direction: read by text (importing feed4 needs pyarrow)."""
+    src = open(os.path.join(TOOLS, feeder)).read()
+    for opt, arity in SL.FEEDER_OPTIONS[feeder].items():
+        lines = [l for l in src.splitlines() if 'add_argument("%s"' % opt in l]
+        assert len(lines) == 1, f"{feeder} has no single add_argument({opt!r}) call"
+        assert ("store_true" in lines[0]) == (arity == 0), f"{feeder} {opt}: the dict says arity {arity}, the source says otherwise"
+
+
+def test_f7_feeder_options_covers_every_feeder_and_the_module_s_own_env_pairs():
+    assert set(SL.FEEDER_OPTIONS) == set(SL.FEEDERS)
+    for f in ("feed2.py", "feed4.py"):
+        assert SL.FEEDER_OPTIONS[f]["--env"] == 1       # the module passes the SANDBOX_* settings as --env pairs
+
+
+def test_f7_the_argv_p1_session_really_passes_is_accepted_unchanged():
+    """p1-session.py's argv builders (the answering run, the continue-reading run, both plan dumps) pass the allow-list."""
+    spec = importlib.util.spec_from_file_location("p1s_for_f7", os.path.join(TOOLS, "p1-session.py"))
+    p1 = importlib.util.module_from_spec(spec); spec.loader.exec_module(p1)
+    import types
+    c = {"slot": "/s", "rundir": "/r"}
+    answering = types.SimpleNamespace(continue_reading=False, session="id", question_file="q.json", components="c.txt")
+    cont = types.SimpleNamespace(continue_reading=True, session="id", start=4, through=9, per_round=3, components="c.txt")
+    full = ["--arm-home", "/s", "--out", "/o", "--conv", "9", "--start", "1", "--turns", "9", "--per-round", "3",
+            "--expect-components", "c.txt"]
+    for argv in (p1.feed4_args(answering, c, "/o"), p1.feed4_args(cont, c, "/o"),
+                 p1.feed4_args(answering, c, "/o") + ["--dump-plan"], full + ["--dump-plan"]):
+        SL.check_argv_options(argv, SL.FEEDER_OPTIONS["feed4.py"], "feed4.py")
+
+
+def evil_claude(w):
+    d = w.d / "evil"; d.mkdir()
+    TSS.make_exe(str(d / "claude"), "#!/bin/sh\nexit 0\n")
+    return str(d)
+
+
+@pytest.mark.parametrize("make,token", [
+    (lambda w: ("--something", "x"), "--something"),
+    (lambda w: ("--env=PATH=%s:/usr/bin" % evil_claude(w),), "--env=PATH="),
+    (lambda w: ("--env=ANTHROPIC_BASE_URL=http://example.org:80",), "--env=ANTHROPIC_BASE_URL"),
+    (lambda w: ("--en", "PATH=%s:/usr/bin" % evil_claude(w)), "--en"),
+    (lambda w: ("--e", "FOO=1"), "--e"),
+    (lambda w: ("--out=%s" % (w.d / "other-out"),), "--out="),
+    (lambda w: ("--ou", str(w.d / "other-out")), "--ou"),
+    (lambda w: ("--arm-hom", str(w.d / "other-home")), "--arm-hom"),
+    (lambda w: ("--arm-home=%s" % (w.d / "other-home"),), "--arm-home="),
+    (lambda w: ("--dump",), "--dump"),
+    (lambda w: ("-e", "PATH=x"), "-e"),
+    (lambda w: ("--",), "--"),
+    (lambda w: ("stray",), "stray"),
+])
+def test_f7_a_token_that_is_not_an_allowed_option_or_its_value_is_refused_naming_it(w, make, token):
+    with pytest.raises(SL.LaunchRefused) as e:
+        w.launch(argv=w.argv(extra=make(w)))
+    assert repr(token) in str(e.value) or token in str(e.value), (token, str(e.value))
+    w.assert_nothing_started()
+
+
+def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_refused(w):
+    with pytest.raises(SL.LaunchRefused, match="looks like an option"):
+        w.launch(argv=w.argv(extra=("--env", "--env=PATH=/x")))
+    with pytest.raises(SL.LaunchRefused, match="has no value"):
+        w.launch(argv=w.argv() + ["--env"])
+    w.assert_nothing_started()
+    assert w.launch(argv=w.argv(extra=("--turns", "-1"))).returncode == 0       # a plain negative number is a value
+
+
+def test_f7_the_exact_allowed_options_are_accepted(w):
+    r = w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--ask", "a question",
+                                    "--force-compact", "--first-session")))
+    assert r.returncode == 0
+    (rec,) = w.records()
+    assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072" in rec["argv"]
+
+
+def test_f7_a_dump_plan_call_with_the_exact_spelling_runs_unwrapped_and_an_abbreviation_is_refused(w):
+    assert SL.run_feeder(sys.executable, str(w.stub), w.argv(extra=("--dump-plan",)), env=w.env(), test_stub=True).returncode == 0
+    with pytest.raises(SL.LaunchRefused, match="'--dump-p'"):
+        SL.run_feeder(sys.executable, str(w.stub), w.argv(extra=("--dump-p",)), env=w.env(), test_stub=True)
+
+
+def test_f7_the_test_stub_obeys_the_allow_list_of_the_feeder_it_stands_in_for(w):
+    with pytest.raises(SL.LaunchRefused, match="'--first-session'"):    # a feed2 option, not a feed4 one
+        SL.run_feeder(sys.executable, str(w.stub), w.argv(extra=("--first-session",)), sandbox=w.sandbox(),
+                      log_dir=str(w.logs), state_dir=str(w.state), env=w.env(), test_stub=True)
+    w.assert_nothing_started()
+
+
+def test_f7_an_option_a_launcher_needs_that_is_not_in_the_dict_is_refused_loudly_by_design(w, monkeypatch):
+    monkeypatch.setitem(SL.FEEDER_OPTIONS["feed2.py"], "--new-option", 1)
+    assert w.launch(argv=w.argv(extra=("--new-option", "x"))).returncode == 0     # added to the dict: accepted
+
+
+# ---------------------------------------------------------------------------------------------------- the launch line, one parser
+def test_f7_both_launch_line_readers_take_the_same_first_line(w):
+    log = w.d / "two.log"
+    log.write_text("wrapper-launch a=1 wrapper_sha256=%s forwarder_sha256=%s scope_unit=x\n"
+                   "wrapper-launch wrapper_sha256=%s forwarder_sha256=%s scope_unit=y\n" % ("1" * 64, "2" * 64, "3" * 64, "4" * 64))
+    assert SL.read_launch_fields(str(log))["scope_unit"] == "x"
+    assert SL.read_launch_hashes(str(log)) == {"wrapper_sha256": "1" * 64, "forwarder_sha256": "2" * 64}
+    assert SL.read_launch_hashes(str(w.d / "no-such.log")) == {}
