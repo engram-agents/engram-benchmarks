@@ -141,7 +141,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   allow-list. The security seat measured this inside the box (loopback only; the host's ports refused; an
   outside address unreachable). The wrapper's test `test_s4_no_other_loopback_port_and_no_route_out` fails
   if the box reaches a named outside TCP target or a host loopback port; it does not cover IPv6 or UDP, and
-  it skips where the sandbox tool is not installed. A blocked attempt cannot succeed, so it is counted per
+  it skips where the sandbox tool is not installed. Because a skip would look like a pass, before the first
+  scored run that test is run on the study host and its PASS (not a skip) is logged with the date and the
+  wrapper file's sha256. A blocked attempt cannot succeed, so it is counted per
   arm, not treated as a fault (section 14): the bridge's log, always enabled in registered runs, records each
   allow-list refusal by method and path and every other refused connection as a connection line; a direct
   connection attempt shows in the transcript as a shell call, and network-capable shell calls are counted
@@ -250,7 +252,9 @@ A run is excluded from the primary only for a FLAGGED harness fault: the post-co
 the student process dies; a timeout (any one turn the proctor sends, in either arm, running past
 3,600 s: reading, the forced /compact, answering, and arm 2's setup turns alike); the ENGRAM first session
 does not complete (arm 2); the session's tool list differs from section 7's; a scored run with no wrapper
-launch line in its log (section 7). The timeout value is about 3.2 times the longest turn measured in
+launch line in its log (section 7). The launch line that counts carries the sha256 of the wrapper file itself,
+logged per run, so it shows which wrapper ran, not only that one did; a scored run found outside the wrapper
+is reported to the security seat before any re-run. The timeout value is about 3.2 times the longest turn measured in
 tuning (tuning log, 2026-11-20: reading one exchange per turn 1,075.3 s; reading three exchanges per turn
 1,108.8 s; answering 322.1 s), because the pace past exchange 135 is unmeasured and grows with the
 conversation: too low a value flags slow but healthy runs and costs re-runs, too high a value costs at most
