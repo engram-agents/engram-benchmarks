@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, forge_export, hid, in_grade_order, read_jsonl, run, write_json
+from helpers import SEED, Store, assert_refused, build_flow, forge_export, hid, in_grade_order, read_jsonl, run, write_json
 
 
 def _beam():
@@ -178,7 +178,7 @@ def test_import_beam_parquet_with_every_real_shape(tmp_path):
     ans.write_text("".join(json.dumps({"question_no": n, "text": "Synthetic reply %s %d" % (arm, n), "cited_ids": [],
                                        "rubric_scores": [1.0] * (2 if n == 1 else 1), "arm": arm}) + "\n"
                            for n in (1, 2, 3, 4) for arm in ("armA", "armB")))
-    cp = run("import-beam", "--parquet", p, "--conv", "c1", "--answers", ans, "--seed", "sd",
+    cp = run("import-beam", "--parquet", p, "--conv", "c1", "--answers", ans, "--seed", SEED,
              "--items-out", tmp_path / "i.jsonl", "--grades-out", tmp_path / "g.jsonl")
     assert cp.returncode == 0, cp.stderr
     items, grades = read_jsonl(tmp_path / "i.jsonl"), read_jsonl(tmp_path / "g.jsonl")
@@ -331,7 +331,7 @@ class CStore:
     def p1(self, item, judgement=None, reviewer="lead"):
         return self.ok(item, 1, reviewer, self.vd(item, judgement or self.level_j(item)))
 
-    def packet2(self, item, seed="sx"):
+    def packet2(self, item, seed=SEED):
         cp = run("packet2", "--items", self.items, "--item", item, "--seed", seed, "--keys-dir", self.keys,
                  "--out-dir", self.root / "packets")
         assert cp.returncode == 0, cp.stderr

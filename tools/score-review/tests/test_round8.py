@@ -12,10 +12,9 @@ import pathlib
 
 import pytest
 
-from helpers import Store, read_jsonl, run
+from helpers import SEED, SEED_2, Store, read_jsonl, run  # SEED: a canonical seed that must never leave through any verb
 from test_round2 import CStore
 
-SEED = "5eed" + "0123456789abcdef" * 3 + "c0ffee11"  # a distinctive 60-hex-style value: must never leave through any verb
 
 
 def _fixture(root):
@@ -293,3 +292,59 @@ def test_v_b_a_criterion_item_with_only_its_2a_is_refused_with_nothing_on_stdout
     cp = _creveal(s, "k4")
     assert cp.returncode == 1 and cp.stdout == ""
     assert "phase2_pending" in cp.stderr and SEED not in cp.stderr
+
+
+# ---------------------------------------------------------------- canonical seeds: 64 lowercase hex characters
+
+BAD_SEEDS = ["seedx", "A1B2C3D4" * 8, ("a1b2c3d4" * 8)[:-1], ("a1b2c3d4" * 8) + "0", "g1b2c3d4" * 8, ""]
+
+
+@pytest.mark.parametrize("bad", BAD_SEEDS)
+def test_s_packet2_refuses_a_non_canonical_seed_and_never_echoes_it(tmp_path, bad):
+    s = Store(tmp_path)
+    cp = run("packet2", "--items", s.items, "--item", "i01", "--seed", bad, "--keys-dir", s.keys,
+             "--out-dir", tmp_path / "packets")
+    assert cp.returncode == 1 and "refused" in cp.stderr and "--seed" in cp.stderr, (cp.returncode, cp.stderr)
+    if bad:
+        assert bad not in cp.stderr + cp.stdout
+    assert not (s.keys / "i01.json").exists() and not (tmp_path / "packets").exists()
+    assert s.packet2("i01").returncode == 0  # positive control: the canonical default works
+
+
+@pytest.mark.parametrize("bad", BAD_SEEDS)
+def test_s_import_beam_refuses_a_non_canonical_seed_and_never_echoes_it(tmp_path, bad):
+    cp = run("import-beam", "--parquet", tmp_path / "none.parquet", "--conv", "c1", "--answers", tmp_path / "none.jsonl",
+             "--seed", bad, "--items-out", tmp_path / "i.jsonl", "--grades-out", tmp_path / "g.jsonl")
+    assert cp.returncode == 1 and "refused" in cp.stderr and "--seed" in cp.stderr, (cp.returncode, cp.stderr)
+    if bad:
+        assert bad not in cp.stderr + cp.stdout
+    assert "file not found" not in cp.stderr and not (tmp_path / "i.jsonl").exists()  # refused before any file is read
+
+
+def test_s_draw_seed_is_public_randomness_and_stays_free_form(tmp_path):
+    s = Store(tmp_path)
+    cp = run("draw", "--items", s.items, "--grades", s.grades, "--run", "r1", "--n", "1", "--seed", "drand-round-123",
+             "--draws", s.draws, "--verdicts", s.verdicts)
+    assert cp.returncode == 0, cp.stderr
+
+
+def test_s_reveal_refuses_a_key_file_whose_seed_is_short_with_nothing_on_stdout(fx):
+    import hashlib as _h
+    s, _ = fx
+    path = s.keys / "i03.json"
+    key = json.loads(path.read_text())
+    key["seed"] = "seedx"
+    path.write_text(json.dumps(key, sort_keys=True) + "\n", encoding="utf-8")
+    cp = _reveal(s, "i03")
+    assert cp.returncode == 1 and cp.stdout == "" and "refused" in cp.stderr and "i03" in cp.stderr
+    assert "seedx" not in cp.stderr
+    assert _reveal(s, "i05").returncode == 0  # positive control: a canonical-seed key file is still revealed
+
+
+def test_s_every_verb_with_a_seed_flag_is_classified_so_a_new_one_forces_a_decision():
+    import argparse
+    import score_review as sr
+    sub = next(a for a in sr.build_parser()._actions if isinstance(a, argparse._SubParsersAction))
+    with_seed = {n for n, sp in sub.choices.items() if any("--seed" in a.option_strings for a in sp._actions)}
+    secret, public = {"packet2", "import-beam"}, {"draw"}  # draw's seed is the public drand randomness
+    assert with_seed == secret | public, with_seed

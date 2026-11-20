@@ -10,12 +10,12 @@ import re
 
 import pytest
 
-from helpers import Store, assert_refused, read_jsonl, run, write_json
+from helpers import SEED, Store, assert_refused, read_jsonl, run, write_json
 from test_round2 import CStore
 from test_round3 import _planted, _tree, QBASE
 
 
-def _packet_args(s, item="i02", seed="sd", out=None):
+def _packet_args(s, item="i02", seed=SEED, out=None):
     return ["packet2", "--items", s.items, "--item", item, "--seed", seed, "--keys-dir", s.keys,
             "--out-dir", out or (s.root / "packets" / "phase2")]
 
@@ -175,7 +175,7 @@ def test_a63_shuffling_the_row_order_of_items_and_grades_changes_no_output(tmp_p
 # ---------------------------------------------------------------- A6-4: the import seed never reaches a packet
 
 def test_a64_the_import_seed_and_the_packet_seed_appear_in_no_packet_text(tmp_path):
-    import_seed, packet_seed = "IMPORT-SEED-TOKEN-QX7", "PACKET-SEED-TOKEN-RZ9"
+    import_seed, packet_seed = "1a2b3c4d" * 8, "9e8d7c6b" * 8
     items, grades, _ = _planted(n=6, seed=import_seed)
     ip = tmp_path / "items.jsonl"
     ip.write_text("".join(json.dumps(i) + "\n" for i in items))
@@ -188,8 +188,8 @@ def test_a64_the_import_seed_and_the_packet_seed_appear_in_no_packet_text(tmp_pa
     for f in (tmp_path / "packets").iterdir():
         seen += [f.name, f.read_text()]
     blob = "\n".join(seen)
-    assert import_seed not in blob and "IMPORT-SEED" not in blob
-    assert packet_seed not in blob and "PACKET-SEED" not in blob.replace(str(tmp_path / "keys"), "")
+    assert import_seed not in blob and import_seed[:16] not in blob
+    assert packet_seed not in blob.replace(str(tmp_path / "keys"), "") and packet_seed[:16] not in blob
 
 
 # ---------------------------------------------------------------- A6-5: a stale temp file is seen, not silent

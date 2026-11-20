@@ -167,8 +167,13 @@ the key file's exact bytes). For any other status, or an unknown item, it refuse
 It never prints the key file or its `seed`: every key file of a run carries the run's single letter seed, so one verbatim key
 file would unblind every item. No verb emits a key file or the seed; opening them at settlement is a by-hand step.
 Running `reveal` IS a reveal: the key holder logs it (item, time, letters, `key_sha256`) in the study's log at once, as
-principles section 5a requires; `reveal` itself writes no log. The `key_sha256` is public by design, so a key file's seed
-must be long and random: a short or guessable seed could be brute-forced from the hash.
+principles section 5a requires; `reveal` itself writes no log. The `key_sha256` is public by design, and the key file is
+`json.dumps({schema_version, item_id, seed, letters}, sort_keys=True)` plus a newline, so after a reveal only the seed is
+unknown and a short seed could be brute-forced from the hash (measured: a 5-character seed fell in seconds). The tool
+therefore enforces one canonical form for every SECRET seed: 64 lowercase hex characters (`^[0-9a-f]{64}$`). `packet2 --seed`
+(the letter seed) and `import-beam --seed` (the import seed: answer ids are sha256 of seed, item and index and are public, so
+a short one would show which answer is official) refuse anything else, with a message that never echoes the value; `reveal`
+refuses an item whose key file carries a non-canonical seed. `draw --seed` is the public drand randomness and is exempt.
 
 **Re-keying happens only after the phase-2 verdict is recorded.** `map` and `export-phase3` re-key an item's phase-2
 judgement to answer ids only when that item's phase-2 verdict is in `verdicts.jsonl` with a `record_sha256` that recomputes.

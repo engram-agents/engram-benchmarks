@@ -29,6 +29,17 @@ class UserError(Exception):
     """A refusal: reported on stderr as `refused: ...`, exit code 1, nothing written."""
 
 
+SECRET_SEED_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def require_canonical_seed(value, name):
+    """THE check for every SECRET seed the tool accepts: the canonical form the study's pre-log fixes, 64 lowercase hex
+    characters. `reveal` publishes the item id, the letters and the key file's sha256, so only the seed is unknown to a
+    reader; a short or guessable seed could be brute-forced from that hash. The message names the seed, never its value."""
+    if not isinstance(value, str) or SECRET_SEED_RE.fullmatch(value) is None:
+        raise UserError("%s must be 64 lowercase hex characters (the canonical secret seed); the value is not echoed" % name)
+
+
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -443,6 +454,8 @@ def cmd_quote_check(a):
 # ------------------------------------------------------------------ draw
 
 def cmd_draw(a):
+    # --seed here is the public drand randomness (published before the draw, recorded in draws.jsonl): not secret, so it
+    # is exempt from require_canonical_seed.
     items = load_items(a.items)
     grades = load_grades(a.grades, items)
     try:
@@ -505,6 +518,7 @@ def cmd_packet1(a):
 
 
 def cmd_packet2(a):
+    require_canonical_seed(a.seed, "--seed (the letter seed)")
     try:
         packet, key, sha = blind_packet.write_packet(a.items, a.item, a.seed, a.keys_dir, a.out_dir, a.chat)
     except (ValueError, FileExistsError, OSError) as exc:
@@ -776,6 +790,9 @@ def cmd_reveal(a):
         raise UserError("item %s is %s; its letters are revealed only once it is control_settled or settled"
                       % (a.item, status))
     raw, key = ctx.key_record(a.item)  # one read: the letters and the hash come from the same bytes
+    if not isinstance(key.get("seed"), str) or SECRET_SEED_RE.fullmatch(key["seed"]) is None:
+        raise UserError("the key file of item %s has a seed that is not canonical (64 lowercase hex characters), so its "
+                        "sha256 could be brute-forced; its letters are not revealed" % a.item)
     print(json.dumps({"item_id": a.item, "status": status, "letters": key["letters"],
                       "key_sha256": hashlib.sha256(raw).hexdigest()}, sort_keys=True))
 
@@ -968,6 +985,7 @@ def _arm_guess_stats(a, items, grades):
 # ------------------------------------------------------------------ importers
 
 def cmd_import_beam(a):
+    require_canonical_seed(a.seed, "--seed (the import seed)")
     from importers import beam
     try:
         questions, sha = beam.load_questions(a.parquet, a.conv)

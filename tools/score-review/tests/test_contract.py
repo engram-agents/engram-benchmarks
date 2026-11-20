@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from helpers import Store, assert_refused, build_flow, forge_verdict, in_grade_order, read_jsonl, run
+from helpers import SEED, SEED_2, Store, assert_refused, build_flow, forge_verdict, in_grade_order, read_jsonl, run
 
 
 
@@ -325,7 +325,7 @@ def test_draw_refuses_a_second_draw_for_the_same_run(tmp_path):
 
 # ---------------------------------------------------------------- cell 7 and 11: phase-2 packet
 
-def _packet_text(s, item="i02", seed="seedx", chat=False):
+def _packet_text(s, item="i02", seed=SEED, chat=False):
     args = ["packet2", "--items", s.items, "--item", item, "--seed", seed, "--keys-dir", s.keys,
             "--out-dir", s.root / "packets" / "phase2"]
     if chat:
@@ -354,7 +354,7 @@ def test_packet2_shows_only_what_phase2_may_see(tmp_path):
     sha = hashlib.sha256(key_path.read_bytes()).hexdigest()
     assert sha in cp.stdout
     key = json.loads(key_path.read_text())
-    assert key["item_id"] == "i02" and key["seed"] == "seedx" and key["schema_version"] == 1
+    assert key["item_id"] == "i02" and key["seed"] == SEED and key["schema_version"] == 1
     assert sorted(key["letters"].values()) == sorted(meta.values())
     assert sorted(key["letters"]) == ["A", "B", "C"]
 
@@ -371,7 +371,7 @@ def test_packet2_with_chat_prints_cited_message_text(tmp_path):
 def test_packet2_has_no_option_for_the_other_files(tmp_path):
     s = Store(tmp_path)
     for opt in ("--grades", "--verdicts", "--draws"):
-        cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", "s", "--keys-dir", s.keys,
+        cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", SEED, "--keys-dir", s.keys,
                  "--out-dir", tmp_path / "o", opt, str(s.grades))
         assert cp.returncode == 2 and "unrecognized" in cp.stderr
 
@@ -380,7 +380,7 @@ def test_packet2_does_not_overwrite_an_existing_key(tmp_path):
     s = Store(tmp_path)
     s.packet2("i02")
     before = (s.keys / "i02.json").read_bytes()
-    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", "other", "--keys-dir", s.keys,
+    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", SEED_2, "--keys-dir", s.keys,
              "--out-dir", tmp_path / "o2")
     assert_refused(cp)
     assert (s.keys / "i02.json").read_bytes() == before
@@ -392,7 +392,7 @@ def test_cell11_packet_builder_blind_by_construction(tmp_path):
     only = tmp_path / "only"
     only.mkdir()
     (only / "items.jsonl").write_bytes(s.items.read_bytes())
-    cp = run("packet2", "--items", only / "items.jsonl", "--item", "i02", "--seed", "s", "--keys-dir", only / "keys",
+    cp = run("packet2", "--items", only / "items.jsonl", "--item", "i02", "--seed", SEED, "--keys-dir", only / "keys",
              "--out-dir", only / "packets")
     assert cp.returncode == 0, cp.stderr
     assert (only / "packets" / "i02.md").exists()
@@ -406,7 +406,7 @@ def test_cell11_packet_builder_blind_by_construction(tmp_path):
     (plant / "draws.jsonl").write_text('{"x": "TOKEN-DRAWS"}\n')
     (plant / "keys").mkdir()
     (plant / "keys" / "other.json").write_text('{"x": "TOKEN-KEYS"}\n')
-    cp = run("packet2", "--items", plant / "items.jsonl", "--item", "i02", "--seed", "s", "--keys-dir", plant / "keys",
+    cp = run("packet2", "--items", plant / "items.jsonl", "--item", "i02", "--seed", SEED, "--keys-dir", plant / "keys",
              "--out-dir", plant / "packets")
     assert cp.returncode == 0, cp.stderr
     out = (plant / "packets" / "i02.md").read_text() + cp.stdout + cp.stderr
@@ -748,7 +748,7 @@ def test_import_beam_parquet(tmp_path):
                  {"question_no": 3, "text": "Reply %s three" % TOK[arm], "cited_ids": [7], "rubric_scores": [0.0], "arm": arm}]
     ans.write_text("".join(json.dumps(r) + "\n" for r in rows))
     items_out, grades_out = tmp_path / "items.jsonl", tmp_path / "grades.jsonl"
-    cp = run("import-beam", "--parquet", pq_path, "--conv", "c1", "--answers", ans, "--seed", "sd",
+    cp = run("import-beam", "--parquet", pq_path, "--conv", "c1", "--answers", ans, "--seed", SEED,
              "--items-out", items_out, "--grades-out", grades_out)
     assert cp.returncode == 0, cp.stderr
     items, grades = read_jsonl(items_out), read_jsonl(grades_out)

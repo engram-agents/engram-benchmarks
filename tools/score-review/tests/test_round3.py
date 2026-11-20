@@ -12,14 +12,14 @@ import textwrap
 
 import pytest
 
-from helpers import Store, assert_refused, forge_export, forge_verdict, read_jsonl, run
+from helpers import SEED, Store, assert_refused, forge_export, forge_verdict, read_jsonl, run
 from test_round2 import CStore
 
 NEUTRAL = "Cited messages: not shown for this item"
 NONE_CITE = {"official": [], "a1": [], "a2": []}
 
 
-def _packet(s, item="i02", chat=False, seed="sd"):
+def _packet(s, item="i02", chat=False, seed=SEED):
     out = s.root / "packets" / "phase2"
     args = ["packet2", "--items", s.items, "--item", item, "--seed", seed, "--keys-dir", s.keys, "--out-dir", out]
     if chat:
@@ -78,7 +78,7 @@ def test_b1_the_real_import_shape_shows_no_cited_line_difference(tmp_path):
     assert [a["cited_ids"] for a in items[0]["answers"] if a["answer_id"] == grades[0]["official_id"]] == [[4, 7]]
     p = tmp_path / "items.jsonl"
     p.write_text(json.dumps(items[0]) + "\n")
-    cp = run("packet2", "--items", p, "--item", items[0]["item_id"], "--seed", "sd", "--keys-dir", tmp_path / "k",
+    cp = run("packet2", "--items", p, "--item", items[0]["item_id"], "--seed", SEED, "--keys-dir", tmp_path / "k",
              "--out-dir", tmp_path / "o")
     assert cp.returncode == 0, cp.stderr
     text = (tmp_path / "o" / ("%s.md" % items[0]["item_id"])).read_text()
@@ -114,7 +114,7 @@ def test_b2_item_ids_are_opaque_hex_and_conv_and_question_no_live_only_in_grades
     ip.write_text("".join(json.dumps(i) + "\n" for i in items))
     seen = [ip.read_text()]
     for it in items:
-        cp = run("packet2", "--items", ip, "--item", it["item_id"], "--seed", "sd", "--keys-dir", tmp_path / "keys",
+        cp = run("packet2", "--items", ip, "--item", it["item_id"], "--seed", SEED, "--keys-dir", tmp_path / "keys",
                  "--out-dir", tmp_path / "packets")
         assert cp.returncode == 0, cp.stderr
         seen.append(cp.stdout)
@@ -260,7 +260,7 @@ def test_s3_a_failed_packet_write_leaves_neither_packet_nor_key(tmp_path):
     assert not (keys / "i02.json").exists()
     assert _tree(keys) == []  # no temp file left behind either
     assert _tree(out) == ["i02.md"] and (out / "i02.md").is_dir()
-    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", "sd", "--keys-dir", keys, "--out-dir", out)
+    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", SEED, "--keys-dir", keys, "--out-dir", out)
     assert_refused(cp)  # the CLI reports it as a refusal, not a traceback
     assert not (keys / "i02.json").exists()
 
@@ -295,7 +295,7 @@ def test_s3_a_refused_run_because_a_key_exists_writes_no_packet(tmp_path):
     s = Store(tmp_path)
     s.keys.mkdir()
     (s.keys / "i02.json").write_text("{}")
-    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", "sd", "--keys-dir", s.keys,
+    cp = run("packet2", "--items", s.items, "--item", "i02", "--seed", SEED, "--keys-dir", s.keys,
              "--out-dir", s.root / "packets" / "phase2")
     assert_refused(cp)
     assert _tree(s.root / "packets") == [] and (s.keys / "i02.json").read_text() == "{}"

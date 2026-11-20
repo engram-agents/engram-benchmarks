@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 
-from helpers import Store, assert_refused, run
+from helpers import SEED, Store, assert_refused, run
 
 import blind_packet
 import score_review as sr
@@ -41,7 +41,7 @@ def _snapshot(root):
     return sorted((str(p.relative_to(root)), p.stat().st_size if p.is_file() else -1) for p in root.rglob("*"))
 
 
-def _packet2(root, items, item="d1", seed="s"):
+def _packet2(root, items, item="d1", seed=SEED):
     root = pathlib.Path(root)
     return run("packet2", "--items", items, "--item", item, "--seed", seed, "--keys-dir", root / "keys",
                "--out-dir", root / "packets" / "phase2")

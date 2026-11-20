@@ -20,6 +20,9 @@ QUOTE_OK = "north shelf"
 
 DEFAULT_CITED = {"official": [1], "a1": [1, 2], "a2": []}  # mixed on purpose: some answers cite, one does not
 TEXT_TOKEN = {"official": "alpha", "a1": "beta", "a2": "gamma"}
+# The one definition of the tests' secret letter / import seeds: the canonical form is 64 lowercase hex characters.
+SEED = "a1b2c3d4" * 8
+SEED_2 = "0f1e2d3c" * 8
 ITEM_IDS = ["i01", "i02", "i03", "i04", "i05", "i06"]
 
 
@@ -189,7 +192,7 @@ class Store:
     def p1(self, item, judgement=None, reviewer="lead", **kw):
         return self.must_record(item, 1, reviewer, self.vdict(item, judgement or self.honest(item), **kw))
 
-    def packet2(self, item, seed="seedx"):
+    def packet2(self, item, seed=SEED):
         cp = run("packet2", "--items", self.items, "--item", item, "--seed", seed, "--keys-dir", self.keys,
                  "--out-dir", self.root / "packets" / "phase2")
         assert cp.returncode == 0, cp.stderr
