@@ -2685,3 +2685,31 @@ Claude Code `version` that wrote it). Versions by session:
   version as the K = 3 reading whatever the seat installs overnight. Whether to use it is the design owner's call.
 - **For the registered study:** the student's Claude Code becomes a pinned binary named by hash in the setup id, and
   the feeder refuses to start when the running `claude --version` or the binary's hash differs.
+
+### P1b K = 3 reading (exchanges 46-135): end, the run's facts (logged before any use of the run; counts only, no answer text read)
+
+- **Window:** started 2026-11-19T18:09:26Z (broker start line); ended 2026-11-20T00:12:00Z, exit 0. The 7:45 PM clock stop
+  had been lifted under A8's amendment (`43e6360b`). The reading ended before the wrapper's timer would have fired: at
+  the resume, the wrapper's only pending signal was the child-exit signal, not the timer's. So exit 0 is the session's
+  own result, not an artifact of the suspension.
+- **Launcher steps 1-10:** all exit 0, including the delivery check (step 9), the end-state save (9b) and the
+  after-hashes (10). The saved end state carries no disposable-copy marker (the slot keeps its own).
+- **Record:** 30 reading rounds, exchanges 46 through 135 each once and in order; 0 error rows, 0 EOF, 0 timeouts.
+- **Reading wall time:** 21,738.4 s in all, 241.5 s per exchange. Rounds ran from 428 s to 1,109 s.
+- **Record file sha256:**
+  - setup record `4382255692504ce6afb9c987164c3f2359c7b14f63bc2c59c8f185432a82784d`;
+  - turns record `96c933ec255c96be826a0ed6baffd08bfc6e5b34dbf5ac35986376fdf29dbff1`;
+  - end-state hashes file `ee1d1313f4453f94ed6d202d42a69813873b62b10a7c3a59609ce5627d25ecd1`.
+- **Harness version:** Claude Code 2.1.328 (see the deviation entry above; the k = 1 reading runs on the pinned copy
+  of the same version, A9).
+- **Custody scan (A10 rule 3), run on the saved end state before any use:**
+  - scope: 2 transcripts, 873 distinct tool calls;
+  - absolute paths outside the student's home or the system read-only directories: 0;
+  - searches rooted at or above the home: 0;
+  - network-capable calls: 0;
+  - secret-shaped targets: 0;
+  - value-blind secret-format and key-list or dataset name hits, in every record type: 0;
+  - positive control (the home's own path): 4,953 hits.
+  - **Verdict:** usable under the security seat's rule. The exposure bound of A10 travels with every number from it.
+- **What this run does not yet give:** R needs the k = 1 reading of the same exchanges (A8, A9). No R, no answer and
+  no comparison is computed from this run alone.
