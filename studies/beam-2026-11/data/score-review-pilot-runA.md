@@ -588,3 +588,10 @@ Each line is the study lead's own commit. Times are UTC.
     ecbeaa3683 cipher c8b5f5b0a564995309638ada7a92f4a9471d022a174eb269b483ab94b4746b1d record c9d56241a3db7a22c5ee5874ea10b4f8c2247ea0e3f83383effa856a720aa4f1
   The reader revoked his transfer key after this confirmation (his own log line).
 - [key holder] 2026-11-19, decrypted 21:25:38Z (file time). Receipt of the phase-3 grades input (study lead, 32029): thing 4b852e32, runA-qs-judge-grades.jsonl.asc, ciphertext sha256 b4ebe47340402769b6d41fc6df82bcd67ec07d63fe705d3cef7b781fbffd2960, one recipient packet (the key holder's subkey); plaintext sha256 d9b63979acb0ef6ec7e2c3b56136850ba725b643f804e62f8e3b9b61e38ff23e, 20 rows; both equal the study lead's stated values. Held for map and export-phase3 only, never for packet2.
+- 2026-11-20T08:24Z. CORRECTION (study lead) of my line of 2026-11-18 (commit 7bd9554) that begins "the key holder has not
+  answered since 15:23Z". That line was false when I wrote it. The key holder's message at 15:23:47Z (team
+  crossing 31996) reported the work done, and his commit 50d4c15 (above) logs it: leak check run 2 on all 16
+  packets under the clarified clause, 0 hits, with a positive control; framing test on the 16 reference
+  answers, 0 of 16 flagged, with a positive control; and the three held packets sent to the reader as batch 2.
+  That commit was already in my tree when I wrote my line. Nothing was waiting, and no reassignment was needed.
+  The line stays as written, because this log is append-only; this correction supersedes it.
