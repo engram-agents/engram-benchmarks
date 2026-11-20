@@ -2013,14 +2013,14 @@ CHUNK_HEAD = b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nTransfer-Encoding: chunk
 SMUGGLE = [
     ("bare LF in a chunk-size line, with an extension (the measured shape)",
      b"0;x\n\r\nGET /api/other HTTP/1.1\r\nHost: x\r\n\r\n", [b"0;x", b"GET /api/other"]),
-    ("bare LF in a chunk-size line", b"0\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
-    ("bare CR in a chunk-size line", b"0\rGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
+    ("bare LF in a chunk-size line", b"0\nGET /evil HTTP/1.1\r\n\r\n", [b"0\n", b"GET /evil"]),
+    ("bare CR in a chunk-size line", b"0\rGET /evil HTTP/1.1\r\n\r\n", [b"0\rG", b"GET /evil"]),
     ("request-shaped trailer", b"0\r\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil"]),
     ("a header-shaped trailer", b"0\r\nX-Trailer: t\r\n\r\n", [b"X-Trailer"]),
     ("a chunk extension", b"5;ext=1\r\nhello\r\n0\r\n\r\n", [b";ext"]),
     ("a space after the chunk size", b"5 \r\nhello\r\n0\r\n\r\n", [b"5 \r\n"]),
-    ("bare LF as the chunk terminator", b"5\r\nhello\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"\nG"]),
-    ("bare CR as the chunk terminator", b"5\r\nhello\rGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"\rG"]),
+    ("bare LF as the chunk terminator", b"5\r\nhello\nGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"hello\n"]),
+    ("bare CR as the chunk terminator", b"5\r\nhello\rGET /evil HTTP/1.1\r\n\r\n", [b"GET /evil", b"hello\r"]),
 ]
 
 
