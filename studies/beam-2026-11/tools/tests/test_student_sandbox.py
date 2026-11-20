@@ -3091,3 +3091,16 @@ def test_peer_a2_the_wrapper_hands_each_effective_cap_to_the_running_forwarder(c
     finally:
         p.kill()
         p.wait()
+
+
+def test_peer_b_latency_compare_runs_the_boxed_probe_with_the_slot_as_home_whatever_the_operators_home_is(cfg, stubs, tmp_path):
+    """The measurement helper runs the wrapper with the operator's own environment; the HOME rule must not turn an
+    operator's ordinary HOME into a failed measurement."""
+    model = stubs("PONG")
+    cfg.model_port = model.port
+    elsewhere = tmp_path / "operator-home"
+    elsewhere.mkdir()
+    r = subprocess.run([PY, "-I", FWD, "latency-compare", "--wrapper", WRAPPER, "-n", "3"],
+                       env=cfg.env(test=False, HOME=str(elsewhere)), capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines()[0].startswith("direct ") and any(l.startswith("bridge ") for l in r.stdout.splitlines())

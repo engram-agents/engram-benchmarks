@@ -776,7 +776,9 @@ def run_latency_compare(a):
     inside = "%s -I /run/sandbox-forward.py latency --host 127.0.0.1 --port %d -n %d" % (
         "/usr/bin/python3", port, a.n)
     # the probe is one request, GET /ping: the boxed run lists exactly that, whatever the real launch lists
-    env = dict(os.environ, SANDBOX_TEST="1", SANDBOX_TEST_EXEC=inside, SANDBOX_MODEL_ALLOW="GET /ping")
+    # HOME is the slot, as the wrapper requires of a real launch: the operator's own HOME is not the student's
+    env = dict(os.environ, SANDBOX_TEST="1", SANDBOX_TEST_EXEC=inside, SANDBOX_MODEL_ALLOW="GET /ping",
+               HOME=os.environ.get("SANDBOX_SLOT", os.environ.get("HOME", "")))
     env.pop("SANDBOX_MODEL_LEARN", None)
     r = subprocess.run(["/bin/bash", a.wrapper], env=env, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.startswith("latency "):
