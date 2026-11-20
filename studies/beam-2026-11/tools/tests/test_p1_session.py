@@ -10,7 +10,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, install_stub_systemctl
 
 TOOL = os.path.join(TOOLS, "p1-session.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -121,7 +121,8 @@ def emulate_wrapper(a):
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
     pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
     line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
-            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
+            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1 "
+            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:
@@ -201,6 +202,11 @@ class World:
         self.mark = root / "student-ran.txt"
         self.argv_log = root / "stub-argv.jsonl"
         self.sbx_log = root / "stub-sandbox-pairs.jsonl"
+        # the launch module asks `systemctl --user` to stop and list scopes: on a host with no systemd (a Mac) the cells run against
+        # a stand-in that answers as an empty user manager, so they keep running there
+        self.path = os.environ["PATH"]
+        if shutil.which("systemctl") is None:
+            self.path = install_stub_systemctl(root / "stub-systemctl-bin") + os.pathsep + self.path
         self.unit_prefix = "p1sbxt%s-" % os.urandom(3).hex()   # this world's own scope-name prefix (hermetic cells)
         # the sandbox input of a real run: the expected hashes are those of the files in this tree, the settings are
         # placeholders (a stub starts no student, so nothing executes them) with the port of feed.py's default model URL
@@ -211,7 +217,7 @@ class World:
         self.proc = None
 
     def env(self, **over):
-        e = {"PATH": os.environ["PATH"], "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
+        e = {"PATH": self.path, "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
              "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
@@ -1242,3 +1248,26 @@ def test_sb_a_leftover_of_an_earlier_launch_refuses_the_session_and_the_count_is
         assert "sandbox leftovers found at launch: 1" in setup_text(w).splitlines()
     finally:
         helper.kill(); helper.wait()
+
+
+# ---- L1 (the colleague reviewer's read): a test-mode setting reaches the module only under the existing P1_TEST_HOOKS=1 rule
+def test_l1_a_test_mode_setting_reaches_the_module_only_under_p1_test_hooks(w):
+    import types
+    a = types.SimpleNamespace(expect_sandbox=str(w.expected), continue_reading=False, session=SESSION,
+                              question_file=str(w.qfile), components=str(w.comps))
+    c = {"slot": str(w.slot), "rundir": str(w.runs / "p1-x")}
+    env, slot_real = w.env(), os.path.realpath(w.slot)
+    assert P1S.sandbox_input(a, env, slot_real, c).allow_test is True            # hooks on: a test run, said explicitly
+    no_hooks = {k: v for k, v in env.items() if k != "P1_TEST_HOOKS"}
+    with pytest.raises(P1S.Refusal, match="SANDBOX_TEST"):                       # a real run: refused, named, before anything starts
+        P1S.sandbox_input(a, no_hooks, slot_real, c)
+    real = {k: v for k, v in no_hooks.items() if not k.startswith("SANDBOX_TEST")}
+    assert P1S.sandbox_input(a, real, slot_real, c).allow_test is False
+
+
+def test_l1_the_caps_and_the_test_flags_of_the_launch_line_are_written_to_setup_txt(w):
+    assert w.run().returncode == 0
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox launch-line cap_tasks: 1024", "sandbox launch-line cap_memory: 4294967296",
+                 "sandbox launch-line cap_tmp: 2147483648", "sandbox launch-line test_mode: 1", "sandbox launch-line test_exec: 0"):
+        assert want in lines, want

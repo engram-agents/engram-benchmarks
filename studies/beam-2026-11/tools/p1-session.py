@@ -618,7 +618,9 @@ def sandbox_input(a, env, slot_real, c):
         raise Refusal(f"SANDBOX_SLOT {settings['SANDBOX_SLOT']} is not the slot {c['slot']} (BEAM_ARM_HOME)")
     settings["SANDBOX_SLOT"] = c["slot"]
     try:
-        sandbox = SL.Sandbox(settings, a.expect_sandbox)
+        # a test-mode SANDBOX_* setting (SANDBOX_TEST, SANDBOX_TEST_EXEC, the cap knobs...) reaches the module only under the existing
+        # P1_TEST_HOOKS=1 rule; in a real run the module refuses it, named, before anything starts
+        sandbox = SL.Sandbox(settings, a.expect_sandbox, allow_test=env.get("P1_TEST_HOOKS") == "1")
         SL.check_model_url(SL.model_url(feed4_args(a, c, os.path.join(c["rundir"], "run")), env),
                            sandbox.settings["SANDBOX_MODEL_PORT"])
     except SL.LaunchRefused as e:
@@ -878,7 +880,9 @@ def sandbox_info(c, res):
             f"sandbox log: {os.path.basename(res.log) if res.log else 'none'}",
             f"sandbox verdict: {res.verdict if res.verdict is not None else 'none (log-verdict refused or did not run)'}",
             f"sandbox launch-line wrapper_sha256: {res.wrapper_sha256 or 'none'}",
-            f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}"]
+            f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}",
+            f"sandbox launch-line test_mode: {res.test_mode}", f"sandbox launch-line test_exec: {res.test_exec}",
+            *[f"sandbox launch-line {k}: {v}" for k, v in sorted(res.caps.items())]]
 
 
 def write_setup(a, c, steps, start, rc):

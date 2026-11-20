@@ -57,7 +57,8 @@ def emulate_wrapper(a):
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
     pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
     line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
-            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1")
+            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1 "
+            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:
@@ -547,7 +548,7 @@ sys.exit(rc)
 def fake_cp_env(w, mode):
     d = w.root / "fakebin"; d.mkdir(exist_ok=True)
     f = d / "cp"; f.write_text(FAKE_CP.format(py=sys.executable)); f.chmod(0o755)
-    return dict(PATH=f"{d}:{os.environ['PATH']}", REAL_CP=shutil.which("cp"), FAKE_CP_TARGET=str(w.saved), FAKE_CP_MODE=mode)
+    return dict(PATH=f"{d}:{w.path}", REAL_CP=shutil.which("cp"), FAKE_CP_TARGET=str(w.saved), FAKE_CP_MODE=mode)
 
 
 def no_saved(w):

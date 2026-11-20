@@ -100,3 +100,23 @@ def arm_home(arm_home_template, tmp_path):
 
 def memory_dir(h):
     return h / ".claude" / "projects" / "-synthetic-work" / "memory"
+
+
+# A stand-in `systemctl` for hosts that have no systemd (a Mac): the launch module asks `systemctl --user` to stop a scope, to
+# show its cgroup and to list units, and this answers as an EMPTY user manager (no units, nothing to stop). The cells that
+# need a real user manager (real scopes, real boxes) are marked needs_box and skip there; the others run against this.
+STUB_SYSTEMCTL = """#!/bin/sh
+case "$*" in
+  *is-active*) echo inactive; exit 3 ;;
+esac
+exit 0
+"""
+
+
+def install_stub_systemctl(dirpath):
+    os.makedirs(dirpath, exist_ok=True)
+    path = os.path.join(str(dirpath), "systemctl")
+    with open(path, "w") as f:
+        f.write(STUB_SYSTEMCTL)
+    os.chmod(path, 0o755)
+    return str(dirpath)

@@ -97,6 +97,8 @@ class LaunchResult:
     def __init__(self, returncode, log=None, verdict=None, wrapper_sha256=None, forwarder_sha256=None):
         self.returncode, self.log, self.verdict = returncode, log, verdict
         self.wrapper_sha256, self.forwarder_sha256 = wrapper_sha256, forwarder_sha256
+        self.test_mode = self.test_exec = None   # from the launch line, after the session
+        self.caps = {}                            # every cap_* value the launch line records (the caller writes them to its record)
 
 
 def sha256_file(path):
@@ -138,8 +140,11 @@ def required_names(settings):
     return tuple(n for n in REQUIRED_SANDBOX if not (learn and n == "SANDBOX_MODEL_ALLOW"))
 
 
-def check_settings(settings):
-    """Refuse a missing or empty required SANDBOX_* setting, and any setting the module owns. Returns a clean copy."""
+def check_settings(settings, allow_test=False):
+    """Refuse a missing or empty required SANDBOX_* setting, any setting the module owns, and (in a REAL run, the default) any
+    test-mode setting: SANDBOX_TEST, SANDBOX_TEST_EXEC, the cap knobs, SANDBOX_TEST_ALLOW_BINARY_IN_RW and every other
+    SANDBOX_TEST* name would put the student in a box that is not the registered one. A test run passes `allow_test=True`
+    explicitly (the cells; p1-session only under P1_TEST_HOOKS=1). Returns a clean copy."""
     for n in required_names(settings):
         if not settings.get(n):
             raise LaunchRefused(f"{n} is not set or is empty (the wrapper requires it; it must be passed to the feeder "
@@ -147,6 +152,11 @@ def check_settings(settings):
     for n in MODULE_OWNED:
         if n in settings:
             raise LaunchRefused(f"{n} is set by the launch module for each launch; the caller may not supply it")
+    if not allow_test:
+        for n in sorted(settings):
+            if n.startswith("SANDBOX_TEST"):
+                raise LaunchRefused(f"{n} is a test-mode setting and is refused in a real run (the student would not be in the "
+                                    "registered box); only a test run, which says so explicitly, may pass it")
     for n in settings:
         if not n.startswith("SANDBOX_"):
             raise LaunchRefused(f"{n} is not a SANDBOX_* setting")
@@ -179,8 +189,9 @@ def unit_name_re(prefix):
 
 class Sandbox:
     """What a launch needs besides the feeder call: the SANDBOX_* settings and the expected hashes."""
-    def __init__(self, settings, expected_file):
-        self.settings = check_settings(settings)
+    def __init__(self, settings, expected_file, allow_test=False):
+        self.allow_test = bool(allow_test)
+        self.settings = check_settings(settings, self.allow_test)
         self.prefix = unit_prefix(self.settings)
         self.expected = load_expected(expected_file)
         self.expected_file = expected_file
@@ -263,28 +274,25 @@ def model_url(argv, env):
     return url if url is not None else (env.get("BEAM_OLLAMA_URL") or OLLAMA_DEFAULT)
 
 
+# The model URL the student will use is accepted ONLY in this strict form: http, a loopback host, an explicit port, and an
+# optional plain path. No userinfo, no backslash, no percent-escape, no query, no fragment, no other scheme. A parser
+# differential is the reason: `http://evil.com\\@127.0.0.1/v1` (with a port) has the host 127.0.0.1 for Python's urlsplit and evil.com
+# for the WHATWG parser the student (a Node program) uses, so the module does not parse a URL, it matches this pattern.
+MODEL_URL_RE = re.compile(r"http://(127\.0\.0\.1|localhost|\[::1\]):([0-9]{1,5})(/[A-Za-z0-9._~/-]*)?")
+
+
 def check_model_url(url, port):
-    try:
-        u = urllib.parse.urlsplit(url)
-        host, uport = u.hostname, u.port
-    except ValueError:
-        raise LaunchRefused(f"the model URL the student will use is not a URL: {url!r}")
-    if uport is None:
-        uport = {"http": 80, "https": 443}.get(u.scheme)
-    if not host:
-        raise LaunchRefused(f"the model URL the student will use has no host, so it is not loopback: {url!r}")
-    try:
-        loop = host == "localhost" or ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        loop = False
-    if not loop:
-        raise LaunchRefused(f"the model URL the student will use ({url}) has a host that is not loopback")
+    m = MODEL_URL_RE.fullmatch(url)
+    if not m:
+        raise LaunchRefused(f"the model URL the student will use ({url!r}) is not of the strict form "
+                            "http://(127.0.0.1|localhost|[::1]):<port>[/path]: a host that is not loopback, userinfo, a backslash, "
+                            "a percent-escape, a query, a fragment, another scheme or a missing port are all refused")
     try:
         want = int(port)
     except ValueError:
         raise LaunchRefused(f"SANDBOX_MODEL_PORT {port!r} is not a number")
-    if uport != want:
-        raise LaunchRefused(f"the model URL the student will use ({url}) has port {uport}, not SANDBOX_MODEL_PORT {port}")
+    if int(m.group(2)) != want:
+        raise LaunchRefused(f"the model URL the student will use ({url}) has port {int(m.group(2))}, not SANDBOX_MODEL_PORT {port}")
 
 
 def resolve_on_path(name, path, cwd):
@@ -740,6 +748,12 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
             res.verdict = line
             launched = read_launch_hashes(log_path)
             res.wrapper_sha256, res.forwarder_sha256 = launched.get("wrapper_sha256"), launched.get("forwarder_sha256")
+            lf = read_launch_fields(log_path) or {}
+            res.test_mode, res.test_exec = lf.get("test_mode"), lf.get("test_exec")
+            res.caps = {k: v for k, v in sorted(lf.items()) if k.startswith("cap_")}
+            if not sandbox.allow_test and (res.test_mode != "0" or res.test_exec != "0"):   # read off the line, fail closed
+                raise LaunchStop(f"the launch line says test_mode={res.test_mode} test_exec={res.test_exec} in a real run: the "
+                                 "student ran in a test-mode box, not the registered one; no answer of this session is read", res)
             for k in ("wrapper_sha256", "forwarder_sha256"):
                 if res.__dict__[k] != sandbox.expected[k]:
                     raise LaunchStop(f"the launch line's {k} is {res.__dict__[k]}, expected {sandbox.expected[k]}: what ran "

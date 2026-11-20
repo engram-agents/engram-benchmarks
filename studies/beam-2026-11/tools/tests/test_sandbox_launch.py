@@ -9,7 +9,7 @@ the REAL wrapper (SANDBOX_TEST=1, a stub pinned binary) through the REAL feed4.S
 """
 import ast, hashlib, importlib.util, json, os, re, shutil, subprocess, sys
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, install_stub_systemctl
 import test_student_sandbox as TSS
 
 MOD = os.path.join(TOOLS, "sandbox_launch.py")
@@ -17,6 +17,11 @@ _spec = importlib.util.spec_from_file_location("sandbox_launch_under_test", MOD)
 SL = importlib.util.module_from_spec(_spec)
 if os.path.exists(MOD):  # before the module exists the cells fail on the missing file, not on the import
     _spec.loader.exec_module(SL)
+
+def mk_sandbox(settings, expected, **kw):
+    """The cells are TEST runs: they say so explicitly (allow_test=True). A real run's Sandbox is built without it."""
+    return SL.Sandbox(settings, expected, allow_test=True, **kw)
+
 
 NOT_FLAGGED = "not-flagged"
 FLAGGED = "flagged: endpoint unreachable, nothing reached it"
@@ -65,7 +70,9 @@ if os.environ.get("STUB_REALSCOPE"):  # a REAL transient scope with a process in
             break
         time.sleep(0.1)
 line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={unit} "
-        f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1")
+        f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1 "
+        f"test_mode={1 if mode == 'testline' or pairs.get('SANDBOX_TEST') == '1' else 0} test_exec={1 if mode == 'testline' else 0} "
+        f"cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
 if mode == "nomarker":
     line = line.replace(f"forwarder_start={fstart} ", "")
 if mode == "nounit":
@@ -74,7 +81,7 @@ CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason
 body = {"ok": [line, "fwd-first-request"], "unreachable": [line, CF], "nolaunch": [], "nowrapper": ["fwd-first-request"], "two": [line, line, "fwd-first-request"],
         "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"],
         "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"],
-        "zerostart": [line, "fwd-first-request"], "rostate": [line, "fwd-first-request"], "nounit": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
+        "zerostart": [line, "fwd-first-request"], "testline": [line, "fwd-first-request"], "rostate": [line, "fwd-first-request"], "nounit": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
 if log and mode != "nolaunch":
     with open(log, "a") as f:
         f.write("".join(l + "\n" for l in body))
@@ -134,7 +141,7 @@ class World:
         return {k: v for k, v in s.items() if v is not None}
 
     def sandbox(self, **over):
-        return SL.Sandbox(self.settings(**over), str(self.expected))
+        return mk_sandbox(self.settings(**over), str(self.expected))
 
     def out(self):
         self.n += 1
@@ -166,9 +173,13 @@ class World:
 
 
 @pytest.fixture
-def w(tmp_path):
+def w(tmp_path, monkeypatch):
+    """The module stops and checks the launch's scope through `systemctl --user`. On a host with no systemctl (a Mac) the pure
+    cells still run, against a stub systemctl that answers as an empty user manager; only the cells that need a REAL user
+    manager (real scopes and boxes) are marked `needs_box` and skip there."""
     if shutil.which("systemctl") is None:
-        pytest.skip("the module stops and checks the launch's scope through `systemctl --user`: a Linux/systemd host is needed")
+        stub = install_stub_systemctl(tmp_path / "stub-systemctl-bin")
+        monkeypatch.setenv("PATH", stub + os.pathsep + os.environ.get("PATH", ""))
     world = World(tmp_path)
     yield world
     # these cells leave nothing behind: any box of this cell (attributed by its scratch root, as in test_student_sandbox)
@@ -215,22 +226,22 @@ def test_m3_a_missing_required_setting_is_a_named_refusal(w, name, how):
     else:
         s[name] = ""
     with pytest.raises(SL.LaunchRefused, match=name):
-        SL.Sandbox(s, str(w.expected))
+        mk_sandbox(s, str(w.expected))
     w.assert_nothing_started()
 
 
 def test_m3_learn_mode_does_not_need_the_allow_list_but_still_needs_the_rest(w):
     s = w.settings(SANDBOX_MODEL_LEARN="1"); s.pop("SANDBOX_MODEL_ALLOW")
-    SL.Sandbox(s, str(w.expected))
+    mk_sandbox(s, str(w.expected))
     s.pop("SANDBOX_PROTECT")
     with pytest.raises(SL.LaunchRefused, match="SANDBOX_PROTECT"):
-        SL.Sandbox(s, str(w.expected))
+        mk_sandbox(s, str(w.expected))
 
 
 def test_m3_the_module_owns_the_log_and_the_binds(w):
     for n in SL.MODULE_OWNED:
         with pytest.raises(SL.LaunchRefused, match=n):
-            SL.Sandbox(w.settings(**{n: "/x"}), str(w.expected))
+            mk_sandbox(w.settings(**{n: "/x"}), str(w.expected))
     with pytest.raises(SL.LaunchRefused, match="SANDBOX_LOG"):
         w.launch(argv=w.argv(extra=("--env", "SANDBOX_LOG=/x")))   # nor may a caller smuggle one in through the argv
     w.assert_nothing_started()
@@ -736,7 +747,7 @@ def real_caller(w, arrow_python, exec_, detach=False):
                       'spec = importlib.util.spec_from_file_location("sandbox_launch", sys.argv[1])\n'
                       'SL = importlib.util.module_from_spec(spec); spec.loader.exec_module(SL)\n'
                       'c = json.load(open(sys.argv[2]))\n'
-                      'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"]),\n'
+                      'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"], allow_test=True),\n'
                       '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True)\n')
     cj = w.d / "caller.json"
     cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
@@ -1079,12 +1090,12 @@ def test_f3_the_scan_under_a_given_prefix_refuses_on_a_unit_under_that_prefix(w)
 
 def test_f3_a_prefix_override_is_refused_outside_test_mode_and_when_malformed(w):
     with pytest.raises(SL.LaunchRefused, match="SANDBOX_TEST=1"):
-        SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected))
+        mk_sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected))
     for bad in ("", "no-dash", "has space-", "-x-"):
         with pytest.raises(SL.LaunchRefused, match="not a prefix"):
-            SL.Sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX=bad), str(w.expected))
-    assert SL.Sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected)).prefix == "mine-"
-    assert SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX=None), str(w.expected)).prefix == "student-sandbox-"
+            mk_sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX=bad), str(w.expected))
+    assert mk_sandbox(w.settings(SANDBOX_TEST_UNIT_PREFIX="mine-"), str(w.expected)).prefix == "mine-"
+    assert mk_sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX=None), str(w.expected)).prefix == "student-sandbox-"
 
 
 # ---------------------------------------------------------------------------------------------------- F4
@@ -1337,3 +1348,85 @@ def test_r4_the_population_of_a_planted_copy_is_the_copys_not_the_outer_repos(tm
     # and the explicit-list route used by the planted-tree cells never touches git at all
     assert tools_tree_violations(d, SL.FEEDERS, SL.NON_LAUNCHERS, files=["sentinel-only-in-the-copy.txt"])[0][0] == \
         "sentinel-only-in-the-copy.txt"
+
+
+# ---------------------------------------------------------------------------------------------------- L1: a stray test mode
+# A REAL run (a Sandbox built without allow_test) refuses every SANDBOX_TEST* setting before anything starts, and after every
+# session reads test_mode= and test_exec= off the launch line: anything but 0 is a LaunchStop. The caps are recorded.
+def real_sandbox(w, **over):
+    settings = {k: v for k, v in w.settings().items() if k not in ("SANDBOX_TEST", "SANDBOX_TEST_UNIT_PREFIX")}
+    settings.update(over)
+    return SL.Sandbox(settings, str(w.expected))
+
+
+@pytest.mark.parametrize("name,val", [("SANDBOX_TEST", "1"), ("SANDBOX_TEST_EXEC", "true"), ("SANDBOX_TEST_MAX_REQUEST", "10"),
+                                      ("SANDBOX_TEST_TASKS_MAX", "5"), ("SANDBOX_TEST_ALLOW_BINARY_IN_RW", "1"),
+                                      ("SANDBOX_TEST_UNIT_PREFIX", "x-")])
+def test_l1_a_real_run_refuses_every_test_mode_setting_named_before_anything_starts(w, name, val):
+    with pytest.raises(SL.LaunchRefused, match=name):
+        real_sandbox(w, **{name: val})
+    w.assert_nothing_started()
+
+
+def test_l1_a_test_run_that_says_so_explicitly_may_pass_them(w):
+    s = w.settings(SANDBOX_TEST_EXEC="true", SANDBOX_TEST_MAX_REQUEST="10", SANDBOX_TEST_ALLOW_BINARY_IN_RW="1")
+    assert mk_sandbox(s, str(w.expected)).allow_test is True
+    assert SL.Sandbox(w.settings(SANDBOX_TEST=None, SANDBOX_TEST_UNIT_PREFIX=None), str(w.expected)).allow_test is False
+
+
+def test_l1_a_launch_line_with_test_mode_1_in_a_real_run_is_a_launch_stop_and_a_clean_one_passes(w, monkeypatch):
+    monkeypatch.setattr(SL, "active_units", lambda prefix=None: [])     # a real run scans the real prefix host-wide: keep the cell hermetic
+    with pytest.raises(SL.LaunchStop, match="test_mode=1 test_exec=1"):
+        w.launch("testline", sandbox=real_sandbox(w))
+    r = w.launch("ok", sandbox=real_sandbox(w))
+    assert r.returncode == 0 and r.test_mode == "0" and r.test_exec == "0"
+
+
+def test_l1_a_launch_line_that_lacks_the_test_flags_is_not_read_as_clean_in_a_real_run(w, monkeypatch):
+    monkeypatch.setattr(SL, "active_units", lambda prefix=None: [])
+    real = SL.read_launch_fields
+    monkeypatch.setattr(SL, "read_launch_fields", lambda log: {k: v for k, v in (real(log) or {}).items()
+                                                                if k not in ("test_mode", "test_exec")} or None)
+    with pytest.raises(SL.LaunchStop, match="test_mode=None"):
+        w.launch("ok", sandbox=real_sandbox(w))
+
+
+def test_l1_the_caps_on_the_launch_line_are_returned_for_the_record(w):
+    r = w.launch()
+    assert r.caps == {"cap_memory": "4294967296", "cap_tasks": "1024", "cap_tmp": "2147483648"}
+
+
+# ---------------------------------------------------------------------------------------------------- L2: the model URL pattern
+@pytest.mark.parametrize("url", [
+    "http://evil.com\\@127.0.0.1:%d/v1",            # Python's urlsplit: host 127.0.0.1; the WHATWG parser of a Node student: evil.com
+    "http://user@127.0.0.1:%d", "http://user:pw@localhost:%d/v1", "http://127.0.0.1:%d/%%2e%%2e/x", "http://127.0.0.1:%d/v1?x=1",
+    "http://127.0.0.1:%d/v1#frag", "https://127.0.0.1:%d", "HTTP://127.0.0.1:%d", "http://127.0.0.1:%d/a b", " http://127.0.0.1:%d",
+    "http://127.0.0.1:%d/v1 ", "http://127.0.0.1:%d\\v1", "http://127.0.0.1.evil.com:%d", "http://localhost.evil.com:%d",
+    "http://127.0.0.2:%d", "http://[::2]:%d", "http://localhost\x40evil.com:%d", "http://127.0.0.1", "http://127.0.0.1:",
+])
+def test_l2_a_model_url_outside_the_strict_pattern_is_refused(w, url):
+    url = url.replace("%%", "\0").replace("%d", str(w.cfg.model_port)).replace("\0", "%")
+    with pytest.raises(SL.LaunchRefused, match="strict form"):
+        SL.check_model_url(url, w.cfg.model_port)
+    with pytest.raises(SL.LaunchRefused):
+        w.launch(env={"BEAM_OLLAMA_URL": url})
+    w.assert_nothing_started()
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:%d", "http://127.0.0.1:%d/v1", "http://localhost:%d/", "http://[::1]:%d/a/b-c_d.e~f"])
+def test_l2_a_url_in_the_strict_pattern_on_the_sandbox_port_is_accepted(w, url):
+    SL.check_model_url(url % w.cfg.model_port, w.cfg.model_port)
+
+
+def test_l2_the_default_url_is_accepted_on_its_own_port_and_a_wrong_port_is_refused():
+    SL.check_model_url(SL.OLLAMA_DEFAULT, SL.OLLAMA_DEFAULT.rsplit(":", 1)[1])
+    with pytest.raises(SL.LaunchRefused, match="not SANDBOX_MODEL_PORT"):
+        SL.check_model_url(SL.OLLAMA_DEFAULT, "1234")
+
+
+# ---------------------------------------------------------------------------------------------------- L3: no systemctl
+def test_l3_the_stub_systemctl_answers_as_an_empty_user_manager(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", install_stub_systemctl(tmp_path / "bin"))      # only the stub is on the PATH
+    assert SL.active_units("x-") == [] and SL.unit_pids("x-1-aa") == []
+    assert SL._systemctl("stop", "x-1-aa.scope").returncode == 0
+    assert SL._systemctl("is-active", "x-1-aa.scope").stdout.strip() == "inactive"
