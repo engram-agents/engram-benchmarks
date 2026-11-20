@@ -262,6 +262,21 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   [ -z "${SANDBOX_TEST_HOME_RUN_CAP:-}" ] || HOME_CAP=$SANDBOX_TEST_HOME_RUN_CAP
 fi
 
+# ---- A2: caps on the TRUSTED side of the bridge. The outer forwarder buffers a whole request before it sends a byte
+# upstream, and it runs outside the box (and outside any cap on the box), so a student must not be able to make it
+# allocate without bound. PROVISIONAL until the wrapper-cost pilot's learn mode records the real maxima (the harness
+# sends whole contexts, order of 1 MB): 32 MiB per request, 64 MiB over all connections, 4 concurrent connections (the
+# harness opens one). Past the first two: a named 413; past the third: a 503. Overridable only in test mode.
+REQ_CAP=33554432; TOTAL_CAP=67108864; CONN_CAP=4
+if [ "${SANDBOX_TEST:-}" = 1 ]; then
+  for v in SANDBOX_TEST_MAX_REQUEST SANDBOX_TEST_MAX_TOTAL SANDBOX_TEST_MAX_CONNS; do
+    [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive count"; }
+  done
+  [ -z "${SANDBOX_TEST_MAX_REQUEST:-}" ] || REQ_CAP=$SANDBOX_TEST_MAX_REQUEST
+  [ -z "${SANDBOX_TEST_MAX_TOTAL:-}" ] || TOTAL_CAP=$SANDBOX_TEST_MAX_TOTAL
+  [ -z "${SANDBOX_TEST_MAX_CONNS:-}" ] || CONN_CAP=$SANDBOX_TEST_MAX_CONNS
+fi
+
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
 # watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
@@ -279,7 +294,8 @@ SOCKDIR=$(mktemp -d "$SOCKBASE/student-sandbox.XXXXXX") || refuse "cannot create
 chmod 700 "$SOCKDIR"
 printf '%s\n' "$$" > "$SOCKDIR/watch.pid"
 SOCK="$SOCKDIR/bridge.sock"
-FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$")
+FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$"
+         --max-request "$REQ_CAP" --max-total "$TOTAL_CAP" --max-conns "$CONN_CAP")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone.

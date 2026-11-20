@@ -4,7 +4,7 @@ The wrapper is the `claude` that feed4 resolves on PATH; these cells drive it th
 SANDBOX_TEST_EXEC (a probe command run inside the same box, after the same checks and mounts) or through a stub
 "pinned binary". No host path literal lives here: every location is generated at test time.
 """
-import hashlib, json, os, shlex, shutil, signal, socket, socketserver, stat, subprocess, sys, tempfile, threading, time
+import hashlib, json, os, re, shlex, shutil, signal, socket, socketserver, stat, subprocess, sys, tempfile, threading, time
 import pytest
 
 TOOLS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -1476,7 +1476,8 @@ class HttpStub(socketserver.ThreadingTCPServer):
 class OuterProc:
     """The host-side forwarder run on its own (no box), so the allow-list contract is tested at its own boundary."""
 
-    def __init__(self, stub_port, allow=None, learn=False, log=None):
+    def __init__(self, stub_port, allow=None, learn=False, log=None, max_request=32 << 20, max_total=64 << 20,
+                 max_conns=64):
         self.dir = tempfile.mkdtemp(prefix="sbx-")   # short, so the AF_UNIX path stays well under the limit
         self.sock = os.path.join(self.dir, "b.sock")
         args = [PY, "-I", FWD, "outer", "--sock", self.sock, "--host", "127.0.0.1", "--port", str(stub_port),
@@ -1487,6 +1488,8 @@ class OuterProc:
             args += ["--learn"]
         if log:
             args += ["--log", log]
+        # the caps are required arguments (the wrapper owns the numbers); generous here so ordinary cells never meet them
+        args += ["--max-request", str(max_request), "--max-total", str(max_total), "--max-conns", str(max_conns)]
         self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         end = time.time() + 10
         while not os.path.exists(self.sock) and time.time() < end and self.p.poll() is None:
@@ -2376,3 +2379,238 @@ def test_peer_l3c_other_connection_tokens_still_pass(outer, http_stub):
     assert read_response(s)[0] == 200
     s.sendall(b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: x-upgrade-not, close\r\n\r\n")
     assert read_response(s)[0] == 200
+
+
+# ---------------------------------------------------------------- round 5 (A, A2): forward nothing until the whole request validates
+
+def _refuse_lines(log):
+    time.sleep(0.5)
+    return [l for l in open(log).read().splitlines() if l.startswith("fwd-refuse ")]
+
+
+# framing refusals AFTER a head that the list allows: the upstream must receive NOTHING, not even the head
+FRAMING_AFTER_ALLOWED_HEAD = SMUGGLE + [
+    ("a valid chunk, then a bad size line", b"5\r\nhello\r\nZZ\r\n0\r\n\r\n", [b"hello"]),
+    ("a chunk whose data is not followed by CRLF", b"5\r\nhelloXX0\r\n\r\n", [b"hello"]),
+    ("a chunk size that is not hex", b"zz\r\nhello\r\n0\r\n\r\n", [b"zz"]),
+]
+
+
+@pytest.mark.parametrize("name,body,banned", FRAMING_AFTER_ALLOWED_HEAD, ids=[x[0] for x in FRAMING_AFTER_ALLOWED_HEAD])
+def test_peer_a_an_allowed_head_with_bad_chunk_framing_sends_nothing_upstream(outer, raw_stub, name, body, banned):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + body)
+    status, _, _ = read_response(s)
+    assert status == 400, (name, status)
+    assert at_eof(s), name
+    assert stub.bytes_seen() == b"", "the upstream received bytes of a refused request: %r" % stub.bytes_seen()
+
+
+def test_peer_a_a_client_that_hangs_up_inside_a_body_sends_nothing_upstream(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 100\r\n\r\n" + b"x" * 10)
+    s.shutdown(socket.SHUT_WR)
+    assert stub.bytes_seen() == b""
+    s.close()
+
+
+def test_peer_a_a_chunked_client_that_hangs_up_inside_a_chunk_sends_nothing_upstream(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + b"a\r\n12345")
+    s.shutdown(socket.SHUT_WR)
+    assert stub.bytes_seen() == b""
+    s.close()
+
+
+def test_peer_a_an_earlier_valid_request_is_forwarded_and_the_refused_one_after_it_is_not(outer, raw_stub):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    first = req("POST", "/v1/messages", body=b'{"a":1}')
+    s.sendall(first + CHUNK_HEAD + b"5\r\nhello\r\nZZ\r\n0\r\n\r\n")
+    assert stub.bytes_seen() == first
+    s.close()
+
+
+def test_peer_a_a_valid_request_is_forwarded_whole_after_validation(outer, raw_stub):
+    """Positive control: the buffering must not lose or reorder a valid body (Content-Length and chunked)."""
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    a = req("POST", "/v1/messages", body=b"y" * 200000)
+    b = CHUNK_HEAD + b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+    s.sendall(a + b)
+    assert stub.bytes_seen() == a + b
+    s.close()
+
+
+def test_peer_a_a_refusal_after_the_body_was_read_closes_and_logs_one_line(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "refuse.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    body = b"5\r\nhello\r\nZZ\r\n0\r\n\r\n"
+    s.sendall(CHUNK_HEAD + body)
+    status, _, _ = read_response(s)
+    assert status == 400 and at_eof(s)
+    lines = _refuse_lines(log)
+    assert len(lines) == 1, lines
+    m = re.fullmatch(r"fwd-refuse method=POST path=/v1/messages status=400 bytes_read=(\d+) reason=(.+)", lines[0])
+    assert m, lines[0]
+    # the head, the one good chunk (size line, data, CRLF) and the bad size line itself (a complete line, consumed)
+    assert int(m.group(1)) == len(CHUNK_HEAD) + len(b"5\r\nhello\r\n") + len(b"ZZ\r\n"), m.group(1)
+    assert "chunk" in m.group(2)
+    assert stub.bytes_seen() == b""
+
+
+# ---- A2: caps on the trusted side (small test values)
+
+@pytest.mark.parametrize("kind", ["length", "chunked"])
+def test_peer_a2_a_request_over_the_per_request_cap_is_413_and_sends_nothing(outer, raw_stub, tmp_path, kind):
+    stub = raw_stub()
+    log = str(tmp_path / "cap.log")
+    o = outer(stub, allow=ALLOW, log=log, max_request=4096)
+    s = o.connect()
+    if kind == "length":
+        raw = req("POST", "/v1/messages", body=b"x" * 10000)
+    else:
+        raw = CHUNK_HEAD + b"bb8\r\n" + b"x" * 3000 + b"\r\nbb8\r\n" + b"x" * 3000 + b"\r\n0\r\n\r\n"
+    s.sendall(raw)
+    status, _, _ = read_response(s)
+    assert status == 413, status
+    assert at_eof(s)
+    assert stub.bytes_seen() == b""
+    lines = _refuse_lines(log)
+    assert len(lines) == 1 and " status=413 " in lines[0] and "request cap" in lines[0], lines
+
+
+def test_peer_a2_the_per_request_cap_is_exact(outer, http_stub, raw_stub):
+    """A request of exactly the cap passes; one byte more is 413 (the head counts toward the cap)."""
+    cap = 4096
+    base = req("POST", "/v1/messages", body=b"x" * 1000)
+    pad = cap - len(base)
+    exact = req("POST", "/v1/messages", body=b"x" * (1000 + pad))
+    assert len(exact) == cap
+    over = req("POST", "/v1/messages", body=b"x" * (1000 + pad + 1))
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW, max_request=cap)
+    s = o.connect()
+    s.sendall(exact)
+    assert read_response(s)[0] == 200
+    s2 = o.connect()
+    s2.sendall(over)
+    assert read_response(s2)[0] == 413
+    assert [(m, t) for m, t, _ in stub.records] == [("POST", "/v1/messages")]
+
+
+def test_peer_a2_the_total_cap_counts_every_connections_buffered_bytes(outer, raw_stub, tmp_path):
+    """Two connections, each under the per-request cap, over the total cap together: the second is the named 413."""
+    stub = raw_stub()
+    log = str(tmp_path / "total.log")
+    o = outer(stub, allow=ALLOW, log=log, max_request=8192, max_total=12000)
+    n = 7000
+    full = req("POST", "/v1/messages", body=b"x" * n)
+    first = o.connect()
+    first.sendall(full[:-100])          # this connection now holds ~7000 buffered bytes, waiting for the rest
+    time.sleep(0.4)
+    second = o.connect()
+    second.sendall(full)
+    status, _, _ = read_response(second)
+    assert status == 413, status
+    assert at_eof(second)
+    lines = _refuse_lines(log)
+    assert len(lines) == 1 and " status=413 " in lines[0] and "total cap" in lines[0], lines
+    assert stub.bytes_seen() == b""     # neither request was forwarded: the first is still incomplete
+    first.sendall(full[-100:])          # the first completes and is forwarded, once the second released nothing it held
+    assert stub.bytes_seen() == full
+    first.close()
+
+
+def test_peer_a2_buffered_bytes_are_released_so_sequential_requests_each_fit_the_total(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW, max_request=8192, max_total=12000)
+    for _ in range(4):
+        s = o.connect()
+        s.sendall(req("POST", "/v1/messages", body=b"x" * 7000))
+        assert read_response(s)[0] == 200
+        s.close()
+        time.sleep(0.1)
+
+
+def test_peer_a2_a_refused_request_releases_what_it_had_buffered(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW, max_request=8192, max_total=12000)
+    for _ in range(3):
+        s = o.connect()
+        s.sendall(CHUNK_HEAD + b"1b58\r\n" + b"x" * 7000 + b"\r\nZZ\r\n")   # 7000 buffered, then a bad size line
+        assert read_response(s)[0] == 400
+        s.close()
+    s = o.connect()
+    s.sendall(req("POST", "/v1/messages", body=b"x" * 7000))
+    assert read_response(s)[0] == 200
+
+
+def test_peer_a2_connections_past_the_cap_get_503_and_a_log_line(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "conns.log")
+    o = outer(stub, allow=ALLOW, log=log, max_conns=2)
+    held = [o.connect(), o.connect()]
+    time.sleep(0.4)
+    third = o.connect()
+    third.sendall(req("GET", "/v1/models"))
+    status, _, _ = read_response(third)
+    assert status == 503, status
+    assert at_eof(third)
+    lines = _refuse_lines(log)
+    assert len(lines) == 1 and " status=503 " in lines[0] and "connection cap" in lines[0], lines
+    assert stub.seen() == []
+    # a slot comes back when a held connection ends
+    held[0].close()
+    time.sleep(0.6)
+    again = o.connect()
+    again.sendall(req("GET", "/v1/models"))
+    assert read_response(again)[0] == 200
+    held[1].close()
+
+
+def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "learn-max.log")
+    o = outer(stub, learn=True, log=log)
+    small = req("POST", "/v1/messages", body=b"x" * 500)
+    big = req("POST", "/v1/messages", body=b"x" * 5000)
+    s = o.connect()
+    s.sendall(small)
+    assert read_response(s)[0] == 200
+    s.sendall(big)
+    assert read_response(s)[0] == 200
+    s2 = o.connect()
+    s2.sendall(small)
+    assert read_response(s2)[0] == 200
+    time.sleep(0.5)
+    maxes = [l for l in open(log).read().splitlines() if l.startswith("fwd-learn-max ")]
+    assert maxes, "no maxima line"
+    f = dict(kv.split("=") for kv in maxes[-1].split()[1:])
+    assert int(f["request_bytes"]) == len(big), (f, len(big))
+    assert int(f["connections"]) == 2, f
+    assert int(f["total_buffered"]) == len(big), f
+    assert "SECRET" not in open(log).read()
+
+
+def test_peer_a2_enforce_mode_does_not_record_maxima(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "enf.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("POST", "/v1/messages", body=b"x" * 500))
+    assert read_response(s)[0] == 200
+    s.close()
+    time.sleep(0.6)   # the connection's own log line is written when it ends
+    text = open(log).read()
+    assert "fwd-conn " in text and "fwd-learn-max" not in text

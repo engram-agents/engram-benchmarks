@@ -30,6 +30,7 @@ socket, and nothing else crosses:
           an account with uid >= 1000, as a whole word, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
+                        --max-request N --max-total N --max-conns N
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
@@ -107,12 +108,16 @@ def handle(client, connect, log):
     write_log(log, conn_line(cid, t_open, counts, err))
 
 
-def serve(listener, handler):
+def serve(listener, handler, admit=None):
+    """Accept loop. `admit(client)` (the trusted side's connection cap) is called in this thread before a handler
+    thread exists; when it returns False it has already answered and closed the client."""
     while True:
         try:
             client, _ = listener.accept()
         except OSError:
             return
+        if admit is not None and not admit(client):
+            continue
         threading.Thread(target=handler, args=(client,), daemon=True).start()
 
 
@@ -146,6 +151,83 @@ class BadRequest(Exception):
 class VersionNotSupported(BadRequest):
     """A well-formed request line whose version is not exactly HTTP/1.1: 505, close, nothing forwarded."""
     status, reason = 505, b"HTTP Version Not Supported"
+
+
+class PayloadTooLarge(BadRequest):
+    """The request does not fit the per-request cap or the total cap: the named 413, close, nothing forwarded. The
+    message says which cap ('request cap' or 'total cap'); the status line is the same for both."""
+    status, reason = 413, b"Payload Too Large"
+
+
+class Budget:
+    """The caps of the trusted side. The outer forwarder buffers a whole request before it sends a byte upstream, and a
+    student controls what it sends, so every byte buffered is counted: per request (`max_request`, head and body), over
+    all connections (`max_total`) and as concurrent connections (`max_conns`). In learn mode it also records the
+    largest request, the most concurrent connections and the most buffered bytes seen, so the caps can be set from
+    measurement. Counts only, never content."""
+
+    def __init__(self, max_request, max_total, max_conns, log=None, learn=False):
+        self.max_request, self.max_total, self.max_conns = max_request, max_total, max_conns
+        self.log, self.learn = log, learn
+        self.lock = threading.Lock()
+        self.total = 0
+        self.conns = 0
+        self.peak = {"request_bytes": 0, "connections": 0, "total_buffered": 0}
+        self.written = None
+
+    def open_conn(self):
+        with self.lock:
+            if self.conns >= self.max_conns:
+                return False
+            self.conns += 1
+            self.peak["connections"] = max(self.peak["connections"], self.conns)
+        self.record()
+        return True
+
+    def close_conn(self):
+        with self.lock:
+            self.conns -= 1
+
+    def reserve(self, n):
+        with self.lock:
+            if self.total + n > self.max_total:
+                return False
+            self.total += n
+            self.peak["total_buffered"] = max(self.peak["total_buffered"], self.total)
+            return True
+
+    def release(self, n):
+        with self.lock:
+            self.total -= n
+
+    def request_done(self, size):
+        with self.lock:
+            self.peak["request_bytes"] = max(self.peak["request_bytes"], size)
+        self.record()
+
+    def record(self):
+        """Learn mode: one line per change of any maximum, so the last such line holds the run's maxima."""
+        if not self.learn:
+            return
+        with self.lock:
+            line = "fwd-learn-max request_bytes=%d connections=%d total_buffered=%d" % (
+                self.peak["request_bytes"], self.peak["connections"], self.peak["total_buffered"])
+            if line == self.written:
+                return
+            self.written = line
+            write_log(self.log, line)
+
+    def refuse_connection(self, client):
+        """The 503 for a connection past the cap: one named line, answer, close. Never blocks the accept loop."""
+        write_log(self.log, "fwd-refuse method=- path=- status=503 bytes_read=0 reason=connection cap (%d)" % self.max_conns)
+        try:
+            client.settimeout(1)
+            client.sendall(RESP_CLOSE % (503, b"Service Unavailable"))
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        drain_briefly(client, limit=65536)
+        client.close()
 
 
 def parse_allow(text):
@@ -303,18 +385,31 @@ def body_framing(headers):
     return "none", 0
 
 
-def drain_briefly(sock):
-    """Discard what the client already sent, so closing does not reset the connection under a reply it has not read."""
+def drain_briefly(sock, limit=None):
+    """Discard what the client already sent, so closing does not reset the connection under a reply it has not read.
+    `limit` bounds the bytes discarded (the accept loop uses it, so a client that keeps sending cannot hold it)."""
     try:
         sock.settimeout(0.05)
-        while sock.recv(65536):
-            pass
+        left = limit
+        while True:
+            data = sock.recv(65536)
+            if not data:
+                break
+            if left is not None:
+                left -= len(data)
+                if left <= 0:
+                    break
     except OSError:
         pass
 
 
-def handle_http(client, connect, log, rules, learn):
-    """One client connection through the allow-list. Every request on the connection is checked, not only the first."""
+def handle_http(client, connect, log, rules, learn, budget):
+    """One client connection through the allow-list. Every request on the connection is checked, not only the first.
+
+    NOTHING of a request is sent upstream until the whole request has validated: the request line, the headers, the
+    framing and the body are all read into memory first (under the caps in `budget`), and only then are they sent, in
+    one piece. A request refused at any stage sends nothing; a request refused after its body was read closes the
+    connection and logs one line (method, path, status, bytes read, reason), never a silent drop."""
     cid = next_id()
     t_open = time.time()
     counts = [0, 0]
@@ -323,8 +418,9 @@ def handle_http(client, connect, log, rules, learn):
     state = {"closing": False}
     upstream = None
     down = None
-    reply = None               # a 400 or 403 to send after every earlier response has been relayed
+    reply = None               # a 400, 403, 413 to send after every earlier response has been relayed
     reader = Reader(client)
+    cur = {"method": "-", "path": "-", "read": 0, "held": 0}   # the request being read: for the refusal line and the budget
 
     def relay_down(up):
         pipe(up, client, counts, 1, wlock, shutdown_dst=False)
@@ -335,44 +431,75 @@ def handle_http(client, connect, log, rules, learn):
                 except OSError:
                     pass
 
-    def forward(data):
-        upstream.sendall(data)
-        counts[0] += len(data)
+    def claim(n):
+        """Hold n more bytes of the current request in memory: refused past the per-request cap or the total cap."""
+        if cur["held"] + n > budget.max_request:
+            raise PayloadTooLarge("request cap (%d)" % budget.max_request)
+        if not budget.reserve(n):
+            raise PayloadTooLarge("total cap (%d)" % budget.max_total)
+        cur["held"] += n
 
-    def forward_exact(n):
+    def read_exact_buffered(n):
+        parts = []
         while n > 0:
             chunk = reader.take(min(n, 65536))
-            forward(chunk)
+            claim(len(chunk))
+            cur["read"] += len(chunk)
+            parts.append(chunk)
             n -= len(chunk)
+        return b"".join(parts)
 
-    def forward_chunked():
+    def read_chunked():
         """Strict chunked framing: every size line is hex then CRLF exactly (no extension, no whitespace), every chunk
-        ends in CRLF exactly, and the last chunk is followed by the EMPTY trailer only. Every piece is validated BEFORE
-        it is forwarded, so a refused byte never reaches the upstream."""
+        ends in CRLF exactly, and the last chunk is followed by the EMPTY trailer only. Returns the raw framed bytes;
+        none of them has been sent anywhere."""
+        parts = []
         while True:
             line = reader.read_line()
+            cur["read"] += len(line)
             if not RE_HEX.fullmatch(line[:-2]):
                 raise BadRequest("chunk size")
-            forward(line)
             size = int(line[:-2], 16)
+            claim(len(line))
+            parts.append(line)
             if size == 0:
-                if reader.read_exact(2) != b"\r\n":
+                tail = reader.read_exact(2)
+                cur["read"] += 2
+                if tail != b"\r\n":
                     raise BadRequest("trailer")
-                forward(b"\r\n")
-                return
-            forward_exact(size)
-            if reader.read_exact(2) != b"\r\n":
+                claim(2)
+                parts.append(tail)
+                return b"".join(parts)
+            if size > budget.max_request - cur["held"]:
+                raise PayloadTooLarge("request cap (%d)" % budget.max_request)   # this chunk alone cannot fit
+            parts.append(read_exact_buffered(size))
+            tail = reader.read_exact(2)
+            cur["read"] += 2
+            if tail != b"\r\n":
                 raise BadRequest("chunk framing")
-            forward(b"\r\n")
+            claim(2)
+            parts.append(tail)
+
+    def read_body(kind, n):
+        if kind == "length":
+            if n > budget.max_request - cur["held"]:
+                raise PayloadTooLarge("request cap (%d)" % budget.max_request)   # declared: refuse before reading it
+            return read_exact_buffered(n)
+        if kind == "chunked":
+            return read_chunked()
+        return b""
 
     try:
         while True:
+            cur.update(method="-", path="-", read=0, held=0)
             head = reader.read_head()
             if head is None:
                 break
+            cur["read"] = len(head)
             method, target, headers = parse_head(head)
             path_raw = target.split("?", 1)[0].split("#", 1)[0] if target.startswith("/") else None
             log_path = (path_raw or "-")[:300]
+            cur.update(method=method, path=log_path)
             names = {n for n, _ in headers}
             conn_tokens = b",".join(v.lower().replace(b" ", b"") for n, v in headers if n == b"connection").split(b",")
             framing = body_framing(headers)
@@ -391,6 +518,8 @@ def handle_http(client, connect, log, rules, learn):
                 break
             if learn:
                 write_log(log, "fwd-req method=%s path=%s" % (method, log_path))
+            claim(len(head))
+            body = read_body(*framing)           # the whole request, validated, before any byte goes upstream
             if upstream is None:
                 try:
                     upstream = connect()
@@ -399,17 +528,19 @@ def handle_http(client, connect, log, rules, learn):
                     break
                 down = threading.Thread(target=relay_down, args=(upstream,), daemon=True)
                 down.start()
-            forward(head)
-            kind, n = framing
-            if kind == "length":
-                forward_exact(n)
-            elif kind == "chunked":
-                forward_chunked()
+            upstream.sendall(head + body)
+            counts[0] += len(head) + len(body)
+            budget.request_done(cur["held"])
+            budget.release(cur["held"])
+            cur["held"] = 0
     except BadRequest as e:
         reply = RESP_CLOSE % (e.status, e.reason)
+        write_log(log, "fwd-refuse method=%s path=%s status=%d bytes_read=%d reason=%s" % (
+            cur["method"], cur["path"], e.status, cur["read"], e))
     except (EOFError, OSError):
         pass
     finally:
+        budget.release(cur["held"])
         with wlock:
             state["closing"] = True
         if upstream is not None:
@@ -461,10 +592,21 @@ def run_outer(a):
     def connect():
         return connect_upstream(a.host, a.port)
 
-    def handler(client):
-        handle_http(client, connect, a.log, rules, a.learn)
+    budget = Budget(a.max_request, a.max_total, a.max_conns, a.log, a.learn)
 
-    threading.Thread(target=serve, args=(listener, handler), daemon=True).start()
+    def admit(client):
+        if budget.open_conn():
+            return True
+        budget.refuse_connection(client)
+        return False
+
+    def handler(client):
+        try:
+            handle_http(client, connect, a.log, rules, a.learn, budget)
+        finally:
+            budget.close_conn()
+
+    threading.Thread(target=serve, args=(listener, handler, admit), daemon=True).start()
     try:
         while alive(a.watch):
             time.sleep(0.2)
@@ -652,6 +794,8 @@ def main(argv):
     o.add_argument("--sock", required=True); o.add_argument("--host", required=True)
     o.add_argument("--port", type=int, required=True); o.add_argument("--watch", type=int, required=True)
     o.add_argument("--log"); o.add_argument("--allow"); o.add_argument("--learn", action="store_true")
+    for flag in ("--max-request", "--max-total", "--max-conns"):   # the caps are the wrapper's: no default lives here
+        o.add_argument(flag, type=int, required=True)
     i = sub.add_parser("inner")
     i.add_argument("--sock", required=True); i.add_argument("--port", type=int, required=True)
     i.add_argument("--unset", action="append", default=[])
