@@ -29,10 +29,6 @@ class UserError(Exception):
     """A refusal: reported on stderr as `refused: ...`, exit code 1, nothing written."""
 
 
-class Refusal(UserError):
-    """A refusal that exits 2 (the `reveal` verb's): the same `refused: ...` line on stderr, nothing on stdout."""
-
-
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -627,17 +623,22 @@ class Ctx:
     def key_path(self, item):
         return os.path.join(self.keys_dir, "%s.json" % item)
 
-    def letters(self, item):
-        """Read an item's key file. Callers reach this only for an item whose phase-2 verdict is recorded."""
+    def key_record(self, item):
+        """Read an item's key file ONCE: (its exact bytes, the parsed key), validated against the item. The one place a
+        key file is read; callers reach this only for an item whose phase-2 verdict is recorded."""
         try:
-            with open(self.key_path(item), "r", encoding="utf-8") as fh:
-                key = json.load(fh)
+            with open(self.key_path(item), "rb") as fh:
+                raw = fh.read()
+            key = json.loads(raw.decode("utf-8"))
         except (OSError, ValueError) as exc:
             raise UserError("item %s has a recorded phase-2 verdict but its key file cannot be read: %s" % (item, exc))
         ids = {a["answer_id"] for a in self.items[item]["answers"]}
         if key.get("item_id") != item or set(key.get("letters", {}).values()) != ids:
             raise UserError("the key file for %s does not match the item" % item)
-        return key["letters"]
+        return raw, key
+
+    def letters(self, item):
+        return self.key_record(item)[1]["letters"]
 
     def rekey(self, item, rec):
         """Re-key a phase-2 record from letters to answer ids. Refuses without a recorded verdict."""
@@ -761,21 +762,20 @@ def cmd_map(a):
 def cmd_reveal(a):
     """Letters only, before settlement: an item's letter map and the sha256 of its key file, never the key file or seed.
 
-    Outcomes are computed in memory exactly as `map` does; nothing is written. Refuses (exit 2, nothing on stdout) unless
+    Outcomes are computed in memory exactly as `map` does; nothing is written. Refuses (nothing on stdout) unless
     the item is control_settled or settled."""
     ctx = Ctx(a.items, a.grades, a.verdicts, a.keys_dir)
     if a.item not in ctx.items:
-        raise Refusal("unknown item %s" % a.item)
+        raise UserError("unknown item %s" % a.item)
     draws = read_jsonl(a.draws, required=False) if a.draws else []
     rows = compute_outcomes(ctx, draws, lambda m: print("score-review: " + m, file=sys.stderr))
     status = next(r["status"] for r in rows if r["item_id"] == a.item)
     if status not in ("control_settled", "settled"):
-        raise Refusal("item %s is %s; its letters are revealed only once it is control_settled or settled"
+        raise UserError("item %s is %s; its letters are revealed only once it is control_settled or settled"
                       % (a.item, status))
-    letters = ctx.letters(a.item)
-    with open(ctx.key_path(a.item), "rb") as fh:
-        sha = hashlib.sha256(fh.read()).hexdigest()
-    print(json.dumps({"item_id": a.item, "status": status, "letters": letters, "key_sha256": sha}, sort_keys=True))
+    raw, key = ctx.key_record(a.item)  # one read: the letters and the hash come from the same bytes
+    print(json.dumps({"item_id": a.item, "status": status, "letters": key["letters"],
+                      "key_sha256": hashlib.sha256(raw).hexdigest()}, sort_keys=True))
 
 
 def cmd_export_phase3(a):
@@ -1050,7 +1050,7 @@ def main(argv=None):
         args.fn(args)
     except (UserError, ValueError) as exc:
         print("score-review: refused: %s" % exc, file=sys.stderr)
-        return 2 if isinstance(exc, Refusal) else 1
+        return 1
     return 0
 
 

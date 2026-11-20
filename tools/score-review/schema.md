@@ -163,7 +163,7 @@ every reveal is logged with its time (principles 5a).
 **`reveal` (letters only, before settlement).** `reveal --items --grades --verdicts --keys-dir [--draws] --item <id>` computes
 outcomes in memory exactly as `map` does and writes nothing. For an item whose status is `control_settled` or `settled` it
 prints one JSON line with exactly `item_id`, `status`, `letters` (the key file's letter map) and `key_sha256` (the sha256 of
-the key file's exact bytes). For any other status, or an unknown item, it refuses with exit code 2 and nothing on stdout.
+the key file's exact bytes). For any other status, or an unknown item, it refuses like every other verb (exit code 1) and prints nothing on stdout.
 It never prints the key file or its `seed`: every key file of a run carries the run's single letter seed, so one verbatim key
 file would unblind every item. No verb emits a key file or the seed; opening them at settlement is a by-hand step.
 

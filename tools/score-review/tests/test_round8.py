@@ -5,8 +5,10 @@ unchanged, so any complete phase-2 outcome other than key_stands is in phase 3 w
 V  `reveal` prints an item's letters and the sha256 of its key file, only once the item is control_settled or settled,
    and never the key file text or its seed. Written before the implementation. Synthetic data only.
 """
+import ast
 import hashlib
 import json
+import pathlib
 
 import pytest
 
@@ -189,7 +191,7 @@ def test_v_a_a_settled_item_is_revealed_too_and_no_draws_file_is_needed_for_it(f
 def test_v_b_a_pending_or_unreviewed_item_is_refused_with_nothing_on_stdout(fx, item):
     s, _ = fx
     cp = _reveal(s, item)
-    assert cp.returncode == 2, (cp.returncode, cp.stderr)
+    assert cp.returncode == 1, (cp.returncode, cp.stderr)
     assert cp.stdout == ""
     assert "refused" in cp.stderr and "control_settled" in cp.stderr
     assert SEED not in cp.stderr
@@ -198,7 +200,7 @@ def test_v_b_a_pending_or_unreviewed_item_is_refused_with_nothing_on_stdout(fx, 
 def test_v_c_an_unknown_item_is_refused(fx):
     s, _ = fx
     cp = _reveal(s, "nope")
-    assert cp.returncode == 2 and cp.stdout == "" and "unknown item" in cp.stderr
+    assert cp.returncode == 1 and cp.stdout == "" and "unknown item" in cp.stderr
     assert SEED not in cp.stderr
 
 
@@ -223,3 +225,41 @@ def test_v_d_the_seed_has_no_path_out_of_map_or_report(fx):
                  "--outcomes", out, "--out", rep, *extra)
         assert cp.returncode == 0, cp.stderr
         assert SEED not in cp.stdout + cp.stderr + rep.read_text(encoding="utf-8")
+
+
+def test_v_reveal_reads_the_key_file_once_so_letters_and_sha_come_from_the_same_bytes(fx, monkeypatch):
+    import builtins
+    import score_review as sr
+    s, _ = fx
+    key = str(s.keys / "i03.json")
+    opened = []
+    real = builtins.open
+
+    def counting(file, *a, **k):
+        if str(file) == key:
+            opened.append(file)
+        return real(file, *a, **k)
+
+    monkeypatch.setattr(builtins, "open", counting)
+    ns = type("A", (), dict(items=str(s.items), grades=str(s.grades), verdicts=str(s.verdicts), keys_dir=str(s.keys),
+                            draws=str(s.draws), item="i03"))
+    # outcomes are computed first (map reads the key of every item with a phase-2 verdict); count only reveal's own reads
+    # by comparing with the reads `compute_outcomes` alone makes
+    ctx = sr.Ctx(ns.items, ns.grades, ns.verdicts, ns.keys_dir)
+    sr.compute_outcomes(ctx, sr.read_jsonl(ns.draws, required=False), lambda m: None)
+    base = len(opened)
+    del opened[:]
+    sr.cmd_reveal(ns)
+    assert len(opened) == base + 1, (base, len(opened))
+
+
+def test_v_cmd_reveal_has_no_open_of_its_own():
+    src = (pathlib.Path(sr_path()) ).read_text(encoding="utf-8")
+    fn = next(n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.FunctionDef) and n.name == "cmd_reveal")
+    opens = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "open"]
+    assert opens == []
+
+
+def sr_path():
+    import score_review
+    return score_review.__file__
