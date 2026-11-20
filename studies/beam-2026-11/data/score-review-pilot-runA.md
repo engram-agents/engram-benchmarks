@@ -127,7 +127,7 @@ Conditions, without which the mechanism fails:
    security floor: earlier would hand the letters to the reader mid-pilot), and after the last item of the pilot
    is settled (design owner: a public seed lets anyone recompute every item's letters, and the principles reveal
    an item's letter key only once that item is settled, so that phase 3 never sees which answer is official or
-   which arm it came from). In this pilot that is after the last item is settled. Until then, only the per-item
+   which arm it came from [corrected 2026-11-20 (study lead), see the change log: phase 3 does see which answer is official; only the arm stays hidden]). In this pilot that is after the last item is settled. Until then, only the per-item
    reveals the principles allow go into this log.
 
 A seed commitment is not the whole chain. The seed fixes the assignment only when joined to the tool version (the
@@ -291,6 +291,12 @@ empty, the document changed: re-read and re-commit as above.
   routed to phase 3 by hand (the key holder's operations entry); three items where both phases say the key stands
   wait for the tool fix, an outside read of it, and a re-run of `map`. Step 5's reveal wording is corrected in place
   (see the note under step 5), and Disclosures gains the one-seed limit.
+- 2026-11-20, correction of a sentence in the security seat's reveal-timing condition (Seed commitment, condition 2),
+  found by the study lead while writing the phase-3 request and confirmed by the design owner (team crossing 33350):
+  it said the reveal rule exists "so that phase 3 never sees which answer is official or which arm it came from".
+  The first half is wrong: by the score-review principles (section 5, "phase 3 is not blind"), the project lead knows
+  which answer is the official one, and the phase-3 export carries it. What stays hidden from phase 3 is which arm
+  wrote each agent answer. The condition's timing rule itself is unchanged.
 
 ## Operations (key holder, Aleph)
 
