@@ -1013,7 +1013,7 @@ def test_r2_slot_inside_a_dot_directory_of_a_home(cfg, fake_bwrap, tmp_path):
     kw = {"SANDBOX_TEST_EXTRA_HOMES": str(fake)}
     _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dot-directory", SANDBOX_SLOT=str(fake / ".cfg" / "slot"), **kw)
     _refused(cfg, fake_bwrap, "SANDBOX_SLOT", "dot-directory", SANDBOX_SLOT=str(fake / ".cfg"), **kw)
-    _accepted(cfg, fake_bwrap, SANDBOX_SLOT=str(fake / "slot"), **kw)   # a slot under a home is fine when no dot
+    _accepted(cfg, fake_bwrap, SANDBOX_SLOT=str(fake / "slot"), HOME=str(fake / "slot"), **kw)   # under a home is fine when no dot; HOME follows
 
 
 @needs_box
@@ -2646,3 +2646,35 @@ def test_peer_a2_a_declared_chunk_size_over_the_cap_is_refused_before_its_data_i
     status, _, _ = read_response(s)
     assert status == 413, status
     assert stub.bytes_seen() == b""
+
+
+# ---------------------------------------------------------------- round 5 (B): HOME must equal the slot
+
+def test_peer_b_home_unset_or_empty_is_a_named_refusal(cfg, fake_bwrap):
+    _refused(cfg, fake_bwrap, "HOME", "not set", drop=("HOME",))
+    _refused(cfg, fake_bwrap, "HOME", "not set", HOME="")
+
+
+def test_peer_b_home_a_different_directory_is_a_named_refusal(cfg, fake_bwrap, tmp_path):
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    _refused(cfg, fake_bwrap, "HOME", "slot", HOME=str(other))
+    _refused(cfg, fake_bwrap, "HOME", "slot", HOME=os.path.join(cfg.slot, "work"))   # inside the slot is not the slot
+    _refused(cfg, fake_bwrap, "HOME", "slot", HOME=os.path.dirname(cfg.slot))        # nor is its parent
+    _refused(cfg, fake_bwrap, "HOME", "slot", HOME=str(tmp_path / "no-such-dir"))    # nor a path that does not exist
+
+
+def test_peer_b_home_that_resolves_to_the_slot_passes(cfg, fake_bwrap, tmp_path):
+    link = tmp_path / "slot-link"
+    os.symlink(cfg.slot, link)
+    _accepted(cfg, fake_bwrap, HOME=str(link))                                       # a symlink to the slot: same realpath
+    _accepted(cfg, fake_bwrap, HOME=cfg.slot + "/")                                  # a trailing slash
+    _accepted(cfg, fake_bwrap, HOME=os.path.join(cfg.slot, "work", ".."))            # a dot-dot that lands on the slot
+    _accepted(cfg, fake_bwrap)                                                       # the plain control
+
+
+@needs_box
+def test_peer_b_the_box_receives_home_exactly_as_the_caller_passed_it(cfg):
+    r = cfg.run(exec_='printf "%s" "$HOME"', HOME=cfg.slot + "/")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == cfg.slot + "/"

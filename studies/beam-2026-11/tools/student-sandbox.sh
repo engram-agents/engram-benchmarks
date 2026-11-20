@@ -162,6 +162,16 @@ class_check() {   # $1 variable name, $2 resolved path, $3 kind: slot | ro | rw.
 }
 class_check SANDBOX_SLOT "$SLOT" slot
 
+# ---- B: the student's HOME is the slot. The environment is passed through unchanged (S5), so a run script that gets HOME
+# wrong would hand the student a HOME that does not exist inside the box: a confusing run, not a named refusal. HOME is
+# read from the block bash was started with (the same source the box's environment comes from), so a HOME bash would
+# default is not mistaken for one the caller passed. Equal after realpath: a symlink to the slot or a trailing slash passes.
+CALLER_HOME=""
+while IFS= read -r -d '' kv; do case $kv in HOME=*) CALLER_HOME=${kv#HOME=} ;; esac; done < "/proc/$$/environ"
+[ -n "$CALLER_HOME" ] || refuse "HOME is not set or is empty: it must be the slot (SANDBOX_SLOT)"
+HOME_REAL=$(realpath -e -- "$CALLER_HOME" 2>/dev/null) && [ "$HOME_REAL" = "$SLOT" ] \
+  || refuse "HOME is not the slot: realpath of HOME differs from realpath of SANDBOX_SLOT"
+
 # ---- F2: extra binds, validated here (same refuse-before-anything rule) ------------------------------------
 # SANDBOX_RO_BINDS / SANDBOX_RW_BINDS: colon-separated absolute directories, bound at their own (resolved) paths,
 # each inside its declared root (SANDBOX_RO_ROOT / SANDBOX_RW_ROOT, required with the binds).
