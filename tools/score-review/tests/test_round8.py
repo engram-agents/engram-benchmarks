@@ -263,3 +263,33 @@ def test_v_cmd_reveal_has_no_open_of_its_own():
 def sr_path():
     import score_review
     return score_review.__file__
+
+
+def _creveal(s, item):
+    return run("reveal", "--items", s.items, "--grades", s.grades, "--verdicts", s.verdicts, "--keys-dir", s.keys,
+               "--draws", s.draws, "--item", item)
+
+
+def test_v_a_a_criterion_item_with_its_2a_and_2b_is_revealed_with_the_same_four_keys(tmp_path):
+    s = CStore(tmp_path)
+    s.packet2("k1", seed=SEED)
+    s.p1("k1")
+    s.p2a("k1", {"x": "correct", "y": "correct"})
+    s.p2b("k1", "correct")
+    cp = _creveal(s, "k1")
+    assert cp.returncode == 0, cp.stderr
+    row = json.loads(cp.stdout)
+    assert len(cp.stdout.splitlines()) == 1 and set(row) == {"item_id", "status", "letters", "key_sha256"}
+    assert row["status"] == "control_settled" and row["letters"] == json.loads((s.keys / "k1.json").read_text())["letters"]
+    assert row["key_sha256"] == _sha(s.keys / "k1.json")
+    assert SEED not in cp.stdout + cp.stderr
+
+
+def test_v_b_a_criterion_item_with_only_its_2a_is_refused_with_nothing_on_stdout(tmp_path):
+    s = CStore(tmp_path)
+    s.packet2("k4", seed=SEED)
+    s.p1("k4")
+    s.p2a("k4", {"x": "correct", "y": "partly"})
+    cp = _creveal(s, "k4")
+    assert cp.returncode == 1 and cp.stdout == ""
+    assert "phase2_pending" in cp.stderr and SEED not in cp.stderr

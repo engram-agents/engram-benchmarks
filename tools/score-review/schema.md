@@ -166,6 +166,9 @@ prints one JSON line with exactly `item_id`, `status`, `letters` (the key file's
 the key file's exact bytes). For any other status, or an unknown item, it refuses like every other verb (exit code 1) and prints nothing on stdout.
 It never prints the key file or its `seed`: every key file of a run carries the run's single letter seed, so one verbatim key
 file would unblind every item. No verb emits a key file or the seed; opening them at settlement is a by-hand step.
+Running `reveal` IS a reveal: the key holder logs it (item, time, letters, `key_sha256`) in the study's log at once, as
+principles section 5a requires; `reveal` itself writes no log. The `key_sha256` is public by design, so a key file's seed
+must be long and random: a short or guessable seed could be brute-forced from the hash.
 
 **Re-keying happens only after the phase-2 verdict is recorded.** `map` and `export-phase3` re-key an item's phase-2
 judgement to answer ids only when that item's phase-2 verdict is in `verdicts.jsonl` with a `record_sha256` that recomputes.

@@ -767,6 +767,8 @@ def cmd_reveal(a):
     ctx = Ctx(a.items, a.grades, a.verdicts, a.keys_dir)
     if a.item not in ctx.items:
         raise UserError("unknown item %s" % a.item)
+    # --draws is optional: an item with a phase-2 record is in phase 2 whatever the draw, and only such an item can be
+    # control_settled or settled, so a missing draws file cannot change a revealable status.
     draws = read_jsonl(a.draws, required=False) if a.draws else []
     rows = compute_outcomes(ctx, draws, lambda m: print("score-review: " + m, file=sys.stderr))
     status = next(r["status"] for r in rows if r["item_id"] == a.item)
