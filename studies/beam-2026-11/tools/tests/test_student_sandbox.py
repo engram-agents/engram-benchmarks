@@ -204,12 +204,17 @@ def wait_gone(marker, secs=8.0):
 
 # ---------------------------------------------------------------- S1: refuse before anything runs
 
+# The wrapper starts bwrap once before the real exec, to see that bwrap accepts the seccomp program (round 6, K1): a
+# command that ends in `-I -c pass`. A stand-in bwrap lets that probe succeed without recording it, so the stand-ins
+# below still see only the real launch.
+FAKE_PROBE_PASS = 'case "$*" in *" -I -c pass") exit 0 ;; esac\n'
+
 @pytest.fixture
 def fake_bwrap(tmp_path):
     d = tmp_path / "fakebin"
     d.mkdir()
     out = str(tmp_path / "bwrap-called")
-    make_exe(str(d / "bwrap"), "#!/bin/sh\necho \"$$ $*\" > \"$FAKE_BWRAP_OUT\"\nexit 99\n")
+    make_exe(str(d / "bwrap"), "#!/bin/sh\n" + FAKE_PROBE_PASS + "echo \"$$ $*\" > \"$FAKE_BWRAP_OUT\"\nexit 99\n")
     return str(d), out
 
 
@@ -1140,7 +1145,7 @@ def fake_bwrap_fd(tmp_path):
     d.mkdir()
     out = str(tmp_path / "bwrap-fd-called")
     make_exe(str(d / "bwrap"),
-             '#!/bin/sh\necho "$$ $*" > "$FAKE_BWRAP_OUT"\nfd=; dest=\n'
+             '#!/bin/sh\n' + FAKE_PROBE_PASS + 'echo "$$ $*" > "$FAKE_BWRAP_OUT"\nfd=; dest=\n'
              'while [ $# -gt 0 ]; do if [ "$1" = --ro-bind-fd ]; then fd=$2; dest=$3; fi; shift; done\n'
              'if [ -n "$FAKE_REPLACE" ]; then printf "swapped\\n" > "$FAKE_REPLACE.new" && mv "$FAKE_REPLACE.new" "$FAKE_REPLACE"; fi\n'
              'if [ -n "$fd" ]; then echo "FDSHA=$(sha256sum < /dev/fd/$fd | cut -d" " -f1) FDDEST=$dest" >> "$FAKE_BWRAP_OUT"; fi\n'
@@ -2252,7 +2257,8 @@ def _argv_dests(toks):
              "--ro-bind-fd": (2, 1), "--bind-fd": (2, 1), "--tmpfs": (1, 0), "--proc": (1, 0), "--dev": (1, 0),
              "--remount-ro": (1, 0), "--dir": (1, 0), "--mqueue": (1, 0), "--symlink": (2, 1), "--size": (1, None),
              "--perms": (1, None), "--setenv": (2, None), "--unset": (1, None), "--hostname": (1, None),
-             "--chdir": (1, None), "--uid": (1, None), "--gid": (1, None), "--cap-drop": (1, None)}
+             "--chdir": (1, None), "--uid": (1, None), "--gid": (1, None), "--cap-drop": (1, None),
+             "--seccomp": (1, None)}
     out, i = [], 0
     while i < len(toks) and toks[i] != "--":
         t = toks[i]
@@ -2279,7 +2285,7 @@ def test_s3_the_refusal_set_is_the_set_of_paths_the_argv_provides(cfg, tmp_path,
     d = tmp_path / "fakebin-lines"
     d.mkdir()
     fdir, out = str(d), str(tmp_path / "argv-lines")
-    make_exe(str(d / "bwrap"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_BWRAP_OUT"\nexit 99\n')
+    make_exe(str(d / "bwrap"), '#!/bin/sh\n' + FAKE_PROBE_PASS + 'printf "%s\\n" "$@" > "$FAKE_BWRAP_OUT"\nexit 99\n')
     r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log,
                 SANDBOX_RO_BINDS=extra.tools, SANDBOX_RO_ROOT=extra.base, SANDBOX_RW_BINDS=extra.proctor,
                 SANDBOX_RW_ROOT=extra.runout)
@@ -3104,3 +3110,285 @@ def test_peer_b_latency_compare_runs_the_boxed_probe_with_the_slot_as_home_whate
                        env=cfg.env(test=False, HOME=str(elsewhere)), capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert r.stdout.splitlines()[0].startswith("direct ") and any(l.startswith("bridge ") for l in r.stdout.splitlines())
+
+
+# ---------------------------------------------------------------- round 6 (K): the box may neither read nor write kernel keys
+
+import platform
+X86_64_ONLY = pytest.mark.skipif(platform.machine() != "x86_64",
+                                 reason="the in-box key probes call the x86_64 syscall numbers (the filter itself kills any "
+                                        "other architecture)")
+EPERM = 1
+SYS_ADD_KEY, SYS_REQUEST_KEY, SYS_KEYCTL = 248, 249, 250       # x86_64 numbers, the probe's own
+AUDIT_ARCH_X86_64, AUDIT_ARCH_AARCH64, AUDIT_ARCH_I386 = 0xC000003E, 0xC00000B7, 0x40000003
+RET_ALLOW, RET_KILL_PROCESS, RET_EPERM = 0x7FFF0000, 0x80000000, 0x00050000 | EPERM
+
+# The in-box probe: Python ctypes calling syscall(), because the keyctl tool is not installed. Prints "<return> <errno>".
+# add_key targets the PROCESS keyring, so a missing filter leaves nothing behind (it dies with the process).
+KEY_PROBE = r'''
+import ctypes, sys
+libc = ctypes.CDLL(None, use_errno=True)
+libc.syscall.restype = ctypes.c_long
+L, P = ctypes.c_long, ctypes.c_char_p
+what, arg = sys.argv[1], sys.argv[2]
+if what == "ring":      # keyctl(KEYCTL_GET_KEYRING_ID, <special keyring id>, create=0)
+    r = libc.syscall(L(250), L(0), L(int(arg)), L(0))
+elif what == "add":     # add_key("user", <description>, "x", 1, KEY_SPEC_PROCESS_KEYRING)
+    r = libc.syscall(L(248), P(b"user"), P(arg.encode()), P(b"x"), L(1), L(-2))
+elif what == "req":     # request_key("user", <description>, NULL, 0): a lookup that creates nothing
+    r = libc.syscall(L(249), P(b"user"), P(arg.encode()), P(None), L(0))
+print(r, ctypes.get_errno())
+'''
+KEY_SPEC_SESSION_KEYRING, KEY_SPEC_USER_KEYRING = -3, -4
+
+
+def _probe_cmd(what, arg):
+    return "%s -I -c %s %s %s" % (PY, shlex.quote(KEY_PROBE), what, shlex.quote(str(arg)))
+
+
+def _probe_in_box(cfg, what, arg):
+    r = cfg.run(exec_=_probe_cmd(what, arg))
+    assert r.returncode == 0, r.stderr
+    ret, err = r.stdout.split()
+    return int(ret), int(err)
+
+
+def _proc_keys_lines():
+    with open("/proc/keys") as f:
+        return len(f.read().splitlines())
+
+
+@needs_box
+@X86_64_ONLY
+@pytest.mark.parametrize("ring", [KEY_SPEC_SESSION_KEYRING, KEY_SPEC_USER_KEYRING])
+def test_k_a_keyctl_is_eperm_inside_the_box(cfg, ring):
+    assert _probe_in_box(cfg, "ring", ring) == (-1, EPERM)
+
+
+@needs_box
+@X86_64_ONLY
+def test_k_b_add_key_is_eperm_inside_the_box_and_no_host_key_appears(cfg):
+    before = _proc_keys_lines()
+    assert _probe_in_box(cfg, "add", "sandbox-test-key-%d" % os.getpid()) == (-1, EPERM)
+    assert _proc_keys_lines() == before, "the host's /proc/keys changed: a key was created"
+
+
+@needs_box
+@X86_64_ONLY
+def test_k_c_request_key_is_eperm_inside_the_box(cfg):
+    assert _probe_in_box(cfg, "req", "sandbox-test-no-such-key") == (-1, EPERM)
+
+
+@X86_64_ONLY
+def test_k_d_the_same_keyctl_probe_outside_the_box_is_not_eperm():
+    """Positive control: the probe can tell the difference. Outside, the same call answers with a key id or ENOKEY."""
+    for ring in (KEY_SPEC_SESSION_KEYRING, KEY_SPEC_USER_KEYRING):
+        r = subprocess.run([PY, "-I", "-c", KEY_PROBE, "ring", str(ring)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        ret, err = (int(x) for x in r.stdout.split())
+        assert err != EPERM, (ring, r.stdout)
+
+
+@needs_box
+def test_k_e_proc_keys_and_key_users_read_as_zero_bytes_inside_the_box(cfg):
+    if not os.path.exists("/proc/keys") or _proc_keys_lines() == 0:
+        pytest.skip("this host's /proc/keys is empty or absent: the mask could not be told from its absence")
+    r = cfg.run(exec_="for f in /proc/keys /proc/key-users; do if [ -e $f ]; then echo $f $(wc -c < $f); fi; done")
+    assert r.returncode == 0, r.stderr
+    got = dict(l.split() for l in r.stdout.splitlines())
+    assert set(got) == {f for f in ("/proc/keys", "/proc/key-users") if os.path.exists(f)}, got
+    assert all(v == "0" for v in got.values()), got
+
+
+@needs_box
+def test_k_f_an_ordinary_syscall_heavy_command_still_works_under_the_filter(cfg):
+    code = ("import subprocess, os, socket;"
+            "print(open('/etc/hostname').read().strip(), subprocess.run(['/usr/bin/true']).returncode,"
+            " os.getpid() > 0, socket.socketpair() is not None)")
+    r = cfg.run(exec_="%s -I -c %s" % (PY, shlex.quote(code)))
+    assert r.returncode == 0 and r.stdout.strip() == "sandbox 0 True True", (r.stdout, r.stderr)
+
+
+@needs_box
+def test_k_g_the_stub_binary_runs_its_version_command_under_the_filter(cfg):
+    r = cfg.run(args=("--version",), test=False)
+    assert r.returncode == 0 and r.stdout.strip() == "stub-claude --version", (r.stdout, r.stderr)
+
+
+@pytest.mark.skipif(not (os.environ.get("SANDBOX_TEST_REAL_BINARY") and os.environ.get("SANDBOX_TEST_REAL_BINARY_SHA256")),
+                    reason="set SANDBOX_TEST_REAL_BINARY and SANDBOX_TEST_REAL_BINARY_SHA256 for the real-binary check")
+@needs_box
+def test_k_g_the_real_pinned_binary_runs_its_version_command_under_the_filter(cfg):
+    cfg.binary = os.environ["SANDBOX_TEST_REAL_BINARY"]
+    cfg.sha = os.environ["SANDBOX_TEST_REAL_BINARY_SHA256"]
+    r = cfg.run(args=("--version",), test=False)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() != ""
+
+
+# --- the program itself, from the ONE function. The evaluator below only runs a program; it holds no copy of it.
+
+def _seccomp_program(tmp_path, fwd=FWD):
+    import struct
+    out = str(tmp_path / "filter.bpf")
+    r = subprocess.run([PY, "-I", fwd, "seccomp-bpf", "--out", out], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    raw = open(out, "rb").read()
+    assert len(raw) % 8 == 0 and 0 < len(raw) // 8 <= 64, len(raw)
+    return [struct.unpack("=HBBI", raw[i:i + 8]) for i in range(0, len(raw), 8)]
+
+
+def _bpf_run(prog, arch, nr):
+    """Evaluate a classic BPF seccomp program on seccomp_data{nr, arch}; supports exactly the opcodes it is built from."""
+    data = {0: nr, 4: arch}
+    a, pc = 0, 0
+    for _ in range(len(prog) + 1):
+        code, jt, jf, k = prog[pc]
+        if code == 0x20:                       # BPF_LD | BPF_W | BPF_ABS
+            a, pc = data[k], pc + 1
+        elif code == 0x15:                     # BPF_JMP | BPF_JEQ | BPF_K
+            pc += 1 + (jt if a == k else jf)
+        elif code == 0x45:                     # BPF_JMP | BPF_JSET | BPF_K
+            pc += 1 + (jt if a & k else jf)
+        elif code == 0x06:                     # BPF_RET | BPF_K
+            return k
+        else:
+            raise AssertionError("opcode %#x is not one this program should use" % code)
+    raise AssertionError("program does not terminate")
+
+
+def test_k1_the_program_refuses_the_three_key_syscalls_with_eperm_and_allows_everything_else(tmp_path):
+    prog = _seccomp_program(tmp_path)
+    for nr in (SYS_ADD_KEY, SYS_REQUEST_KEY, SYS_KEYCTL):
+        assert _bpf_run(prog, AUDIT_ARCH_X86_64, nr) == RET_EPERM, nr
+    for nr in (0, 1, 2, 39, 56, 57, 59, 247, 251, 435, 450, 1000):   # read, write, open, getpid, clone, fork, execve, ...
+        assert _bpf_run(prog, AUDIT_ARCH_X86_64, nr) == RET_ALLOW, nr
+
+
+@pytest.mark.parametrize("nr", [SYS_ADD_KEY, SYS_REQUEST_KEY, SYS_KEYCTL])
+def test_k1_each_key_syscall_is_refused_on_its_own(tmp_path, nr):
+    """One cell per number, so dropping any one of them reddens its own cell."""
+    assert _bpf_run(_seccomp_program(tmp_path), AUDIT_ARCH_X86_64, nr) == RET_EPERM
+
+
+def test_k1_another_architecture_and_the_x32_abi_are_killed(tmp_path):
+    prog = _seccomp_program(tmp_path)
+    for arch in (AUDIT_ARCH_AARCH64, AUDIT_ARCH_I386, 0, 0xFFFFFFFF):
+        for nr in (0, SYS_KEYCTL):
+            assert _bpf_run(prog, arch, nr) == RET_KILL_PROCESS, (hex(arch), nr)
+    for nr in (0, SYS_KEYCTL, SYS_ADD_KEY, 512):                      # x32: syscall numbers with bit 30 set
+        assert _bpf_run(prog, AUDIT_ARCH_X86_64, nr | 0x40000000) == RET_KILL_PROCESS, nr
+
+
+def test_k1_the_program_starts_by_loading_and_comparing_the_architecture(tmp_path):
+    prog = _seccomp_program(tmp_path)
+    assert prog[0] == (0x20, 0, 0, 4), prog[0]                         # load seccomp_data.arch (offset 4)
+    code, jt, jf, k = prog[1]
+    assert (code, jt, k) == (0x15, 0, AUDIT_ARCH_X86_64), prog[1]       # equal: carry on; otherwise jump to a verdict
+    assert prog[1 + 1 + jf][0] == 0x06 and prog[1 + 1 + jf][3] == RET_KILL_PROCESS, "an unknown arch does not end in KILL"
+
+
+def test_k1_the_wrapper_passes_the_program_to_bwrap_as_a_descriptor(cfg, fake_bwrap):
+    toks = _launch_argv(cfg, fake_bwrap)
+    assert toks.count("--seccomp") == 1, toks
+    assert toks[toks.index("--seccomp") + 1].isdigit(), toks
+
+
+@needs_box
+def test_k1_a_program_that_cannot_be_built_is_refused_before_anything_starts(cfg, fake_bwrap, tmp_path):
+    """A copy of the wrapper beside a forwarder whose seccomp-bpf mode does not exist: the build fails, so the wrapper
+    must refuse (named, exit 2), not start a box without the filter."""
+    d = tmp_path / "broken"
+    d.mkdir()
+    text = open(FWD).read()
+    broken = text.replace('sub.add_parser("seccomp-bpf")', 'sub.add_parser("seccomp-bpf-gone")')
+    assert broken != text, "the forwarder does not register a seccomp-bpf mode"
+    (d / "sandbox-forward.py").write_text(broken)
+    shutil.copy(WRAPPER, str(d / "student-sandbox.sh"))
+    fdir, out = fake_bwrap
+    r = subprocess.run(["/bin/bash", str(d / "student-sandbox.sh")], env=cfg.env(exec_="true", PATH=fdir + ":/usr/bin:/bin",
+                       FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log), capture_output=True, text=True, timeout=60)
+    lines = [l for l in r.stderr.splitlines() if l.strip()]
+    assert r.returncode == 2 and len(lines) == 1 and "seccomp" in lines[0], (r.returncode, r.stderr)
+    assert not os.path.exists(out) and os.listdir(cfg.tmpd) == [] and not os.path.exists(cfg.log)
+
+
+@needs_box
+def test_k1_a_bwrap_that_rejects_the_program_is_refused_before_anything_starts(cfg, tmp_path):
+    d = tmp_path / "rejecting"
+    d.mkdir()
+    out = str(tmp_path / "rejecting-called")
+    make_exe(str(d / "bwrap"), '#!/bin/sh\ncase "$*" in *--seccomp*) echo "bwrap: Unknown option --seccomp" >&2; exit 1 ;; esac\n'
+             'echo started > "$FAKE_BWRAP_OUT"\nexit 99\n')
+    r = cfg.run(exec_="true", PATH=str(d) + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log)
+    lines = [l for l in r.stderr.splitlines() if l.strip()]
+    assert r.returncode == 2 and len(lines) == 1 and "seccomp" in lines[0], (r.returncode, r.stderr)
+    assert not os.path.exists(out) and os.listdir(cfg.tmpd) == [] and not os.path.exists(cfg.log)
+
+
+def _launch_argv(cfg, fake_bwrap):
+    fdir, out = fake_bwrap
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out)
+    assert r.returncode == 99, r.stderr
+    toks = open(out).read().strip().partition(" ")[2].split()
+    _wait_clean(cfg)
+    return toks
+
+
+def test_k2_proc_keys_and_key_users_are_masked_read_only_after_proc(cfg, fake_bwrap):
+    toks = _launch_argv(cfg, fake_bwrap)
+    proc_at = toks.index("--proc")
+    present = [n for n in ("/proc/keys", "/proc/key-users") if os.path.exists(n)]
+    assert present, "this host has neither file: nothing to mask"
+    for name in present:
+        masks = [i for i, t in enumerate(toks) if t.startswith("--ro-bind") and toks[i + 2:i + 3] == [name]]
+        assert len(masks) == 1 and masks[0] > proc_at, (name, toks)
+
+
+# ---------------------------------------------------------------- round 6 (L): /usr/local is not visible in the box
+
+@needs_box
+def test_l_usr_local_is_an_empty_directory_inside_the_box(cfg):
+    """bwrap cannot remove a directory from a read-only bind of /usr, so /usr/local is an empty tmpfs over it (the
+    directory exists, holds nothing). On a host without /usr/local it is simply absent."""
+    r = cfg.run(exec_="if [ -d /usr/local ]; then ls -A /usr/local | wc -l; else echo absent; fi")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split()[0] in ("absent", "0"), "host /usr/local is visible inside: %r" % r.stdout
+
+
+@pytest.mark.skipif(not os.path.isdir("/usr/local") or os.path.islink("/usr/local"),
+                    reason="this host has no /usr/local directory to hide")
+def test_l_the_argv_covers_usr_local_after_the_usr_bind(cfg, fake_bwrap):
+    toks = _launch_argv(cfg, fake_bwrap)
+    tm = [i for i, t in enumerate(toks) if t == "--tmpfs" and toks[i + 1] == "/usr/local"]
+    usr = [i for i, t in enumerate(toks) if t == "--ro-bind-try" and toks[i + 2] == "/usr"]
+    assert len(tm) == 1 and len(usr) == 1 and tm[0] > usr[0], toks
+
+
+# ---------------------------------------------------------------- round 6 (H): the launch line names what ran
+
+def test_h_the_launch_line_carries_the_sha256_of_the_wrapper_and_the_forwarder_that_ran(cfg, fake_bwrap):
+    f, _ = _launch_fields(cfg, fake_bwrap)
+    assert f.get("wrapper_sha256") == sha256_of(os.path.realpath(WRAPPER)), f
+    assert f.get("forwarder_sha256") == sha256_of(os.path.realpath(FWD)), f
+
+
+def test_h_the_hashes_are_of_the_files_the_wrapper_resolved_not_of_a_name(cfg, fake_bwrap, tmp_path):
+    """A wrapper started through a link, beside a forwarder that is itself a link, reports the hashes of the real files."""
+    d = tmp_path / "linked"
+    d.mkdir()
+    real = tmp_path / "real"
+    real.mkdir()
+    shutil.copy(WRAPPER, str(real / "student-sandbox.sh"))
+    (real / "sandbox-forward.py").write_text(open(FWD).read() + "\n# a different forwarder\n")
+    os.symlink(str(real / "student-sandbox.sh"), str(d / "claude"))
+    os.symlink(str(real / "sandbox-forward.py"), str(d / "sandbox-forward.py"))
+    fdir, out = fake_bwrap
+    r = subprocess.run(["/bin/bash", str(d / "claude")], env=cfg.env(exec_="true", PATH=fdir + ":/usr/bin:/bin",
+                       FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 99, r.stderr
+    line = [l for l in open(cfg.log).read().splitlines() if l.startswith("wrapper-launch ")][0]
+    f = dict(kv.split("=", 1) for kv in line.split()[1:])
+    assert f["wrapper_sha256"] == sha256_of(str(real / "student-sandbox.sh")), f
+    assert f["forwarder_sha256"] == sha256_of(str(real / "sandbox-forward.py")), f
+    _wait_clean(cfg)

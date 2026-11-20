@@ -23,6 +23,7 @@ socket, and nothing else crosses:
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
   check-allow --text LIST     wrapper helper: validate an allow-list (exit 2 with one reason on stderr).
+  seccomp-bpf --out FILE   wrapper helper: write the box's seccomp program (key syscalls EPERM; other arch and x32 killed).
   homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
   account-file passwd|group --home H   wrapper helper: the synthetic /etc/passwd or /etc/group of the box (root and the
           invoking uid/gid only; the invoker's home is H).
@@ -677,6 +678,58 @@ def run_check_allow(a):
     return 0
 
 
+# ---- the box's seccomp program (round 6, K1). The ONE place it is built: the wrapper asks for it with `seccomp-bpf` and
+# hands the bytes to bwrap (--seccomp <fd>); nothing else holds a copy. It keeps the student from reading or writing the
+# kernel's keys: a key in the invoking uid's keyring outlives the run and is shared with the host seat. Classic BPF over
+# struct seccomp_data { int nr; __u32 arch; ... }. Linux, x86_64 numbers; every other architecture is killed.
+AUDIT_ARCH_X86_64 = 0xC000003E
+KEY_SYSCALLS = (("add_key", 248), ("request_key", 249), ("keyctl", 250))   # x86_64 numbers
+X32_BIT = 0x40000000                         # an x32-ABI call is an x86_64 call with this bit set in its number
+RET_KILL_PROCESS, RET_ALLOW = 0x80000000, 0x7FFF0000
+RET_EPERM = 0x00050000 | 1                   # SECCOMP_RET_ERRNO | EPERM
+LD_ARCH, LD_NR = 4, 0                        # offsets in seccomp_data
+BPF_LD_W_ABS, BPF_JEQ_K, BPF_JSET_K, BPF_RET_K = 0x20, 0x15, 0x45, 0x06
+
+
+def seccomp_program():
+    """The program as a list of (code, jt, jf, k). Jump targets are written as verdict names and resolved below, so no
+    offset is counted by hand."""
+    steps = [
+        ("ld", LD_ARCH),                            # A = arch
+        ("jeq", AUDIT_ARCH_X86_64, None, "kill"),   # not x86_64: KILL_PROCESS (no other architecture is a way around)
+        ("ld", LD_NR),                              # A = syscall number
+        ("jset", X32_BIT, "kill", None),            # x32 ABI (bit 30 set): KILL_PROCESS
+    ]
+    for _name, nr in KEY_SYSCALLS:
+        steps.append(("jeq", nr, "eperm", None))    # a key syscall: EPERM
+    steps += [("ret", "allow"), ("ret", "eperm"), ("ret", "kill")]
+    verdict = {"allow": RET_ALLOW, "eperm": RET_EPERM, "kill": RET_KILL_PROCESS}
+    at = {st[1]: i for i, st in enumerate(steps) if st[0] == "ret"}   # the index of each verdict's RET step
+    prog = []
+    for i, st in enumerate(steps):
+        if st[0] == "ld":
+            prog.append((BPF_LD_W_ABS, 0, 0, st[1]))
+        elif st[0] in ("jeq", "jset"):
+            jt = at[st[2]] - i - 1 if st[2] else 0   # None: fall through to the next step
+            jf = at[st[3]] - i - 1 if st[3] else 0
+            prog.append((BPF_JEQ_K if st[0] == "jeq" else BPF_JSET_K, jt, jf, st[1]))
+        else:
+            prog.append((BPF_RET_K, 0, 0, verdict[st[1]]))
+    return prog
+
+
+def run_seccomp_bpf(a):
+    import struct
+    raw = b"".join(struct.pack("=HBBI", *ins) for ins in seccomp_program())
+    try:
+        with open(a.out, "wb") as f:
+            f.write(raw)
+    except OSError as e:
+        sys.stderr.write("cannot write the seccomp program: %s\n" % e)
+        return 2
+    return 0
+
+
 def run_homes(a):
     import pwd
     homes = {os.path.realpath(u.pw_dir) for u in pwd.getpwall() if u.pw_dir}
@@ -809,6 +862,8 @@ def main(argv):
     ca = sub.add_parser("check-allow")
     ca.add_argument("--text", required=True)
     sub.add_parser("homes")
+    sc = sub.add_parser("seccomp-bpf")
+    sc.add_argument("--out", required=True)
     af = sub.add_parser("account-file")
     af.add_argument("kind", choices=("passwd", "group")); af.add_argument("--home", required=True)
     es = sub.add_parser("etc-scan")
@@ -821,7 +876,8 @@ def main(argv):
     a = ap.parse_args(argv)
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
             "latency-compare": run_latency_compare, "check-allow": run_check_allow, "homes": run_homes,
-            "account-file": run_account_file, "etc-scan": run_etc_scan}[a.mode](a)
+            "account-file": run_account_file, "etc-scan": run_etc_scan,
+            "seccomp-bpf": run_seccomp_bpf}[a.mode](a)
 
 
 if __name__ == "__main__":

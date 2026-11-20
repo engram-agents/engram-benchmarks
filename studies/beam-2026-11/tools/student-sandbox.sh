@@ -57,6 +57,16 @@ fi
 [ -x "$PY" ] || refuse "$PY not found"
 [ -f "$FWD" ] || refuse "sandbox-forward.py not found next to the wrapper"
 BWRAP=$(command -v bwrap) || refuse "bwrap not found on PATH"
+# (H) What ran, for the launch line: the sha256 of this wrapper file and of the forwarder file, each taken now from the
+# resolved path the wrapper actually uses. Bash reads a script as it runs, so the wrapper hash is of the file on disk at
+# launch: it records what was there when this run started.
+sha_of_file() { "$PY" -I -c '
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1" 2>/dev/null; }
+WRAPPER_REAL=$(realpath -e -- "${BASH_SOURCE[0]}" 2>/dev/null) && [ -n "$WRAPPER_REAL" ] || refuse "cannot resolve the wrapper's own path"
+FWD_REAL=$(realpath -e -- "$FWD" 2>/dev/null) && [ -n "$FWD_REAL" ] || refuse "cannot resolve sandbox-forward.py"
+WRAPPER_SUM=$(sha_of_file "$WRAPPER_REAL") && [ -n "$WRAPPER_SUM" ] || refuse "cannot read the wrapper to hash it"
+FWD_SUM=$(sha_of_file "$FWD_REAL") && [ -n "$FWD_SUM" ] || refuse "cannot read sandbox-forward.py to hash it"
 
 # ---- R5: the model bridge is an HTTP request allow-list. SANDBOX_MODEL_ALLOW is required, unless SANDBOX_MODEL_LEARN=1,
 # which allows everything and logs each request's METHOD and PATH (never bodies or query strings) to SANDBOX_LOG.
@@ -128,6 +138,14 @@ BOX_TMPFS_BIG=(/tmp /var/tmp)                               # fresh tmpfs, the T
 BOX_HOME=/home; BOX_RUN=/run
 BOX_TMPFS_SMALL=("$BOX_HOME" "$BOX_RUN")                    # fresh tmpfs, the home/run cap
 BOX_ABSENT=(/sys)                                           # not provided at all: masked by absence
+# Directories INSIDE a bound system directory that the box hides (round 6, L): /usr/local holds host tooling, some of it
+# naming a home directory and an account, and the student needs none of it (its interpreters and the model bridge live
+# elsewhere). bwrap cannot remove a directory from a read-only bind, so each is covered by an empty read-only tmpfs: it
+# exists, and is empty. They already lie inside BOX_RO, so the class rules above cover them without a second entry.
+BOX_HIDDEN_EMPTY=(/usr/local)
+# Kernel key listings (round 6, K2): files in the box's own /proc that name keys without any syscall; each is masked
+# with an empty file where the host has it.
+BOX_PROC_KEY_FILES=(/proc/keys /proc/key-users)
 SOCKBASE=${TMPDIR:-/tmp}
 # Classes of refusal. SYSTEM: equal, inside or an ancestor. FRESH (a fresh tmpfs whose host content is never shown, and the
 # socket base): equal or an ancestor only, because a bind placed under a fresh tmpfs shows only what the caller named.
@@ -321,6 +339,43 @@ SCOPE=(systemd-run --user --scope --quiet --collect -p "TasksMax=$BOX_TASKS" -p 
 XDG_RUNTIME_DIR=$SCOPE_RT "${SCOPE[@]}" -- "$PY" -I -c pass >/dev/null 2>&1 \
   || refuse "systemd-run could not start a user scope with TasksMax and MemoryMax: the box's process and memory caps cannot be applied (needs a user systemd manager with the pids and memory controllers delegated)"
 
+# ---- L, K2: the mount arguments that hide host content (decided here, so a refusal happens before anything is started).
+# L: each hidden directory is an empty read-only tmpfs over the read-only bind (mounted after SYSARGS, which binds its parent).
+# It must be a real directory on the host: a link, or a file, cannot be covered this way, so that is a refusal, not a leak.
+HIDEARGS=()
+for d in "${BOX_HIDDEN_EMPTY[@]}"; do
+  [ -e "$d" ] || [ -L "$d" ] || continue
+  { [ -d "$d" ] && [ ! -L "$d" ]; } || refuse "$d is not a plain directory on this host: the box cannot hide it"
+  HIDEARGS+=(--size 4096 --tmpfs "$d" --remount-ro "$d")
+done
+# K2: the key listings in the box's own /proc, masked read-only after --proc has mounted it. The mask is an EMPTY FILE
+# from /dev/null's content (--ro-bind-data, as the /etc masks do), not a bind of the /dev/null device: the box's /proc is
+# a nodev mount, so a bound device file would answer every read with EACCES (measured) instead of zero bytes.
+PROCKEYARGS=()
+for f in "${BOX_PROC_KEY_FILES[@]}"; do
+  [ -e "$f" ] || continue
+  exec {KFD}</dev/null || refuse "cannot open /dev/null to mask $f"
+  PROCKEYARGS+=(--ro-bind-data "$KFD" "$f")
+done
+
+# ---- K1: the box's seccomp program. keyctl, add_key and request_key fail with EPERM inside the box (a key in the uid's
+# keyring would be readable, and a key written there would outlive the run and pass state between exams); a call from any
+# architecture but x86_64, or through the x32 ABI, kills the process. It is built by sandbox-forward.py (the one place the
+# program exists), written to a file, opened as a descriptor and passed with --seccomp; the file is removed at once. Fail
+# closed: if it cannot be built, or this bwrap does not accept it, refuse here, before anything is started. The probe runs
+# the same bwrap with the same program around a command that does nothing.
+SECFILE=$(mktemp "$SOCKBASE/student-sandbox-seccomp.XXXXXX") || refuse "cannot create the seccomp program file"
+if ! "$PY" -I "$FWD" seccomp-bpf --out "$SECFILE" >/dev/null 2>&1 || [ ! -s "$SECFILE" ]; then
+  rm -f -- "$SECFILE"; refuse "the seccomp program could not be built: the box's key-syscall filter is required"
+fi
+exec {SECFD}< "$SECFILE" || { rm -f -- "$SECFILE"; refuse "the seccomp program could not be opened"; }
+if ! "$BWRAP" --seccomp "$SECFD" --ro-bind / / -- "$PY" -I -c pass >/dev/null 2>&1; then
+  rm -f -- "$SECFILE"; refuse "bwrap rejected the seccomp program (or could not start): the box's key-syscall filter is required"
+fi
+exec {SECFD}<&-
+exec {SECFD}< "$SECFILE" || { rm -f -- "$SECFILE"; refuse "the seccomp program could not be opened"; }
+rm -f -- "$SECFILE"
+
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
 # watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
@@ -343,7 +398,7 @@ FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watc
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone.
-"$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- &
+"$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- {SECFD}<&- &
 FPID=$!
 for ((i = 0; i < 250; i++)); do [ -S "$SOCK" ] && break; sleep 0.02; done
 if [ ! -S "$SOCK" ]; then
@@ -362,7 +417,7 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
@@ -373,9 +428,11 @@ for d in "${BOX_TMPFS_BIG[@]}"; do TMPARGS+=(--size "$TMP_CAP" --tmpfs "$d"); do
 for d in "${BOX_TMPFS_SMALL[@]}"; do TMPARGS+=(--size "$HOME_CAP" --tmpfs "$d"); done
 BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc --unshare-uts --hostname sandbox
     --cap-drop ALL   # explicit: in an unprivileged user namespace every set is already empty, but that is bwrap's default, not ours
+    --seccomp "$SECFD"   # K1: the key syscalls fail with EPERM; see the block above for what it is and why it is required
     --clearenv "${ENVARGS[@]}"
     --proc /proc --dev /dev --size "$TMP_CAP" --tmpfs "$BOX_SHM" --remount-ro /dev
-    "${SYSARGS[@]}" "${ETCARGS[@]}"
+    "${PROCKEYARGS[@]}"
+    "${SYSARGS[@]}" "${ETCARGS[@]}" "${HIDEARGS[@]}"
     "${TMPARGS[@]}"
     --bind "$SLOT" "$SLOT"
     "${EXTRA_BINDS[@]}"
