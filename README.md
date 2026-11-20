@@ -53,6 +53,15 @@ A leak that reaches GitHub is an incident: it is removed from the history with t
 approval, not covered by a later commit, because a deleted line stays readable in the history.
 The scan cannot catch rule 2 or rule 5; review does.
 
+**Benchmark text.** No question-with-gold text and no verbatim conversation text from a benchmark dataset is committed
+while a study using that conversation is open; commit the file's sha256 and hold the file privately.
+`tools/public-text-check.py` enforces this on every pull request and push (CI) and is run locally before every push to
+a public branch, in file mode and over the commits being pushed (`--history <range>`), with the pinned dataset.
+Exception: none; the check never prints what it matched.
+A run of 8 words shared with the dataset counts as a hit; the few windows listed by hash in
+`tools/public-text-check-exempt-windows.txt` (each with a reason and an approver, added only after a second seat's read)
+are the only windows it lets through.
+
 ## Licence
 
 Code and documents: Apache-2.0 (`LICENSE`). Material derived from a benchmark dataset keeps that

@@ -1,0 +1,11 @@
+# Windows that tools/public-text-check.py does not count as a hit, matched by CONTENT HASH, never by path.
+# One entry per line: <sha256 of the normalised window> -- <reason> -- approved: <seat and reference>
+# The normalised window is the 8 lower-cased [a-z0-9'] words joined by single spaces. This file holds hashes only.
+# ADDING AN ENTRY NEEDS A SECOND SEAT'S READ: the seat that proposes it and the seat named in "approved:" are
+# different seats. Prepare an entry with `tools/public-text-check.py ... --print-hit-hashes`, which prints
+# <path>:<line>: <sha256> and never the text. Every other window on the same line still counts.
+d8c0a26e7d386cc032aa3239791038bf6d9feacef691dcf18664cb8b1a165d38 -- generic CI workflow phrase also found in the dataset, a measured false positive (negative control) -- approved: kepler (Office 32781), measured with sol
+47e0c63f3e4119154ed44a077c75fa6ee5db6c47ca4290c6216a453ade6dc7b7 -- team-written P1 question (A02) quoting a few words of the conversation; ruled to stay public, covered by studies/beam-2026-11/ATTRIBUTION.md -- approved: kepler (Office 32781)
+c02248256b213f398610ab4b5fe2473b8e34f9fe651cfbd9e3425678314f7f40 -- team-written P1 question (A02) quoting a few words of the conversation; ruled to stay public, covered by studies/beam-2026-11/ATTRIBUTION.md -- approved: kepler (Office 32781)
+314736606106109ce3040e572cecb1aafdc59d2fa2b8ec916b27c7453c25faac -- team-written P1 question (F84) quoting a few words of the conversation; ruled to stay public, covered by studies/beam-2026-11/ATTRIBUTION.md -- approved: kepler (Office 32781)
+e3a0b982c07572478eee265d269e0fb02b6ce76449167a4bca15fbc548521381 -- team-written P1 question (F84) quoting a few words of the conversation; ruled to stay public, covered by studies/beam-2026-11/ATTRIBUTION.md -- approved: kepler (Office 32781)

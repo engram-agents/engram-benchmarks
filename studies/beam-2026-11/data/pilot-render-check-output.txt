@@ -1,0 +1,5 @@
+PASS  control 7 on pubplan-k1.json: k = 1, 45 rounds, 45 exchanges, 0 failing (render verbatim in round; user and assistant text whole; no wrapper line)
+PASS  control 7 on pubplan-k3.json: k = 3, 15 rounds, 45 exchanges, 0 failing (render verbatim in round; user and assistant text whole; no wrapper line)
+PASS  control 7 on pubplan-k5.json: k = 5, 9 rounds, 45 exchanges, 0 failing (render verbatim in round; user and assistant text whole; no wrapper line)
+PASS  mutant of control 7 (real render plus one header line): refused = True
+RENDER CHECK: ALL PASS

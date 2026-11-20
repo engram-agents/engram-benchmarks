@@ -1,0 +1,54 @@
+## control 0: the old rule (walk off) on the gate runs' feed script reproduces 8762312e
+import walk: OFF (control only)
+SETUP ID (sha256 of the sorted components): 8762312e2b75f953da4e0f12479e99f7bb65eb2d6e7080a4d3364d2dd52e6d78
+## control 1: walk on, the imported feed.py not declared -> FAIL
+FAIL: the feed script imports study-local module(s) that are not setup components: feed.py (declare each with --module)
+## control 2: walk on, feed.py declared -> the gate setup's completed id
+import walk: feed -> feed.py
+SETUP ID (sha256 of the sorted components): 797ba450e226d559abcb2552584fd470ae00af53fb2d7f949688dc17ba837e91
+## control 3: one changed byte in the imported feed.py changes the id (walk on, K = 3)
+original:
+import walk: feed -> feed.py
+SETUP ID (sha256 of the sorted components): 7b73fe7b4a53b24f2a70c3b6ee8d6eafc942490c7d74fa95e1c7aa3ac6433597
+one byte changed:
+import walk: feed -> feed.py
+SETUP ID (sha256 of the sorted components): c247970fca2060dc71bdde97d70e16d0e0b1e78c37b5671542fd49b777e124f9
+## mutant of control 3: walk OFF, module not declared -> the same byte change does NOT change the id
+original:
+import walk: OFF (control only)
+SETUP ID (sha256 of the sorted components): 88d40079bf46e62e681e5e016e7ab479819c794b9c6be757bc32f25ce70d4dec
+one byte changed:
+import walk: OFF (control only)
+SETUP ID (sha256 of the sorted components): 88d40079bf46e62e681e5e016e7ab479819c794b9c6be757bc32f25ce70d4dec
+## PILOT SETUP, turns per round 3
+import walk: feed -> feed.py
+components:
+1f2da5a0fe2ca6c81f666de4d14fd250666baf7374e86793b266b71ed5fbf090  feed4.py:FACT_SHEET (source segment)
+310da87e27a9b8d06ece9f85acc842ce9b6fefda2944866e2b496cb6dbf2323a  exam-line.txt
+79d592a195bcea80b10e387420845c5022a5ad7ce736b48558b5b8af359bd209  grant-line (no trailing newline)
+933c9a1d930ea27b80be3e97a58f83faa8c0c2306745ed2f1a883ece7803fa6e  feed4.py:NUDGE (source segment)
+9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c  imported module: feed.py
+bdeead3dee6f84749c7c1aa49be3a9500a5bca57e6276906dd9acef070f5b7e0  .claude/CLAUDE.md
+c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b  feed4.py
+claude code:  2.1.325
+install flags:      --no-recall-service --yes --sandbox-untagged --claude-md-profile lean
+plugin src tree:    b11a3b3e9d6d709eac92f1eba0f445b783351676
+turns per round:    3
+window setting:     CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072
+SETUP ID (sha256 of the sorted components): 7b73fe7b4a53b24f2a70c3b6ee8d6eafc942490c7d74fa95e1c7aa3ac6433597
+## PILOT SETUP, turns per round 5
+import walk: feed -> feed.py
+components:
+1f2da5a0fe2ca6c81f666de4d14fd250666baf7374e86793b266b71ed5fbf090  feed4.py:FACT_SHEET (source segment)
+310da87e27a9b8d06ece9f85acc842ce9b6fefda2944866e2b496cb6dbf2323a  exam-line.txt
+79d592a195bcea80b10e387420845c5022a5ad7ce736b48558b5b8af359bd209  grant-line (no trailing newline)
+933c9a1d930ea27b80be3e97a58f83faa8c0c2306745ed2f1a883ece7803fa6e  feed4.py:NUDGE (source segment)
+9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c  imported module: feed.py
+bdeead3dee6f84749c7c1aa49be3a9500a5bca57e6276906dd9acef070f5b7e0  .claude/CLAUDE.md
+c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b  feed4.py
+claude code:  2.1.325
+install flags:      --no-recall-service --yes --sandbox-untagged --claude-md-profile lean
+plugin src tree:    b11a3b3e9d6d709eac92f1eba0f445b783351676
+turns per round:    5
+window setting:     CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072
+SETUP ID (sha256 of the sorted components): 8262a44456f4b1a22f269594109868c773944069a880355d12c2818c7a73f5d2

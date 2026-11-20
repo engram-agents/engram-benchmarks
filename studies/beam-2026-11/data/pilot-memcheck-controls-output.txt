@@ -1,0 +1,22 @@
+pilot-memcheck.sh sha256 7ff5ebcfbb7195a5
+== the setup snapshot (expect 0 files, exit 0)
+folder: .claude/projects/<project>/memory
+auto-memory start state: 0 file(s) in 1 folder(s)
+exit=0
+== control 1: a copy of the snapshot with one planted file in its auto-memory folder (expect 1 file, exit 1)
+folder: .claude/projects/<project>/memory
+  file: 73cb3858a687a849 2 bytes MEMORY.md
+auto-memory start state: 1 file(s) in 1 folder(s)
+exit=1
+== control 2: the same copy with no memory folder at all (expect UNKNOWN, exit 2)
+auto-memory start state: UNKNOWN, no memory folder under .claude
+exit=2
+== control 3: an arm home with no .claude folder (expect UNKNOWN, exit 2)
+auto-memory start state: UNKNOWN, no .claude folder in the arm home
+exit=2
+== control 4: the K = 3 arm home as the run left it (expect 2 files, exit 1)
+folder: .claude/projects/<project>/memory
+  file: 7c2d3084576622d1 3443 bytes MEMORY.md
+  file: bcd4bf84e8eb0f7b 44699 bytes exam-personal-statement-conversation.md
+auto-memory start state: 2 file(s) in 1 folder(s)
+exit=1

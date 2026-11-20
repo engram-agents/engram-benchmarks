@@ -1,0 +1,3 @@
+feed.py sha256 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c; purpose sentence in BRIEF: True
+PASS  K5-conv9: 9 reading messages received, 9 planned rounds, 9 byte-identical; message 1 opens with the brief and carries the purpose sentence: True; plan sha256 da21e9ecfd990fdd
+RESULT: the run matches its plan

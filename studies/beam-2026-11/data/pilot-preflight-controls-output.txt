@@ -1,0 +1,23 @@
+## loaded-hash check: the K = 3 component file -> loaded == setup, proceeds (plan written as valid JSON, exit 0)
+loaded feed4.py: c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b  (setup: c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b)
+loaded feed.py: 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c  (setup: 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c)
+exit=0
+plan rounds: 1
+## loaded-hash check: a component file whose feed.py line differs -> REFUSE, exit 3
+loaded feed4.py: c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b  (setup: c327ca7fe7b53b5f550ab860139f94c8c72fcb499c9e6ca915c11aa16e4abd0b)
+loaded feed.py: 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c  (setup: 0000000000000000000000000000000000000000000000000000000000000000)
+REFUSE: the loaded feeder does not match the setup's components
+exit=3
+## a real run without --expect-components -> REFUSE before anything starts (no model unload), exit 3
+REFUSE: a run needs --expect-components (the setup's component file)
+exit=3
+## plan mode: run A against the K = 1 plan of all 135 exchanges -> PASS
+feed.py sha256 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c; purpose sentence in BRIEF: True
+PASS  A-conv9: 135 reading messages received, 135 planned rounds, 135 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
+RESULT: the run matches its plan
+exit=0
+## plan mode, mutant: run A against a K = 3 plan -> FAIL
+feed.py sha256 9762ae747f52a0e39bbfdc5b24053e970bc54d43bc0fb862e4070c68e51d6b0c; purpose sentence in BRIEF: True
+FAIL  A-conv9: 135 reading messages received, 45 planned rounds, 0 byte-identical; message 1 opens with the brief and carries the purpose sentence: True
+RESULT: MISMATCH
+exit=1

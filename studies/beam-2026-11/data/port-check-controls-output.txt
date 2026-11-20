@@ -1,0 +1,25 @@
+== control A (anyone): the corrected public port against the committed pin -> identical, exit 0
+RESULT (against the pinned components): identical
+exit=0
+== control B: the uncorrected port (one sentence short) against the committed pin -> DIFFER BRIEF, exit 1
+DIFFER  BRIEF
+RESULT (against the pinned components): 1 difference(s)
+exit=1
+== control C: full check, the runs' copy as reference (hash read from the pin file), corrected port -> identical, exit 0
+reference feed.py sha256 d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4 == pinned
+RESULT: identical
+exit=0
+== control D: full check, the runs' copy vs the uncorrected port -> DIFFER BRIEF, exit 1
+DIFFER  BRIEF
+RESULT: 6 difference(s)
+exit=1
+== control E: the port's source as reference -> refused, exit 2
+REFUSE: the reference feed.py has sha256 c757ea9244b18f21523b6c57557f466d282042117a179fe096f1d46220525474, not the pinned d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4 (the copy the runs used)
+exit=2
+== control F: the caller overrides the pin -> printed warning
+WARNING: the pin is overridden by the caller (c757ea9244b18f21523b6c57557f466d282042117a179fe096f1d46220525474); the committed pin is d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4
+RESULT: identical
+exit=0
+== mutant: the checker as it was on 2026-11-14 (no pin): the port's source vs the uncorrected port -> passes, exit 0
+RESULT: identical
+exit=0

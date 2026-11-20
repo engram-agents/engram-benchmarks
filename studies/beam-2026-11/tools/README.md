@@ -108,5 +108,13 @@ Checks that a ported copy of `feed.py`/`feed2.py` shows the student exactly what
 shows: sha256 of the brief, proctor marker, per-exchange line, setup fact sheet and nudge, and of
 `render()` and `exchanges()` output on a small synthetic conversation, the question prompt prefix, plus
 a comparison of every string literal in the source as a multiset in both directions (so a change to one
-of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py REFERENCE_DIR PORTED_DIR`. Exit 0 =
+of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py PORTED_DIR` compares a copy's student-visible components with the committed pin in `data/pinned-runs-feed.json` (anyone can run it); `check-port-identity.py REFERENCE_DIR PORTED_DIR` runs the full comparison and refuses (exit 2) a reference whose feed.py does not hash to the pinned sha256; `--reference-sha` overrides the pin with a printed warning. Exit 0 =
 identical.
+
+## `feed4.py`, `setup-id.py`, `coverage.py`, `gate-input-evidence.py`
+
+`feed4.py`: the gate runs' feed script plus `--per-round K` (speed pilot P1) and `--dump-plan`. `setup-id.py`: the
+setup id by content, with the import walk (every study-local module the feed script imports must be a component).
+`coverage.py`: the pilots' note-coverage attribution, its controls, and the per-run measures. `gate-input-evidence.py`:
+shows, byte for byte, that a run's student received the messages its own `feed.py` builds. Each file's docstring has
+its usage; the tuning log has their outputs.

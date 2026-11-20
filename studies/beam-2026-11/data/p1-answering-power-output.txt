@@ -1,0 +1,42 @@
+# tools/p1-answering-power.py output (sha256 of the script: 12b1d25e27a48d70). Each TABLE line names its seed and trials.
+## Table 1: margin 10 across question counts
+TABLE seed 20261118, trials 4000 per cell, base accuracy 0.75, margins 0.10
+n= 90 D=0.15 | loss 0.00 m10 0.798 | loss 0.05 m10 0.366 | loss 0.10 m10 0.067 | loss 0.15 m10 0.006
+n= 90 D=0.25 | loss 0.00 m10 0.606 | loss 0.05 m10 0.250 | loss 0.10 m10 0.056 | loss 0.15 m10 0.007
+n= 90 D=0.35 | loss 0.00 m10 0.491 | loss 0.05 m10 0.220 | loss 0.10 m10 0.062 | loss 0.15 m10 0.007
+n=120 D=0.15 | loss 0.00 m10 0.885 | loss 0.05 m10 0.433 | loss 0.10 m10 0.062 | loss 0.15 m10 0.002
+n=120 D=0.25 | loss 0.00 m10 0.718 | loss 0.05 m10 0.295 | loss 0.10 m10 0.054 | loss 0.15 m10 0.003
+n=120 D=0.35 | loss 0.00 m10 0.599 | loss 0.05 m10 0.245 | loss 0.10 m10 0.054 | loss 0.15 m10 0.003
+n=135 D=0.15 | loss 0.00 m10 0.906 | loss 0.05 m10 0.446 | loss 0.10 m10 0.063 | loss 0.15 m10 0.001
+n=135 D=0.25 | loss 0.00 m10 0.747 | loss 0.05 m10 0.318 | loss 0.10 m10 0.056 | loss 0.15 m10 0.004
+n=135 D=0.35 | loss 0.00 m10 0.630 | loss 0.05 m10 0.260 | loss 0.10 m10 0.051 | loss 0.15 m10 0.004
+n=150 D=0.15 | loss 0.00 m10 0.937 | loss 0.05 m10 0.486 | loss 0.10 m10 0.068 | loss 0.15 m10 0.001
+n=150 D=0.25 | loss 0.00 m10 0.792 | loss 0.05 m10 0.338 | loss 0.10 m10 0.060 | loss 0.15 m10 0.003
+n=150 D=0.35 | loss 0.00 m10 0.680 | loss 0.05 m10 0.278 | loss 0.10 m10 0.049 | loss 0.15 m10 0.003
+n=155 D=0.15 | loss 0.00 m10 0.942 | loss 0.05 m10 0.493 | loss 0.10 m10 0.063 | loss 0.15 m10 0.001
+n=155 D=0.25 | loss 0.00 m10 0.803 | loss 0.05 m10 0.349 | loss 0.10 m10 0.055 | loss 0.15 m10 0.002
+n=155 D=0.35 | loss 0.00 m10 0.689 | loss 0.05 m10 0.286 | loss 0.10 m10 0.054 | loss 0.15 m10 0.004
+n=160 D=0.15 | loss 0.00 m10 0.948 | loss 0.05 m10 0.500 | loss 0.10 m10 0.060 | loss 0.15 m10 0.000
+n=160 D=0.25 | loss 0.00 m10 0.825 | loss 0.05 m10 0.358 | loss 0.10 m10 0.055 | loss 0.15 m10 0.002
+n=160 D=0.35 | loss 0.00 m10 0.694 | loss 0.05 m10 0.286 | loss 0.10 m10 0.051 | loss 0.15 m10 0.004
+n=180 D=0.15 | loss 0.00 m10 0.964 | loss 0.05 m10 0.543 | loss 0.10 m10 0.066 | loss 0.15 m10 0.001
+n=180 D=0.25 | loss 0.00 m10 0.853 | loss 0.05 m10 0.410 | loss 0.10 m10 0.052 | loss 0.15 m10 0.001
+n=180 D=0.35 | loss 0.00 m10 0.739 | loss 0.05 m10 0.307 | loss 0.10 m10 0.055 | loss 0.15 m10 0.002
+n=200 D=0.15 | loss 0.00 m10 0.979 | loss 0.05 m10 0.595 | loss 0.10 m10 0.062 | loss 0.15 m10 0.000
+n=200 D=0.25 | loss 0.00 m10 0.882 | loss 0.05 m10 0.423 | loss 0.10 m10 0.056 | loss 0.15 m10 0.001
+n=200 D=0.35 | loss 0.00 m10 0.763 | loss 0.05 m10 0.328 | loss 0.10 m10 0.051 | loss 0.15 m10 0.002
+## Table 2: margin 15 (the rejected alternative), for the record
+TABLE seed 20261117, trials 4000 per cell, base accuracy 0.75, margins 0.15
+n= 90 D=0.15 | loss 0.00 m15 0.972 | loss 0.05 m15 0.789 | loss 0.10 m15 0.385 | loss 0.15 m15 0.061
+n= 90 D=0.25 | loss 0.00 m15 0.892 | loss 0.05 m15 0.629 | loss 0.10 m15 0.261 | loss 0.15 m15 0.055
+n= 90 D=0.35 | loss 0.00 m15 0.787 | loss 0.05 m15 0.502 | loss 0.10 m15 0.212 | loss 0.15 m15 0.054
+n= 80 D=0.15 | loss 0.00 m15 0.953 | loss 0.05 m15 0.759 | loss 0.10 m15 0.368 | loss 0.15 m15 0.070
+n= 80 D=0.25 | loss 0.00 m15 0.853 | loss 0.05 m15 0.574 | loss 0.10 m15 0.253 | loss 0.15 m15 0.063
+n= 80 D=0.35 | loss 0.00 m15 0.741 | loss 0.05 m15 0.470 | loss 0.10 m15 0.199 | loss 0.15 m15 0.063
+## Table 3: the target boundary at D = 0.25, margin 10
+TABLE seed 20261119, trials 10000 per cell, base accuracy 0.75, margins 0.10
+n=140 D=0.25 | loss 0.00 m10 0.763 | loss 0.10 m10 0.051
+n=145 D=0.25 | loss 0.00 m10 0.780 | loss 0.10 m10 0.057
+n=150 D=0.25 | loss 0.00 m10 0.795 | loss 0.10 m10 0.059
+n=155 D=0.25 | loss 0.00 m10 0.807 | loss 0.10 m10 0.051
+n=160 D=0.25 | loss 0.00 m10 0.811 | loss 0.10 m10 0.056
