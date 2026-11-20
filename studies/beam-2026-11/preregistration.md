@@ -144,11 +144,22 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   host loopback port; it does not cover IPv6 or UDP, and it skips where the box cannot run (no sandbox tool,
   or unprivileged user namespaces unavailable). Because a skip would look like a pass, before the first
   scored run that test is run on the study host and its PASS (not a skip) is logged with the date and the
-  wrapper file's sha256. A blocked attempt cannot succeed, so it is not a fault (section 14). Two counts are
-  reported per arm instead, under these names: ALLOW-LIST REFUSALS, the deny lines in the wrapper log
-  (SANDBOX_LOG, always enabled in registered runs), one per request refused at the allow-list stage
-  (including CONNECT, upgrade requests and unparseable targets); and NETWORK-CAPABLE SHELL CALLS, counted
-  from the transcript, whether or not anything was reached, by a rule fixed before the first scored run.
+  wrapper file's sha256. A blocked attempt cannot succeed, so it is not a fault (section 14). Four counts are
+  reported per arm instead. Three come from the wrapper log (SANDBOX_LOG, always enabled in registered runs), where
+  the bridge writes exactly one line per refused request at the moment it refuses it, carrying `kind=` and
+  `reason=`; each count is the number of lines of one kind, read off the `kind=` field alone. A request is counted
+  once, by the first refusal the bridge makes for it, in the order the wrapper's README states as found in its code:
+  RULE REFUSALS (`kind=rule`), requests the bridge could parse but refuses by rule: a method or path not on the
+  allow-list, CONNECT, upgrade requests, `Expect: 100-continue`, a target not in origin form, a fragment;
+  FRAMING REFUSALS (`kind=framing`), requests the bridge could not parse as HTTP/1.1; CAP REFUSALS (`kind=cap`),
+  refusals that protect the bridge against volume: a request or a header line over its size cap, the total
+  buffered-bytes cap, the connection cap, and a request left half-sent past the idle read timeout. The fourth is
+  NETWORK-CAPABLE SHELL CALLS, counted from the transcript, whether or not anything was reached, by a rule fixed
+  before the first scored run. The per-reason breakdown is reported beside the counts as description, never as an
+  outcome. (Amended 2026-11-20, design owner, team crossings 33426, 33428 and 33430: the count named ALLOW-LIST
+  REFUSALS when this section was merged is renamed RULE REFUSALS, because it holds more than allow-list misses;
+  FRAMING REFUSALS and CAP REFUSALS are added, because a request the bridge refused as unparseable or over a cap
+  landed in neither registered count. Found by the colleague reviewer of PR #14.)
 
 ## 8. Procedure (one exam = one conversation, one arm)
 
@@ -224,7 +235,8 @@ a hook that injects changing text early in the prompt would break prefix reuse i
 seconds, per conversation: the GPU broker's lease for the run (one conversation, one arm, reading through
 answering), from grant to release, read from the broker's own log, the same instrument in both arms. Lease
 seconds include idle time inside the lease and are not weighted by utilisation; the co-load sampler's
-readings over the same lease (at a fixed interval set in the run script, 60 s in tuning: the GPU's memory and
+readings over the same lease (at a fixed interval set in the run script, 60 s in tuning (tuning log at commit 7cfb3630b87c, lines 1021-1022, the
+co-load section): the GPU's memory and
 load, the host's load average and busiest processes, and the GPU reservations; tools/coload-sampler.sh) are
 reported beside them, never multiplied in. Arm 2's setup (section 7) has its own lease, reported as setup
 cost, and each book-closed run is its own run with its own lease; tool
@@ -266,9 +278,13 @@ The timeout value is about 3.2 times the longest turn measured in tuning: over a
 2026-11-19). The longest of each kind this timeout covers: reading one exchange per turn 1,075.3 s (run
 K1-conv9); arm 2 setup 983.2 s; answering 524.8 s (run A); the forced /compact 166.6 s.
 Conversation 9 has 135 exchanges, so the pace past exchange 135 is unmeasured, and scored conversations run
-to 196. Too low a value flags slow but healthy runs and costs
+to 196 (exchanges counted with the reader's own `feed.exchanges()` on the 100K file: the 17 scored conversations
+have 94 to 196 each, 2,409 in all; the eight longer than 135 are conversations 10: 172, 11: 194, 12: 196, 13: 155,
+16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of 2026-11-19). Too low a value flags slow but healthy runs and costs
 re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a
-fault: it cannot succeed (section 7), and the two network counts are reported per arm. Each flagged run may
+fault: it cannot succeed (section 7), and the four network counts are reported per arm. A line of kind
+`upstream` in the wrapper log (the bridge could not reach the model endpoint; it answers 502) is a harness fault,
+never a student attempt: the run is flagged. Each flagged run may
 be re-run once, with the reason logged before the re-run; a second failure stays excluded. A wrong or empty
 answer is never a harness fault. A book-closed run in which the student opens its own transcript is NOT a
 harness fault: it is the student's behaviour, flagged in the report and reported as it stands, never re-run
