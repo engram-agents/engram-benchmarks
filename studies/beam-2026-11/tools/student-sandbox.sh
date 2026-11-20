@@ -10,10 +10,13 @@
 #   SANDBOX_BINARY        the pinned Claude Code binary (absolute path)
 #   SANDBOX_BINARY_SHA256 its full sha256 (64 hex); refuse on mismatch
 #   SANDBOX_MODEL_HOST / SANDBOX_MODEL_PORT   the model endpoint as the host sees it
-#   SANDBOX_RO_BINDS / SANDBOX_RW_BINDS   optional colon-separated absolute directories bound read-only / read-write at
-#                         their own paths (the tools directory; the proctor directory); SANDBOX_RW_ROOT (required with
-#                         SANDBOX_RW_BINDS) is the directory every RW entry must lie inside. Refused when an entry is
-#                         "/" or contains a protected path (home, /home, the slot's parent, BEAM_PARQUET...)
+#   SANDBOX_MODEL_ALLOW   (required unless SANDBOX_MODEL_LEARN=1) comma-separated "METHOD /path" entries, exact path or a
+#                         prefix ending in "*": the only requests the model bridge forwards (anything else gets 403)
+#   SANDBOX_MODEL_LEARN   1: allow everything the bridge can frame and log each request's METHOD and PATH to SANDBOX_LOG
+#   SANDBOX_RO_BINDS + SANDBOX_RO_ROOT, SANDBOX_RW_BINDS + SANDBOX_RW_ROOT   optional colon-separated absolute
+#                         directories bound read-only / read-write at their own paths (the tools directory; the proctor
+#                         directory). Each ROOT is required with its binds and every entry must lie inside it. The slot,
+#                         each root and each entry obey the class rules in the R1/R2 block below.
 #   SANDBOX_LOG          optional file (outside the box) for launch lines and per-connection counts/timings
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
