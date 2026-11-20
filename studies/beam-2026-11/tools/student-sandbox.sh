@@ -319,14 +319,16 @@ fi
 # allocate without bound. PROVISIONAL until the wrapper-cost pilot's learn mode records the real maxima (the harness
 # sends whole contexts, order of 1 MB): 32 MiB per request, 64 MiB over all connections, 4 concurrent connections (the
 # harness opens one). Past the first two: a named 413; past the third: a 503. Overridable only in test mode.
-REQ_CAP=33554432; TOTAL_CAP=67108864; CONN_CAP=4
+# Also provisional: the idle read timeout (seconds) while a request is being read, 120; past it a 408 and a closed connection.
+REQ_CAP=33554432; TOTAL_CAP=67108864; CONN_CAP=4; READ_IDLE_S=120
 if [ "${SANDBOX_TEST:-}" = 1 ]; then
-  for v in SANDBOX_TEST_MAX_REQUEST SANDBOX_TEST_MAX_TOTAL SANDBOX_TEST_MAX_CONNS; do
+  for v in SANDBOX_TEST_MAX_REQUEST SANDBOX_TEST_MAX_TOTAL SANDBOX_TEST_MAX_CONNS SANDBOX_TEST_READ_IDLE_S; do
     [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive count"; }
   done
   [ -z "${SANDBOX_TEST_MAX_REQUEST:-}" ] || REQ_CAP=$SANDBOX_TEST_MAX_REQUEST
   [ -z "${SANDBOX_TEST_MAX_TOTAL:-}" ] || TOTAL_CAP=$SANDBOX_TEST_MAX_TOTAL
   [ -z "${SANDBOX_TEST_MAX_CONNS:-}" ] || CONN_CAP=$SANDBOX_TEST_MAX_CONNS
+  [ -z "${SANDBOX_TEST_READ_IDLE_S:-}" ] || READ_IDLE_S=$SANDBOX_TEST_READ_IDLE_S
 fi
 
 # ---- C: process and memory caps on the box itself. The box runs in its own systemd USER scope with TasksMax (pids, threads
@@ -416,7 +418,7 @@ for d in "$SOCKBASE"/student-sandbox.*; do
 done
 SOCK="$SOCKDIR/bridge.sock"
 FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$"
-         --max-request "$REQ_CAP" --max-total "$TOTAL_CAP" --max-conns "$CONN_CAP" --scope-unit "$SCOPE_UNIT")
+         --max-request "$REQ_CAP" --max-total "$TOTAL_CAP" --max-conns "$CONN_CAP" --read-idle-s "$READ_IDLE_S" --scope-unit "$SCOPE_UNIT")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
 if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone. It runs the
@@ -443,7 +445,7 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own

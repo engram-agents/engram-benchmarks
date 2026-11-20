@@ -9,9 +9,13 @@ socket, and nothing else crosses:
          headers; bodies by Content-Length or strictly chunked; keep-alive, several requests per connection) and forwards a
          request only if its METHOD and path are on the list (--allow, "METHOD /path" entries, exact path or a prefix
          ending in "*"). Any other request gets 403 and the connection closes; it never reaches the model server.
-         A request that cannot be framed gets 400; CONNECT, Upgrade and non-origin-form targets get 403; a request
-         line whose version is not exactly HTTP/1.1 gets 505. Chunked bodies are framed strictly: CRLF exactly (a bare
-         CR or LF is 400), no chunk extension, no trailer (only the empty one), each piece checked before it is forwarded.
+         A request that cannot be framed gets 400; CONNECT, Upgrade and non-origin-form targets get 403; an
+         `Expect: 100-continue` gets 417 at once; a request line whose version is not exactly HTTP/1.1 gets 505. Chunked
+         bodies are framed strictly: CRLF exactly (a bare CR or LF is 400), no chunk extension, no trailer (only the empty
+         one), each piece checked before it is forwarded. A client that stops sending inside a request (or never starts one)
+         for --read-idle-s seconds gets 408; a response being relayed is never timed.
+         Every refusal is ONE log line carrying kind= (framing, cap, rule, or upstream for the bridge's own failure to reach
+         the model endpoint, which answers 502) and a reason token unique to its site; see class Refusal.
          Responses, streamed ones included, are relayed byte for byte. --learn allows everything it can frame and
          check and logs each request's METHOD and PATH only (never a body, never a query string), so the harness's
          real set can be learned once and then fixed as the list.
@@ -31,12 +35,12 @@ socket, and nothing else crosses:
           an account with uid >= 1000, as a whole word, NUL-separated.
 
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
-                        --max-request N --max-total N --max-conns N [--scope-unit NAME]
+                        --max-request N --max-total N --max-conns N --read-idle-s S [--scope-unit NAME]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
 """
-import argparse, os, re, shlex, socket, statistics, subprocess, sys, threading, time, urllib.parse
+import argparse, os, re, select, shlex, socket, statistics, subprocess, sys, threading, time, urllib.parse
 
 LOCK = threading.Lock()
 COUNTER = [0]
@@ -144,20 +148,34 @@ RE_ENTRY_PATH = re.compile(r"/[\x21-\x7e]*")
 RESP_CLOSE = b"HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
 
-class BadRequest(Exception):
-    """The bytes are not a request we can frame: 400, close."""
-    status, reason = 400, b"Bad Request"
+class Refusal(Exception):
+    """EVERY place the bridge refuses a request, or fails one for its own side, is one `Refusal(kind, reason, status, detail)`:
+    the kind is one of the registered counts (framing, cap, rule) or `upstream` (a harness fault, never a student attempt);
+    the reason is a short token that names the site and is unique to it; the status is the one answered. One refusal
+    writes one line (refusal_line) and closes the connection, so a request is counted once, by the first refusal made.
+    The three arguments are literals at every site: a test reads them out of this source with `ast`."""
+
+    def __init__(self, kind, reason, status, detail=""):
+        super().__init__(detail or reason)
+        self.kind, self.reason, self.status, self.detail = kind, reason, status, detail or reason
 
 
-class VersionNotSupported(BadRequest):
-    """A well-formed request line whose version is not exactly HTTP/1.1: 505, close, nothing forwarded."""
-    status, reason = 505, b"HTTP Version Not Supported"
+PHRASE = {400: b"Bad Request", 403: b"Forbidden", 408: b"Request Timeout", 413: b"Payload Too Large",
+          417: b"Expectation Failed", 502: b"Bad Gateway", 503: b"Service Unavailable",
+          505: b"HTTP Version Not Supported"}
 
 
-class PayloadTooLarge(BadRequest):
-    """The request does not fit the per-request cap or the total cap: the named 413, close, nothing forwarded. The
-    message says which cap ('request cap' or 'total cap'); the status line is the same for both."""
-    status, reason = 413, b"Payload Too Large"
+def refusal_response(ref):
+    """The reply to a refusal: status line, no body, close. The only place the response template is used."""
+    return RESP_CLOSE % (ref.status, PHRASE[ref.status])
+
+
+def refusal_line(ref, method, path, bytes_read):
+    """The one log line of a refusal, never a payload. The prefix is readable by kind (rule refusals are denials,
+    an upstream fault is a fault, the rest are refusals) but a reader counts by `kind=`. The only place a line is built."""
+    prefix = {"rule": "fwd-deny", "upstream": "fwd-fault"}.get(ref.kind, "fwd-refuse")
+    return "%s method=%s path=%s status=%d bytes_read=%d kind=%s reason=%s detail=%s" % (
+        prefix, method, path, ref.status, bytes_read, ref.kind, ref.reason, ref.detail)
 
 
 class Budget:
@@ -220,10 +238,11 @@ class Budget:
 
     def refuse_connection(self, client):
         """The 503 for a connection past the cap: one named line, answer, close. Never blocks the accept loop."""
-        write_log(self.log, "fwd-refuse method=- path=- status=503 bytes_read=0 reason=connection cap (%d)" % self.max_conns)
+        ref = Refusal("cap", "connection-cap", 503, "connection cap (%d)" % self.max_conns)
+        write_log(self.log, refusal_line(ref, "-", "-", 0))   # refused at accept: nothing of a request is known, nothing is invented
         try:
             client.settimeout(1)
-            client.sendall(RESP_CLOSE % (503, b"Service Unavailable"))
+            client.sendall(refusal_response(ref))
             client.shutdown(socket.SHUT_WR)
         except OSError:
             pass
@@ -262,34 +281,53 @@ def allowed(rules, method, path):
 
 
 def request_path(target):
-    """The decoded path to match, or None when it must not be matched at all: not origin-form (a path-absolute with an
-    optional query: absolute-form, authority-form and asterisk-form are refused), a '#' anywhere (a client never sends a
-    fragment, and the whole target is what is forwarded, so the checked string must be the sent string), undecodable, a
-    control character or backslash, a second layer of percent-encoding, a '.' or '..' segment, or an empty segment."""
-    if not target.startswith("/") or "#" in target:
-        return None
+    """The decoded path to match. Every target the bridge never matches is a rule refusal at its own site: not origin-form
+    (a path-absolute with an optional query: absolute-form, authority-form and asterisk-form are refused), a '#' anywhere
+    (a client never sends a fragment, and the whole target is what is forwarded, so the checked string must be the sent
+    string), undecodable, a control character or backslash or a second layer of percent-encoding, a '.' or '..'
+    segment, an empty segment."""
+    if not target.startswith("/"):
+        raise Refusal("rule", "target-form", 403, "the target is not origin-form")
+    if "#" in target:
+        raise Refusal("rule", "fragment", 403, "the target carries a fragment")
     raw = target.split("?", 1)[0]
     try:
         path = urllib.parse.unquote(raw, errors="strict")
     except UnicodeDecodeError:
-        return None
+        raise Refusal("rule", "path-undecodable", 403, "the path does not decode")
     if "%" in path or "\\" in path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
-        return None
+        raise Refusal("rule", "path-encoding", 403, "the path carries a control character, a backslash or a second layer of encoding")
     segs = path.split("/")
     for i, seg in enumerate(segs[1:], 1):
         if seg in (".", "..") or (seg == "" and i != len(segs) - 1):
-            return None
+            raise Refusal("rule", "path-segment", 403, "the path has a dot segment or an empty segment")
     return path
 
 
 class Reader:
     """Buffered reads from the client, so pipelined requests and partial segments are framed correctly."""
 
-    def __init__(self, sock):
+    def __init__(self, sock, idle=None, armed=None):
         self.sock = sock
         self.buf = bytearray()
+        self.idle, self.armed = idle, armed
+
+    def wait_readable(self):
+        """The idle read timeout (L-S2). It runs only while `armed()`: a request is being read, or the connection has not
+        yet carried one. A connection waiting for its NEXT request while the model's response streams is not idle (model
+        responses run for minutes), so the clock restarts whenever it is not armed. Polled in short slices because the
+        state it depends on changes while this thread waits."""
+        step, waited = min(0.25, self.idle), 0.0
+        while True:
+            if select.select([self.sock], [], [], step)[0]:
+                return
+            waited = waited + step if self.armed() else 0.0
+            if waited >= self.idle:
+                raise Refusal("cap", "read-timeout", 408, "no bytes for %gs while a request was being read" % self.idle)
 
     def fill(self):
+        if self.idle is not None:
+            self.wait_readable()
         data = self.sock.recv(65536)
         if not data:
             return False
@@ -302,13 +340,13 @@ class Reader:
             end = self.buf.find(b"\r\n\r\n")
             scan = bytes(self.buf[:end + 4] if end >= 0 else self.buf)
             if RE_BARE.search(scan):
-                raise BadRequest("bare CR or LF in a request head")
+                raise Refusal("framing", "head-bare-cr-lf", 400, "bare CR or LF in a request head")
             if end >= 0:
                 head = bytes(self.buf[:end + 4])
                 del self.buf[:end + 4]
                 return head
             if len(self.buf) > MAX_HEAD:
-                raise BadRequest("request head too large")
+                raise Refusal("cap", "head-too-large", 400, "request head too large")
             if not self.fill():
                 if self.buf:
                     raise EOFError("connection closed inside a request head")
@@ -321,14 +359,14 @@ class Reader:
             i = self.buf.find(b"\n")
             if i >= 0:
                 if i == 0 or self.buf[i - 1] != 13 or b"\r" in self.buf[:i - 1]:
-                    raise BadRequest("bare CR or LF in chunk framing")
+                    raise Refusal("framing", "chunk-bare-cr-lf", 400, "bare CR or LF in chunk framing")
                 line = bytes(self.buf[:i + 1])
                 del self.buf[:i + 1]
                 return line
             if b"\r" in self.buf[:-1]:
-                raise BadRequest("bare CR in chunk framing")
+                raise Refusal("framing", "chunk-bare-cr", 400, "bare CR in chunk framing")
             if len(self.buf) > MAX_LINE:
-                raise BadRequest("line too long")
+                raise Refusal("cap", "chunk-line-too-long", 400, "line too long")
             if not self.fill():
                 raise EOFError("connection closed inside a request body")
 
@@ -348,40 +386,40 @@ class Reader:
 
 
 def parse_head(head):
-    """(method, target, [(lower-case name, value)]) from one request head; BadRequest if it cannot be framed."""
+    """(method, target, [(lower-case name, value)]) from one request head; a framing Refusal if it cannot be framed."""
     lines = head[:-4].split(b"\r\n")
     m = RE_REQLINE.fullmatch(lines[0])
     if not m:
-        raise BadRequest("request line")
+        raise Refusal("framing", "request-line", 400, "request line")
     if (m.group(3), m.group(4)) != (b"1", b"1"):
-        raise VersionNotSupported("only HTTP/1.1")   # a 1.0 message is not chunk-framed: nothing of it is read further
+        raise Refusal("framing", "version", 505, "only HTTP/1.1")   # a 1.0 message is not chunk-framed: nothing of it is read further
     headers = []
     for l in lines[1:]:
         if l[:1] in (b" ", b"\t"):
-            raise BadRequest("obsolete line folding")
+            raise Refusal("framing", "obsolete-folding", 400, "obsolete line folding")
         name, sep, value = l.partition(b":")
         if not sep or not RE_NAME.fullmatch(name):
-            raise BadRequest("header line")
+            raise Refusal("framing", "header-line", 400, "header line")
         value = value.strip(b" \t")
         if RE_BADCTL.search(value):
-            raise BadRequest("control character in a header")
+            raise Refusal("framing", "header-control-char", 400, "control character in a header")
         headers.append((name.lower(), value))
     return m.group(1).decode(), m.group(2).decode(), headers
 
 
 def body_framing(headers):
-    """('none', 0) | ('length', n) | ('chunked', 0). Anything ambiguous is BadRequest (a smuggling guard)."""
+    """('none', 0) | ('length', n) | ('chunked', 0). Anything ambiguous is a framing Refusal (a smuggling guard)."""
     te = [v for n, v in headers if n == b"transfer-encoding"]
     cl = [v for n, v in headers if n == b"content-length"]
     if te and cl:
-        raise BadRequest("both Content-Length and Transfer-Encoding")
+        raise Refusal("framing", "both-length-and-te", 400, "both Content-Length and Transfer-Encoding")
     if te:
         if [c.strip().lower() for c in b",".join(te).split(b",")] != [b"chunked"]:
-            raise BadRequest("unsupported Transfer-Encoding")
+            raise Refusal("framing", "unsupported-te", 400, "unsupported Transfer-Encoding")
         return "chunked", 0
     if cl:
         if any(not RE_LENGTH.fullmatch(v) for v in cl) or len(set(cl)) != 1:
-            raise BadRequest("Content-Length")
+            raise Refusal("framing", "content-length", 400, "Content-Length")
         return "length", int(cl[0])
     return "none", 0
 
@@ -404,13 +442,13 @@ def drain_briefly(sock, limit=None):
         pass
 
 
-def handle_http(client, connect, log, rules, learn, budget):
+def handle_http(client, connect, log, rules, learn, budget, read_idle_s=None):
     """One client connection through the allow-list. Every request on the connection is checked, not only the first.
 
     NOTHING of a request is sent upstream until the whole request has validated: the request line, the headers, the
     framing and the body are all read into memory first (under the caps in `budget`), and only then are they sent, in
     one piece. A request refused at any stage sends nothing; a request refused after its body was read closes the
-    connection and logs one line (method, path, status, bytes read, reason), never a silent drop."""
+    connection and logs one tagged line (see Refusal), never a silent drop."""
     cid = next_id()
     t_open = time.time()
     counts = [0, 0]
@@ -419,9 +457,10 @@ def handle_http(client, connect, log, rules, learn, budget):
     state = {"closing": False}
     upstream = None
     down = None
-    reply = None               # a 400, 403, 413 to send after every earlier response has been relayed
-    reader = Reader(client)
+    reply = None               # the refusal to send after every earlier response has been relayed
     cur = {"method": "-", "path": "-", "read": 0, "held": 0}   # the request being read: for the refusal line and the budget
+    # the idle read timeout runs while a request is partly read, or before the connection has carried any request
+    reader = Reader(client, read_idle_s, lambda: upstream is None or cur["read"] > 0 or bool(reader.buf))
 
     def relay_down(up):
         pipe(up, client, counts, 1, wlock, shutdown_dst=False)
@@ -435,9 +474,9 @@ def handle_http(client, connect, log, rules, learn, budget):
     def claim(n):
         """Hold n more bytes of the current request in memory: refused past the per-request cap or the total cap."""
         if cur["held"] + n > budget.max_request:
-            raise PayloadTooLarge("request cap (%d)" % budget.max_request)
+            raise Refusal("cap", "request-cap", 413, "request cap (%d)" % budget.max_request)
         if not budget.reserve(n):
-            raise PayloadTooLarge("total cap (%d)" % budget.max_total)
+            raise Refusal("cap", "total-cap", 413, "total cap (%d)" % budget.max_total)
         cur["held"] += n
 
     def read_exact_buffered(n):
@@ -459,7 +498,7 @@ def handle_http(client, connect, log, rules, learn, budget):
             line = reader.read_line()
             cur["read"] += len(line)
             if not RE_HEX.fullmatch(line[:-2]):
-                raise BadRequest("chunk size")
+                raise Refusal("framing", "chunk-size", 400, "chunk size")
             size = int(line[:-2], 16)
             claim(len(line))
             parts.append(line)
@@ -467,24 +506,24 @@ def handle_http(client, connect, log, rules, learn, budget):
                 tail = reader.read_exact(2)
                 cur["read"] += 2
                 if tail != b"\r\n":
-                    raise BadRequest("trailer")
+                    raise Refusal("framing", "trailer", 400, "trailer")
                 claim(2)
                 parts.append(tail)
                 return b"".join(parts)
             if size > budget.max_request - cur["held"]:
-                raise PayloadTooLarge("request cap (%d)" % budget.max_request)   # this chunk alone cannot fit
+                raise Refusal("cap", "chunk-over-cap", 413, "request cap (%d)" % budget.max_request)   # this chunk alone cannot fit
             parts.append(read_exact_buffered(size))
             tail = reader.read_exact(2)
             cur["read"] += 2
             if tail != b"\r\n":
-                raise BadRequest("chunk framing")
+                raise Refusal("framing", "chunk-framing", 400, "chunk framing")
             claim(2)
             parts.append(tail)
 
     def read_body(kind, n):
         if kind == "length":
             if n > budget.max_request - cur["held"]:
-                raise PayloadTooLarge("request cap (%d)" % budget.max_request)   # declared: refuse before reading it
+                raise Refusal("cap", "declared-length-over-cap", 413, "request cap (%d)" % budget.max_request)   # declared: refuse before reading it
             return read_exact_buffered(n)
         if kind == "chunked":
             return read_chunked()
@@ -504,19 +543,17 @@ def handle_http(client, connect, log, rules, learn, budget):
             names = {n for n, _ in headers}
             conn_tokens = b",".join(v.lower().replace(b" ", b"") for n, v in headers if n == b"connection").split(b",")
             framing = body_framing(headers)
-            deny = None
-            if method == "CONNECT" or b"upgrade" in names or b"upgrade" in conn_tokens:
-                deny = "cannot be framed after the switch"
-            else:
-                path = request_path(target)
-                if path is None:
-                    deny = "path"
-                elif not learn and not allowed(rules, method, path):
-                    deny = "not on the list"
-            if deny is not None:
-                write_log(log, "fwd-deny method=%s path=%s" % (method, log_path))
-                reply = RESP_CLOSE % (403, b"Forbidden")
-                break
+            expect = b",".join(v.lower().replace(b" ", b"") for n, v in headers if n == b"expect").split(b",")
+            # the rule checks, in this order; each raises its own Refusal
+            if method == "CONNECT":
+                raise Refusal("rule", "connect", 403, "CONNECT cannot be framed after the switch")
+            if b"upgrade" in names or b"upgrade" in conn_tokens:
+                raise Refusal("rule", "upgrade", 403, "Upgrade cannot be framed after the switch")
+            if b"100-continue" in expect:
+                raise Refusal("rule", "expect-continue", 417, "Expect: 100-continue is not served")   # it would wait for a body the head never asked for
+            path = request_path(target)
+            if not learn and not allowed(rules, method, path):
+                raise Refusal("rule", "not-on-allow-list", 403, "method and path are not on the list")
             if learn:
                 write_log(log, "fwd-req method=%s path=%s" % (method, log_path))
             claim(len(head))
@@ -526,7 +563,7 @@ def handle_http(client, connect, log, rules, learn, budget):
                     upstream = connect()
                 except OSError as e:
                     err = type(e).__name__
-                    break
+                    raise Refusal("upstream", "connect-failed", 502, "the model endpoint did not accept the connection (%s)" % err)
                 down = threading.Thread(target=relay_down, args=(upstream,), daemon=True)
                 down.start()
             upstream.sendall(head + body)
@@ -534,10 +571,9 @@ def handle_http(client, connect, log, rules, learn, budget):
             budget.request_done(cur["held"])
             budget.release(cur["held"])
             cur["held"] = 0
-    except BadRequest as e:
-        reply = RESP_CLOSE % (e.status, e.reason)
-        write_log(log, "fwd-refuse method=%s path=%s status=%d bytes_read=%d reason=%s" % (
-            cur["method"], cur["path"], e.status, cur["read"], e))
+    except Refusal as e:
+        reply = refusal_response(e)
+        write_log(log, refusal_line(e, cur["method"], cur["path"], cur["read"]))
     except (EOFError, OSError):
         pass
     finally:
@@ -567,15 +603,22 @@ def handle_http(client, connect, log, rules, learn, budget):
 
 
 def alive(pid):
-    """Is the watched pid still there? Signal 0, not /proc, so the framing cells (and this check) run on a Mac seat too.
-    ProcessLookupError: gone. PermissionError: it exists and is simply not ours to signal. A process that has exited but
-    has not been reaped by its parent still counts as there, until the parent waits for it."""
+    """Is the watched pid still there? Signal 0 first, so the framing cells (and this check) run on a Mac seat too.
+    ProcessLookupError: gone. PermissionError: it exists and is simply not ours to signal. Signal 0 also succeeds on a
+    process that has exited but has not been reaped by its parent, so on Linux /proc/<pid>/stat is read as well, and state
+    Z (zombie) or X (dead) counts as gone; where it cannot be read (no /proc), the signal's answer stands."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/%d/stat" % pid) as f:
+                return f.read().rsplit(")", 1)[1].split()[0] not in ("Z", "X", "x")
+        except (OSError, IndexError):
+            pass
     return True
 
 
@@ -676,7 +719,7 @@ def run_outer(a):
 
     def handler(client):
         try:
-            handle_http(client, connect, a.log, rules, a.learn, budget)
+            handle_http(client, connect, a.log, rules, a.learn, budget, a.read_idle_s)
         finally:
             budget.close_conn()
 
@@ -931,6 +974,7 @@ def main(argv):
     o.add_argument("--scope-unit")    # the box's systemd scope name: its cgroup counters are logged at exit
     for flag in ("--max-request", "--max-total", "--max-conns"):   # the caps are the wrapper's: no default lives here
         o.add_argument(flag, type=int, required=True)
+    o.add_argument("--read-idle-s", type=float, required=True)     # the idle read timeout while a request is read
     i = sub.add_parser("inner")
     i.add_argument("--sock", required=True); i.add_argument("--port", type=int, required=True)
     i.add_argument("--unset", action="append", default=[])

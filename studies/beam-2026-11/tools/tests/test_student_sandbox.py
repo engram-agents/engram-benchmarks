@@ -1522,7 +1522,7 @@ class OuterProc:
     """The host-side forwarder run on its own (no box), so the allow-list contract is tested at its own boundary."""
 
     def __init__(self, stub_port, allow=None, learn=False, log=None, max_request=32 << 20, max_total=64 << 20,
-                 max_conns=64, read_idle_s=None):
+                 max_conns=64, read_idle_s=120):
         self.dir = tempfile.mkdtemp(prefix="sbx-")   # short, so the AF_UNIX path stays well under the limit
         self.sock = os.path.join(self.dir, "b.sock")
         args = [PY, "-I", FWD, "outer", "--sock", self.sock, "--host", "127.0.0.1", "--port", str(stub_port),
@@ -1535,8 +1535,7 @@ class OuterProc:
             args += ["--log", log]
         # the caps are required arguments (the wrapper owns the numbers); generous here so ordinary cells never meet them
         args += ["--max-request", str(max_request), "--max-total", str(max_total), "--max-conns", str(max_conns)]
-        if read_idle_s is not None:
-            args += ["--read-idle-s", str(read_idle_s)]
+        args += ["--read-idle-s", str(read_idle_s)]
         self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         end = time.time() + 10
         while not os.path.exists(self.sock) and time.time() < end and self.p.poll() is None:
@@ -2369,7 +2368,7 @@ def test_peer_f1_the_deny_log_line_keeps_its_own_fragment_split(outer, http_stub
     deny = [l for l in text.splitlines() if l.startswith("fwd-deny ")]
     assert len(deny) == 1 and deny[0].startswith("fwd-deny method=POST path=/v1/messages status=403 "), text
     assert " kind=rule reason=fragment " in deny[0], deny
-    assert "SECRET" not in text and "frag" not in text
+    assert "SECRET" not in text and "frag-" not in text and "#" not in text    # the fragment's content (the word "fragment" is the reason)
 
 
 def test_peer_f1_a_target_without_a_fragment_is_still_forwarded_byte_for_byte(outer, raw_stub):
@@ -2816,12 +2815,12 @@ def test_peer_c1_the_launch_line_records_the_model_mode_and_the_allow_list_entry
 
 
 DEFAULT_CAPS = {"cap_tmp": str(2 << 30), "cap_home_run": str(64 << 20), "cap_request": str(32 << 20),
-                "cap_total": str(64 << 20), "cap_conns": "4", "cap_tasks": "1024", "cap_memory": str(4 << 30)}
+                "cap_total": str(64 << 20), "cap_conns": "4", "cap_read_idle_s": "120", "cap_tasks": "1024", "cap_memory": str(4 << 30)}
 TEST_CAPS = {"SANDBOX_TEST_TMP_CAP": "1111111", "SANDBOX_TEST_HOME_RUN_CAP": "2222222",
              "SANDBOX_TEST_MAX_REQUEST": "3333333", "SANDBOX_TEST_MAX_TOTAL": "4444444", "SANDBOX_TEST_MAX_CONNS": "7",
-             "SANDBOX_TEST_TASKS_MAX": "5555", "SANDBOX_TEST_MEMORY_MAX": "268435456"}
+             "SANDBOX_TEST_READ_IDLE_S": "9", "SANDBOX_TEST_TASKS_MAX": "5555", "SANDBOX_TEST_MEMORY_MAX": "268435456"}
 TEST_CAPS_LOGGED = {"cap_tmp": "1111111", "cap_home_run": "2222222", "cap_request": "3333333", "cap_total": "4444444",
-                    "cap_conns": "7", "cap_tasks": "5555", "cap_memory": "268435456"}
+                    "cap_conns": "7", "cap_read_idle_s": "9", "cap_tasks": "5555", "cap_memory": "268435456"}
 
 
 def test_peer_c2_in_test_mode_the_launch_line_logs_every_effective_cap_and_the_marker_is_printed(cfg, fake_bwrap):
@@ -2842,7 +2841,8 @@ def test_peer_c2_outside_test_mode_the_defaults_apply_the_knobs_are_inert_and_th
 
 
 def test_peer_c2_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
-    for name in ("SANDBOX_TEST_MAX_REQUEST", "SANDBOX_TEST_MAX_TOTAL", "SANDBOX_TEST_MAX_CONNS", "SANDBOX_TEST_TASKS_MAX",
+    for name in ("SANDBOX_TEST_MAX_REQUEST", "SANDBOX_TEST_MAX_TOTAL", "SANDBOX_TEST_MAX_CONNS", "SANDBOX_TEST_READ_IDLE_S",
+                 "SANDBOX_TEST_TASKS_MAX",
                  "SANDBOX_TEST_MEMORY_MAX"):
         for bad in ("0", "-1", "ten", "1.5", "007x"):
             assert_refused(cfg, fake_bwrap, name, **{name: bad})
@@ -3084,7 +3084,8 @@ def test_peer_a2_the_per_request_cap_is_exact_for_a_chunked_request_too(outer, h
 def test_peer_a2_the_wrapper_hands_each_effective_cap_to_the_running_forwarder(cfg):
     """The launch line says what the wrapper decided; this reads what the host-side forwarder was actually started with."""
     p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 4", SANDBOX_TEST_MAX_REQUEST="3333333",
-                         SANDBOX_TEST_MAX_TOTAL="4444444", SANDBOX_TEST_MAX_CONNS="7"),
+                         SANDBOX_TEST_MAX_TOTAL="4444444", SANDBOX_TEST_MAX_CONNS="7",
+                         SANDBOX_TEST_READ_IDLE_S="9"),
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         argv = None
@@ -3099,8 +3100,8 @@ def test_peer_a2_the_wrapper_hands_each_effective_cap_to_the_running_forwarder(c
                     argv = [x.decode() for x in parts]
             time.sleep(0.05)
         assert argv, "no outer forwarder found"
-        got = {a: argv[argv.index(a) + 1] for a in ("--max-request", "--max-total", "--max-conns")}
-        assert got == {"--max-request": "3333333", "--max-total": "4444444", "--max-conns": "7"}, got
+        got = {a: argv[argv.index(a) + 1] for a in ("--max-request", "--max-total", "--max-conns", "--read-idle-s")}
+        assert got == {"--max-request": "3333333", "--max-total": "4444444", "--max-conns": "7", "--read-idle-s": "9"}, got
     finally:
         p.kill()
         p.wait()
@@ -3566,7 +3567,7 @@ def test_r7_2_a_forwarder_that_never_finds_the_cgroup_says_so(tmp_path):
     try:
         o = subprocess.run([PY, "-I", FWD, "outer", "--sock", str(sock_dir / "bridge.sock"), "--host", "127.0.0.1",
                             "--port", "9", "--watch", str(watched.pid), "--allow", "GET /*", "--max-request", "1000",
-                            "--max-total", "1000", "--max-conns", "2", "--scope-unit", "student-sandbox-none-0000",
+                            "--max-total", "1000", "--max-conns", "2", "--read-idle-s", "120", "--scope-unit", "student-sandbox-none-0000",
                             "--log", log], capture_output=True, text=True, timeout=30)
     finally:
         watched.kill()
@@ -3614,7 +3615,7 @@ def tagged_lines(log):
     """Every refusal-or-fault line in the log, parsed; the lines are read after a short settle."""
     time.sleep(0.6)
     out = []
-    for l in open(log).read().splitlines():
+    for l in (open(log).read().splitlines() if os.path.exists(log) else []):
         if l.startswith(TAGGED_PREFIXES) or " kind=" in l:
             m = TAGGED_RE.fullmatch(l)
             assert m, "a refusal line that does not carry the tagged format: %r" % l
@@ -3730,12 +3731,13 @@ def test_t_each_refusal_site_writes_exactly_one_tagged_line(outer, raw_stub, dea
         assert stub.bytes_seen() == b"", "a refused request reached the upstream"
 
 
-def test_t_the_prefix_by_kind_map_is_the_one_the_lines_use():
+def test_t_the_prefix_by_kind_is_the_one_the_lines_use():
     """The prefixes stay readable: rule refusals are fwd-deny, upstream faults fwd-fault, the rest fwd-refuse."""
     want = {"rule": "fwd-deny", "upstream": "fwd-fault", "framing": "fwd-refuse", "cap": "fwd-refuse"}
     assert set(k[0] for k in SITE_CASES.values()) == KINDS
     mod = _load_forwarder()
-    assert {k: mod.PREFIX_BY_KIND.get(k, "fwd-refuse") for k in KINDS} == want
+    got = {k: mod.refusal_line(mod.Refusal(k, "x", 400), "-", "-", 0).split(" ", 1)[0] for k in KINDS}
+    assert got == want, got
 
 
 def test_t_the_prefix_matches_the_kind_in_every_line(outer, raw_stub, tmp_path):
@@ -3801,10 +3803,11 @@ def test_t_derived_every_refusal_site_has_a_kind_a_unique_reason_and_a_mapped_st
 
 def test_t_derived_the_refusal_response_and_the_refusal_line_each_have_one_writer():
     """A refusal path that builds its own reply or its own line (and so can skip the kind) is found here: the response
-    template and the tagged prefixes are used only inside the two functions that own them."""
+    template and the tagged prefixes are used only inside the two functions that own them (refusal_response and
+    refusal_line)."""
     import ast
     tree = _forwarder_tree()
-    owner = {"RESP_CLOSE": {"send_refusal"}, "fwd-deny": {"refusal_line"}, "fwd-refuse": {"refusal_line"},
+    owner = {"RESP_CLOSE": {"refusal_response"}, "fwd-deny": {"refusal_line"}, "fwd-refuse": {"refusal_line"},
              "fwd-fault": {"refusal_line"}}
     found = {k: set() for k in owner}
 
