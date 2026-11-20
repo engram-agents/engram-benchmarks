@@ -260,12 +260,13 @@ in the wrapper log (SANDBOX_LOG, section 7). The guard is per scored run: the ex
 counts, and arm 2's setup session, which also runs inside the wrapper, logs its own. The launch line that
 counts carries the sha256 of the wrapper file itself, logged per run, so it shows which wrapper ran, not only
 that one did; a scored run found outside the wrapper is reported to the security seat before any re-run.
-The timeout value is about 3.2 times the longest turn measured in tuning, each a maximum over one tuning run
-of conversation 9 recorded in the tuning log: 1,075.3 s reading one exchange per turn (run K1-conv9,
-exchanges 1-45, 45 turns, started 2026-11-16); 1,108.8 s reading three exchanges per turn (run p1-p1b-k3, a tuning
-setting not used in scored runs, exchanges 46-135, 30 turns, started 2026-11-19); 322.1 s answering (run
-p1-real-k1, 85 turns, 2026-11-19). Conversation 9 has 135 exchanges, so the pace past exchange 135 is
-unmeasured, and scored conversations run to 196. Too low a value flags slow but healthy runs and costs
+The timeout value is about 3.2 times the longest turn measured in tuning: over all 38 tuning turn records
+(tuning log, "Per-turn maxima over every tuning turn record", 2026-11-20), the longest turn of any kind is
+1,108.8 s (reading three exchanges per turn, a tuning setting not used in scored runs; run p1-p1b-k3, started
+2026-11-19). The longest of each kind this timeout covers: reading one exchange per turn 1,075.3 s (run
+K1-conv9); arm 2 setup 983.2 s; answering 524.8 s (run A); the forced /compact 166.6 s.
+Conversation 9 has 135 exchanges, so the pace past exchange 135 is unmeasured, and scored conversations run
+to 196. Too low a value flags slow but healthy runs and costs
 re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a
 fault: it cannot succeed (section 7), and the two network counts are reported per arm. Each flagged run may
 be re-run once, with the reason logged before the re-run; a second failure stays excluded. A wrong or empty
