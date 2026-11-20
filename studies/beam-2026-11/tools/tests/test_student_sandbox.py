@@ -25,15 +25,29 @@ def _bash4():
         return False
 
 
+def _scope_usable():
+    """The wrapper puts the box in its own systemd user scope (process and memory caps): the host needs a user manager."""
+    env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    try:
+        return subprocess.run(["systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", "TasksMax=100",
+                               "-p", "MemoryMax=100M", "--", "/usr/bin/true"], env=env, capture_output=True,
+                              timeout=30).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def _box_usable():
     if not sys.platform.startswith("linux") or not _bash4() or not shutil.which("bwrap"):
         return False
-    return subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "/usr/bin/true"],
-                          capture_output=True).returncode == 0
+    if subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "/usr/bin/true"],
+                      capture_output=True).returncode != 0:
+        return False
+    return _scope_usable()
 
 
 # The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
-NEEDS_BOX_REASON = "needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces): the sandbox is Linux-only"
+NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
+                    "manager that can start a capped scope: the sandbox is Linux-only")
 BOX_OK = _box_usable()
 needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
 
@@ -2238,7 +2252,7 @@ def _argv_dests(toks):
              "--ro-bind-fd": (2, 1), "--bind-fd": (2, 1), "--tmpfs": (1, 0), "--proc": (1, 0), "--dev": (1, 0),
              "--remount-ro": (1, 0), "--dir": (1, 0), "--mqueue": (1, 0), "--symlink": (2, 1), "--size": (1, None),
              "--perms": (1, None), "--setenv": (2, None), "--unset": (1, None), "--hostname": (1, None),
-             "--chdir": (1, None), "--uid": (1, None), "--gid": (1, None)}
+             "--chdir": (1, None), "--uid": (1, None), "--gid": (1, None), "--cap-drop": (1, None)}
     out, i = [], 0
     while i < len(toks) and toks[i] != "--":
         t = toks[i]
@@ -2789,11 +2803,12 @@ def test_peer_c1_the_launch_line_records_the_model_mode_and_the_allow_list_entry
 
 
 DEFAULT_CAPS = {"cap_tmp": str(2 << 30), "cap_home_run": str(64 << 20), "cap_request": str(32 << 20),
-                "cap_total": str(64 << 20), "cap_conns": "4"}
+                "cap_total": str(64 << 20), "cap_conns": "4", "cap_tasks": "1024", "cap_memory": str(4 << 30)}
 TEST_CAPS = {"SANDBOX_TEST_TMP_CAP": "1111111", "SANDBOX_TEST_HOME_RUN_CAP": "2222222",
-             "SANDBOX_TEST_MAX_REQUEST": "3333333", "SANDBOX_TEST_MAX_TOTAL": "4444444", "SANDBOX_TEST_MAX_CONNS": "7"}
+             "SANDBOX_TEST_MAX_REQUEST": "3333333", "SANDBOX_TEST_MAX_TOTAL": "4444444", "SANDBOX_TEST_MAX_CONNS": "7",
+             "SANDBOX_TEST_TASKS_MAX": "5555", "SANDBOX_TEST_MEMORY_MAX": "268435456"}
 TEST_CAPS_LOGGED = {"cap_tmp": "1111111", "cap_home_run": "2222222", "cap_request": "3333333", "cap_total": "4444444",
-                    "cap_conns": "7"}
+                    "cap_conns": "7", "cap_tasks": "5555", "cap_memory": "268435456"}
 
 
 def test_peer_c2_in_test_mode_the_launch_line_logs_every_effective_cap_and_the_marker_is_printed(cfg, fake_bwrap):
@@ -2814,6 +2829,210 @@ def test_peer_c2_outside_test_mode_the_defaults_apply_the_knobs_are_inert_and_th
 
 
 def test_peer_c2_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
-    for name in ("SANDBOX_TEST_MAX_REQUEST", "SANDBOX_TEST_MAX_TOTAL", "SANDBOX_TEST_MAX_CONNS"):
+    for name in ("SANDBOX_TEST_MAX_REQUEST", "SANDBOX_TEST_MAX_TOTAL", "SANDBOX_TEST_MAX_CONNS", "SANDBOX_TEST_TASKS_MAX",
+                 "SANDBOX_TEST_MEMORY_MAX"):
         for bad in ("0", "-1", "ten", "1.5", "007x"):
             assert_refused(cfg, fake_bwrap, name, **{name: bad})
+
+
+# ---------------------------------------------------------------- round 5 (C): process and memory caps on the box itself
+# The box runs in its own systemd user scope (TasksMax, MemoryMax, MemorySwapMax=0), entered by the wrapper's own
+# exec, so the cap covers the box alone: the host uid, the host-side forwarder and the feeder are outside it. Limits are
+# SMALL here; the defaults are provisional until the pilot has measured a real run.
+
+FORKER = '''import os, sys, time
+# Bounded forker (never a bomb): up to 300 attempts, each child sleeps; counts successes and failures, then waits.
+ok = fail = 0
+kids = []
+for _ in range(300):
+    try:
+        pid = os.fork()
+    except OSError:
+        fail += 1
+        continue
+    if pid == 0:
+        time.sleep(30)
+        os._exit(0)
+    ok += 1
+    kids.append(pid)
+print("box: forked_ok=%d fork_failed=%d" % (ok, fail), flush=True)
+time.sleep(float(sys.argv[1]))
+for p in kids:
+    try:
+        os.kill(p, 9)
+    except OSError:
+        pass
+'''
+
+HOG = '''import os, sys, time, http.client
+# argv: bridge port, MiB for the hog child to allocate AND touch. The parent reports how the child ended, then makes one
+# request through the bridge (the host-side forwarder must have survived the hog).
+port, mib = int(sys.argv[1]), int(sys.argv[2])
+pid = os.fork()
+if pid == 0:
+    m = bytearray(mib << 20)
+    for i in range(0, len(m), 4096):
+        m[i] = 1
+    time.sleep(1)
+    os._exit(0)
+_, st = os.waitpid(pid, 0)
+print("hog: signaled=%s sig=%s" % (os.WIFSIGNALED(st), os.WTERMSIG(st) if os.WIFSIGNALED(st) else 0), flush=True)
+try:
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    c.request("GET", "/ping")
+    r = c.getresponse()
+    r.read()
+    print("bridge: %d" % r.status, flush=True)
+except Exception as e:
+    print("bridge: FAILED %s" % type(e).__name__, flush=True)
+'''
+
+
+def _write_in_slot(cfg, name, text):
+    p = os.path.join(cfg.slot, name)
+    with open(p, "w") as f:
+        f.write(text)
+    return p
+
+
+def _uid_threads():
+    """The invoking uid's live thread count right now (counts only), so a reading about a per-uid limit can be placed."""
+    n = 0
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                if os.stat("/proc/%s" % d).st_uid == os.getuid():
+                    n += len(os.listdir("/proc/%s/task" % d))
+            except OSError:
+                pass
+    return n
+
+
+def _cgroup_of(pid):
+    return open("/proc/%d/cgroup" % pid).read().strip().split(":", 2)[2]
+
+
+def _cg(path, name):
+    return open("/sys/fs/cgroup" + path + "/" + name).read().strip()
+
+
+@needs_box
+def test_peer_c_a_fork_bomb_in_the_box_stops_at_the_cap_and_the_host_can_still_fork(cfg):
+    """Both directions: the box hits EAGAIN at its own cap, and while it sits at that cap the host uid forks freely."""
+    script = _write_in_slot(cfg, "forker.py", FORKER)
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="%s -I %s 6" % (PY, shlex.quote(script)),
+                         SANDBOX_TEST_TASKS_MAX="40"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        line = p.stdout.readline()
+        m = re.fullmatch(r"box: forked_ok=(\d+) fork_failed=(\d+)\n", line)
+        assert m, (line, p.stderr.read() if p.poll() is not None else "")
+        ok, failed = int(m.group(1)), int(m.group(2))
+        # the cap is 40 tasks for the whole box (its own helpers included): some forks succeed, the rest fail
+        assert 0 < ok < 40 and failed >= 300 - 40, (ok, failed)
+        # the box is at its cap right now; the host uid is not
+        threads = _uid_threads()
+        kids = [subprocess.Popen(["/bin/sleep", "4"]) for _ in range(25)]
+        assert all(k.poll() is None for k in kids), "the host uid could not fork while the box sat at its cap (uid threads=%d)" % threads
+        for k in kids:
+            k.kill()
+            k.wait()
+    finally:
+        p.kill()
+        p.wait()
+
+
+@needs_box
+def test_peer_c_with_a_generous_cap_the_same_forker_is_not_stopped(cfg):
+    """Control: the cap is what stops it, not the box."""
+    script = _write_in_slot(cfg, "forker.py", FORKER)
+    r = cfg.run(exec_="%s -I %s 0.2" % (PY, shlex.quote(script)), SANDBOX_TEST_TASKS_MAX="4000")
+    assert r.returncode == 0, r.stderr
+    m = re.search(r"box: forked_ok=(\d+) fork_failed=(\d+)", r.stdout)
+    assert m and (int(m.group(1)), int(m.group(2))) == (300, 0), r.stdout
+
+
+@needs_box
+def test_peer_c_a_memory_hog_in_the_box_is_killed_and_the_host_side_forwarder_survives(cfg, http_stub):
+    stub = http_stub()
+    cfg.model_port = stub.port
+    script = _write_in_slot(cfg, "hog.py", HOG)
+    r = cfg.run(exec_="%s -I %s %d 300" % (PY, shlex.quote(script), stub.port), SANDBOX_TEST_MEMORY_MAX=str(64 << 20))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split("\n")[:2] == ["hog: signaled=True sig=9", "bridge: 200"], r.stdout
+
+
+@needs_box
+def test_peer_c_the_same_allocation_under_a_generous_cap_is_not_killed(cfg, http_stub):
+    """Control: 300 MiB survives a 2 GiB cap, so the kill above is the cap's doing."""
+    stub = http_stub()
+    cfg.model_port = stub.port
+    script = _write_in_slot(cfg, "hog.py", HOG)
+    r = cfg.run(exec_="%s -I %s %d 300" % (PY, shlex.quote(script), stub.port), SANDBOX_TEST_MEMORY_MAX=str(2 << 30))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split("\n")[:2] == ["hog: signaled=False sig=0", "bridge: 200"], r.stdout
+
+
+@needs_box
+def test_peer_c_the_box_has_its_own_scope_with_the_configured_caps_and_the_forwarder_is_outside_it(cfg):
+    mem = 192 << 20
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 6", SANDBOX_TEST_TASKS_MAX="123",
+                         SANDBOX_TEST_MEMORY_MAX=str(mem)), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        box = None
+        end = time.time() + 10
+        while time.time() < end:
+            try:
+                box = _cgroup_of(p.pid)
+            except OSError:
+                box = None
+            if box and box.endswith(".scope") and box != _cgroup_of(os.getpid()):
+                break
+            time.sleep(0.05)
+        assert box and box != _cgroup_of(os.getpid()), "the box did not move into a scope of its own: %r" % box
+        # not the runner's cgroup (where a memory limit set around the whole run, e.g. memrun's, lives): its own
+        assert (_cg(box, "pids.max"), _cg(box, "memory.max"), _cg(box, "memory.swap.max")) == ("123", str(mem), "0")
+        # an OOM kill takes the hog alone: systemd's default (stop) would SIGTERM the whole box
+        env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+        pol = subprocess.run(["systemctl", "--user", "show", "-p", "OOMPolicy", os.path.basename(box)], env=env,
+                             capture_output=True, text=True)
+        assert pol.stdout.strip() == "OOMPolicy=continue", (pol.stdout, pol.stderr)
+        # the host-side forwarder was started before the exec and stays where it was
+        fw = [pid for pid in procs_with(cfg.tmpd) if b"sandbox-forward.py" in open("/proc/%d/cmdline" % pid, "rb").read()
+              and b"outer" in open("/proc/%d/cmdline" % pid, "rb").read()]
+        assert len(fw) == 1, fw
+        assert _cgroup_of(fw[0]) != box, "the host-side forwarder is inside the box's capped scope"
+    finally:
+        p.kill()
+        p.wait()
+
+
+def test_peer_c_without_a_user_scope_the_wrapper_refuses_before_anything_starts(cfg, fake_bwrap):
+    fdir, _ = fake_bwrap
+    make_exe(os.path.join(fdir, "systemd-run"), "#!/bin/sh\nexit 1\n")   # a host whose user manager cannot start the scope
+    assert_refused(cfg, fake_bwrap, "systemd-run")
+
+
+# ---------------------------------------------------------------- round 5 (C5): the capability boundary is explicit
+
+def test_peer_c5_the_argv_drops_every_capability_explicitly(cfg, fake_bwrap):
+    """The boundary must not rest on bwrap's default. The fake bwrap records its argv, so this cell reads what the
+    wrapper asked for, whatever the real bwrap would do by default."""
+    fdir, out = fake_bwrap
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out)
+    assert r.returncode == 99, r.stderr
+    toks = open(out).read().strip().partition(" ")[2].split()
+    assert "--cap-drop" in toks, toks
+    assert toks[toks.index("--cap-drop") + 1] == "ALL", toks
+    _wait_clean(cfg)
+
+
+@needs_box
+def test_peer_c5_inside_the_real_box_every_capability_set_reads_zero(cfg):
+    """Measured through the REAL wrapper. Note what this cell does not show: the sets are already zero by bwrap's default
+    in an unprivileged user namespace, so dropping the explicit --cap-drop leaves this cell green; the argv cell above
+    is the one that reddens."""
+    r = cfg.run(exec_="grep -E '^Cap(Inh|Prm|Eff|Bnd|Amb):' /proc/self/status")
+    assert r.returncode == 0, r.stderr
+    sets = dict(l.split(":\t") for l in r.stdout.strip().splitlines())
+    assert sorted(sets) == ["CapAmb", "CapBnd", "CapEff", "CapInh", "CapPrm"], sets
+    assert all(int(v, 16) == 0 for v in sets.values()), sets

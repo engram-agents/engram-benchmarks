@@ -289,6 +289,34 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   [ -z "${SANDBOX_TEST_MAX_CONNS:-}" ] || CONN_CAP=$SANDBOX_TEST_MAX_CONNS
 fi
 
+# ---- C: process and memory caps on the box itself. The box runs in its own systemd USER scope with TasksMax (pids, threads
+# included), MemoryMax and MemorySwapMax=0, entered by this wrapper's own exec, so the caps cover the box alone: the host
+# uid, the host-side forwarder (started above this line, so it stays in the caller's cgroup) and the feeder are outside.
+# Measured on the study host (2026-11-20): bubblewrap 0.9.0 has no rlimit options; prlimit on the bwrap invocation
+# fails (namespace creation is charged to the uid's host-wide count) and prlimit inside the box caps one uid-wide number;
+# RLIMIT_AS cannot be set from RSS intuition (the pinned binary's runtime reserves about 9.6 GiB of address space for
+# about 200 MiB resident); the cgroup route caps what matters and kills only the hog. PROVISIONAL until the pilot has
+# measured a real run: 1024 tasks, 4 GiB. It replaces the caller's cgroup for the box: a memory limit set around the whole
+# run (memrun's) no longer covers the box, which has its own. Overridable only in test mode.
+BOX_TASKS=1024; BOX_MEM=4294967296
+if [ "${SANDBOX_TEST:-}" = 1 ]; then
+  for v in SANDBOX_TEST_TASKS_MAX SANDBOX_TEST_MEMORY_MAX; do
+    [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive count"; }
+  done
+  [ -z "${SANDBOX_TEST_TASKS_MAX:-}" ] || BOX_TASKS=$SANDBOX_TEST_TASKS_MAX
+  [ -z "${SANDBOX_TEST_MEMORY_MAX:-}" ] || BOX_MEM=$SANDBOX_TEST_MEMORY_MAX
+fi
+# Fail closed, before anything is created or started: without a user manager that can start the scope the caps cannot be
+# applied, and a box without them is not the registered box. systemd-run reaches the user bus through XDG_RUNTIME_DIR,
+# which a feeder's minimal environment lacks; it is set for this call and the exec below only (the box's own environment
+# is built from the block bash was started with, so it does not reach the student).
+command -v systemd-run >/dev/null || refuse "systemd-run not found: the box's process and memory caps cannot be applied"
+SCOPE_RT=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+SCOPE=(systemd-run --user --scope --quiet --collect -p "TasksMax=$BOX_TASKS" -p "MemoryMax=$BOX_MEM" -p MemorySwapMax=0
+       -p OOMPolicy=continue)   # continue: the kernel kills the hog alone; the default (stop) would SIGTERM the whole box
+XDG_RUNTIME_DIR=$SCOPE_RT "${SCOPE[@]}" -- "$PY" -I -c pass >/dev/null 2>&1 \
+  || refuse "systemd-run could not start a user scope with TasksMax and MemoryMax: the box's process and memory caps cannot be applied (needs a user systemd manager with the pids and memory controllers delegated)"
+
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
 # A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
 # watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
@@ -327,10 +355,10 @@ disown "$FPID" 2>/dev/null
 TESTFLAG=0
 if [ "${SANDBOX_TEST:-}" = 1 ]; then
   TESTFLAG=1
-  printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s) ***\n' \
-    "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" >&2
+  printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
+    "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
@@ -340,6 +368,7 @@ TMPARGS=()
 for d in "${BOX_TMPFS_BIG[@]}"; do TMPARGS+=(--size "$TMP_CAP" --tmpfs "$d"); done
 for d in "${BOX_TMPFS_SMALL[@]}"; do TMPARGS+=(--size "$HOME_CAP" --tmpfs "$d"); done
 BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unshare-ipc --unshare-uts --hostname sandbox
+    --cap-drop ALL   # explicit: in an unprivileged user namespace every set is already empty, but that is bwrap's default, not ours
     --clearenv "${ENVARGS[@]}"
     --proc /proc --dev /dev --size "$TMP_CAP" --tmpfs "$BOX_SHM" --remount-ro /dev
     "${SYSARGS[@]}" "${ETCARGS[@]}"
@@ -349,4 +378,4 @@ BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unsha
     --ro-bind "$SOCK" /run/sandbox-bridge.sock
     --ro-bind "$FWD" /run/sandbox-forward.py
     --ro-bind-fd "$BINFD" "$BIN_REAL")   # LAST, so nothing mounted before it can shadow the pinned binary
-exec "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" -- "${CMD[@]}"
+XDG_RUNTIME_DIR=$SCOPE_RT exec "${SCOPE[@]}" -- "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" -- "${CMD[@]}"
