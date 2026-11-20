@@ -1522,7 +1522,7 @@ class OuterProc:
     """The host-side forwarder run on its own (no box), so the allow-list contract is tested at its own boundary."""
 
     def __init__(self, stub_port, allow=None, learn=False, log=None, max_request=32 << 20, max_total=64 << 20,
-                 max_conns=64):
+                 max_conns=64, read_idle_s=None):
         self.dir = tempfile.mkdtemp(prefix="sbx-")   # short, so the AF_UNIX path stays well under the limit
         self.sock = os.path.join(self.dir, "b.sock")
         args = [PY, "-I", FWD, "outer", "--sock", self.sock, "--host", "127.0.0.1", "--port", str(stub_port),
@@ -1535,6 +1535,8 @@ class OuterProc:
             args += ["--log", log]
         # the caps are required arguments (the wrapper owns the numbers); generous here so ordinary cells never meet them
         args += ["--max-request", str(max_request), "--max-total", str(max_total), "--max-conns", str(max_conns)]
+        if read_idle_s is not None:
+            args += ["--read-idle-s", str(read_idle_s)]
         self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         end = time.time() + 10
         while not os.path.exists(self.sock) and time.time() < end and self.p.poll() is None:
@@ -1795,7 +1797,9 @@ def test_r5_enforce_mode_logs_denials_by_method_and_path_only(outer, http_stub, 
     assert read_response(s)[0] == 403
     time.sleep(0.5)
     text = open(log).read()
-    assert [l for l in text.splitlines() if l.startswith("fwd-deny ")] == ["fwd-deny method=DELETE path=/api/delete"], text
+    deny = [l for l in text.splitlines() if l.startswith("fwd-deny ")]
+    assert len(deny) == 1 and deny[0].startswith("fwd-deny method=DELETE path=/api/delete status=403 "), text
+    assert " kind=rule reason=not-on-allow-list " in deny[0], deny
     assert "SECRET" not in text and "QQQ" not in text and not [l for l in text.splitlines() if l.startswith("fwd-req ")]
 
 
@@ -2362,7 +2366,9 @@ def test_peer_f1_the_deny_log_line_keeps_its_own_fragment_split(outer, http_stub
     assert read_response(s)[0] == 403
     time.sleep(0.5)
     text = open(log).read()
-    assert [l for l in text.splitlines() if l.startswith("fwd-deny ")] == ["fwd-deny method=POST path=/v1/messages"], text
+    deny = [l for l in text.splitlines() if l.startswith("fwd-deny ")]
+    assert len(deny) == 1 and deny[0].startswith("fwd-deny method=POST path=/v1/messages status=403 "), text
+    assert " kind=rule reason=fragment " in deny[0], deny
     assert "SECRET" not in text and "frag" not in text
 
 
@@ -2507,7 +2513,8 @@ def test_peer_a_a_refusal_after_the_body_was_read_closes_and_logs_one_line(outer
     assert status == 400 and at_eof(s)
     lines = _refuse_lines(log)
     assert len(lines) == 1, lines
-    m = re.fullmatch(r"fwd-refuse method=POST path=/v1/messages status=400 bytes_read=(\d+) reason=(.+)", lines[0])
+    m = re.fullmatch(r"fwd-refuse method=POST path=/v1/messages status=400 bytes_read=(\d+) kind=framing reason=chunk-size "
+                     r"detail=(.+)", lines[0])
     assert m, lines[0]
     # the head, the one good chunk (size line, data, CRLF) and the bad size line itself (a complete line, consumed)
     assert int(m.group(1)) == len(CHUNK_HEAD) + len(b"5\r\nhello\r\n") + len(b"ZZ\r\n"), m.group(1)
@@ -3590,3 +3597,445 @@ def test_r7_4_the_outer_forwarder_holds_no_descriptor_meant_for_the_box(cfg):
     finally:
         p.kill()
         p.wait()
+
+
+# ---------------------------------------------------------------- round 8 (T, LURIA): one tagged line per refusal, four registered counts
+# Every place the bridge refuses writes EXACTLY ONE line at that place, tagged kind=<framing|cap|rule|upstream>, with a
+# reason token that is unique to the site. A request is counted by the FIRST refusal the bridge makes, in the code's own
+# order (connection cap, head framing, body-header framing, rule checks, head size cap, then the body in arrival order).
+
+KINDS = {"framing", "cap", "rule", "upstream"}
+TAGGED_RE = re.compile(r"(fwd-(?:deny|refuse|fault)) method=(\S+) path=(\S+) status=(\d+) bytes_read=(\d+) "
+                       r"kind=(\w+) reason=(\S+) detail=(.*)")
+TAGGED_PREFIXES = ("fwd-deny ", "fwd-refuse ", "fwd-fault ")
+
+
+def tagged_lines(log):
+    """Every refusal-or-fault line in the log, parsed; the lines are read after a short settle."""
+    time.sleep(0.6)
+    out = []
+    for l in open(log).read().splitlines():
+        if l.startswith(TAGGED_PREFIXES) or " kind=" in l:
+            m = TAGGED_RE.fullmatch(l)
+            assert m, "a refusal line that does not carry the tagged format: %r" % l
+            out.append(dict(zip(("prefix", "method", "path", "status", "bytes_read", "kind", "reason", "detail"), m.groups())))
+    return out
+
+
+def _send(s, raw):
+    try:
+        s.sendall(raw)
+    except OSError:
+        pass            # the bridge refused before the whole of a large request was sent: the reply is what counts
+
+
+def _simple(raw):
+    def go(o, stub, tmp):
+        s = o.connect()
+        _send(s, raw)
+        return [s]
+    return go
+
+
+def _total_cap(o, stub, tmp):
+    full = req("POST", "/v1/messages", body=b"x" * 7000)
+    first = o.connect()
+    first.sendall(full[:-100])
+    time.sleep(0.4)
+    second = o.connect()
+    _send(second, full)
+    return [second, first]
+
+
+def _connection_cap(o, stub, tmp):
+    held = [o.connect(), o.connect()]
+    time.sleep(0.4)
+    third = o.connect()
+    _send(third, req("GET", "/v1/models"))
+    return [third] + held
+
+
+def _upstream_down(o, stub, tmp):
+    s = o.connect()
+    _send(s, req("GET", "/v1/models"))
+    return [s]
+
+
+CL_HEAD = b"POST /v1/messages HTTP/1.1\r\nHost: m\r\n"
+M, P = "POST", "/v1/messages"
+# reason: (kind, status, method, path, outer kwargs, driver)
+SITE_CASES = {
+    "connection-cap": ("cap", 503, "-", "-", dict(max_conns=2), _connection_cap),
+    "head-bare-cr-lf": ("framing", 400, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.1\r\nHost: m\nX: y\r\n\r\n")),
+    "head-too-large": ("cap", 400, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.1\r\nHost: m\r\nX: " + b"a" * 70000)),
+    "request-line": ("framing", 400, "-", "-", {}, _simple(b"HELLO\r\n\r\n")),
+    "version": ("framing", 505, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.0\r\nHost: m\r\n\r\n")),
+    "obsolete-folding": ("framing", 400, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.1\r\nHost: m\r\n folded\r\n\r\n")),
+    "header-line": ("framing", 400, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.1\r\nNoColonHere\r\n\r\n")),
+    "header-control-char": ("framing", 400, "-", "-", {}, _simple(b"GET /v1/models HTTP/1.1\r\nX-A: a\x01b\r\n\r\n")),
+    "both-length-and-te": ("framing", 400, M, P, {}, _simple(
+        CL_HEAD + b"Content-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n")),
+    "unsupported-te": ("framing", 400, M, P, {}, _simple(CL_HEAD + b"Transfer-Encoding: gzip\r\n\r\n")),
+    "content-length": ("framing", 400, M, P, {}, _simple(CL_HEAD + b"Content-Length: abc\r\n\r\n")),
+    "connect": ("rule", 403, "CONNECT", "-", {}, _simple(b"CONNECT example.invalid:443 HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "upgrade": ("rule", 403, "GET", "/v1/models", {}, _simple(
+        b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")),
+    "expect-continue": ("rule", 417, M, P, {}, _simple(CL_HEAD + b"Content-Length: 5\r\nExpect: 100-continue\r\n\r\n")),
+    "target-form": ("rule", 403, "GET", "-", {}, _simple(b"GET http://example.invalid/v1/models HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "fragment": ("rule", 403, "GET", "/v1/models", {}, _simple(b"GET /v1/models#frag HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "path-undecodable": ("rule", 403, "GET", "/v1/%ff", {}, _simple(b"GET /v1/%ff HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "path-encoding": ("rule", 403, "GET", "/v1/%2525", {}, _simple(b"GET /v1/%2525 HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "path-segment": ("rule", 403, "GET", "/v1/../x", {}, _simple(b"GET /v1/../x HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "not-on-allow-list": ("rule", 403, "DELETE", "/api/delete", {}, _simple(b"DELETE /api/delete HTTP/1.1\r\nHost: m\r\n\r\n")),
+    "request-cap": ("cap", 413, M, P, dict(max_request=50), _simple(CL_HEAD + b"Content-Length: 0\r\n\r\n")),
+    "declared-length-over-cap": ("cap", 413, M, P, dict(max_request=4096), _simple(req("POST", "/v1/messages", body=b"x" * 10000))),
+    "chunk-over-cap": ("cap", 413, M, P, dict(max_request=4096), _simple(
+        CHUNK_HEAD + b"bb8\r\n" + b"x" * 3000 + b"\r\nbb8\r\n" + b"x" * 3000 + b"\r\n0\r\n\r\n")),
+    "total-cap": ("cap", 413, M, P, dict(max_request=8192, max_total=12000), _total_cap),
+    "chunk-size": ("framing", 400, M, P, {}, _simple(CHUNK_HEAD + b"zz\r\nhello\r\n0\r\n\r\n")),
+    "trailer": ("framing", 400, M, P, {}, _simple(CHUNK_HEAD + b"0\r\nXX")),
+    "chunk-framing": ("framing", 400, M, P, {}, _simple(CHUNK_HEAD + b"5\r\nhelloXX0\r\n\r\n")),
+    "chunk-bare-cr-lf": ("framing", 400, M, P, {}, _simple(CHUNK_HEAD + b"5\nhello")),
+    "chunk-bare-cr": ("framing", 400, M, P, {}, _simple(CHUNK_HEAD + b"5\rab")),
+    "chunk-line-too-long": ("cap", 400, M, P, {}, _simple(CHUNK_HEAD + b"a" * 9000)),
+    "read-timeout": ("cap", 408, "-", "-", dict(read_idle_s=1), _simple(b"GET /v1/mo")),
+    "connect-failed": ("upstream", 502, "GET", "/v1/models", {}, _upstream_down),
+}
+
+
+@pytest.fixture
+def dead_port_stub():
+    class Dead:
+        port = free_port()          # nothing listens here: the upstream connect is refused
+    return Dead()
+
+
+@pytest.mark.parametrize("reason", sorted(SITE_CASES))
+def test_t_each_refusal_site_writes_exactly_one_tagged_line(outer, raw_stub, dead_port_stub, tmp_path, reason):
+    kind, status, method, path, kw, drive = SITE_CASES[reason]
+    stub = dead_port_stub if reason == "connect-failed" else raw_stub()
+    log = str(tmp_path / "t.log")
+    o = outer(stub, allow=ALLOW, log=log, **kw)
+    socks = drive(o, stub, tmp_path)
+    got, _, _ = read_response(socks[0])
+    assert got == status, (reason, got)
+    lines = tagged_lines(log)
+    assert len(lines) == 1, (reason, lines)
+    L = lines[0]
+    assert (L["kind"], L["reason"], int(L["status"]), L["method"], L["path"]) == (kind, reason, status, method, path), L
+    assert "SECRET" not in L["detail"]
+    if reason == "connection-cap":
+        assert L["bytes_read"] == "0" and "(2)" in L["detail"], L      # only what is known at accept: nothing invented
+    if kind != "upstream":
+        assert stub.bytes_seen() == b"", "a refused request reached the upstream"
+
+
+def test_t_the_prefix_by_kind_map_is_the_one_the_lines_use():
+    """The prefixes stay readable: rule refusals are fwd-deny, upstream faults fwd-fault, the rest fwd-refuse."""
+    want = {"rule": "fwd-deny", "upstream": "fwd-fault", "framing": "fwd-refuse", "cap": "fwd-refuse"}
+    assert set(k[0] for k in SITE_CASES.values()) == KINDS
+    mod = _load_forwarder()
+    assert {k: mod.PREFIX_BY_KIND.get(k, "fwd-refuse") for k in KINDS} == want
+
+
+def test_t_the_prefix_matches_the_kind_in_every_line(outer, raw_stub, tmp_path):
+    want = {"rule": "fwd-deny", "framing": "fwd-refuse"}
+    stub = raw_stub()
+    log = str(tmp_path / "p.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    for raw in (b"DELETE /api/delete HTTP/1.1\r\nHost: m\r\n\r\n", b"HELLO\r\n\r\n"):
+        s = o.connect()
+        s.sendall(raw)
+        read_response(s)
+    seen = {L["kind"]: L["prefix"] for L in tagged_lines(log)}
+    assert seen == want, seen
+
+
+# ---- the derived cell: the refusal sites are found by parsing the forwarder's own source, never from a hand list
+
+def _forwarder_tree():
+    import ast
+    return ast.parse(open(FWD).read())
+
+
+def derived_refusal_sites():
+    """Every call of `Refusal(kind, reason, status, ...)` in the forwarder, as (lineno, kind, reason, status) with the
+    literal arguments; a call whose first three arguments are not literals is reported with None in their place."""
+    import ast
+    sites = []
+    for node in ast.walk(_forwarder_tree()):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else None)
+            if name == "Refusal":
+                lits = [a.value if isinstance(a, ast.Constant) else None for a in node.args[:3]]
+                lits += [None] * (3 - len(lits))
+                for kw in node.keywords:
+                    if kw.arg in ("kind", "reason", "status") and isinstance(kw.value, ast.Constant):
+                        lits["kind reason status".split().index(kw.arg)] = kw.value.value
+                sites.append((node.lineno,) + tuple(lits))
+    return sites
+
+
+def test_t_derived_every_refusal_site_has_a_kind_a_unique_reason_and_a_mapped_status():
+    sites = derived_refusal_sites()
+    assert len(sites) >= 30, "the derivation found too few sites to be reading the source: %r" % sites
+    for lineno, kind, reason, status in sites:
+        assert kind in KINDS, "line %d: refusal site without a registered kind: %r" % (lineno, kind)
+        assert isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9-]*", reason), "line %d: no reason token" % lineno
+        assert isinstance(status, int), "line %d: no literal status" % lineno
+    reasons = [r for _, _, r, _ in sites]
+    assert len(reasons) == len(set(reasons)), "two sites share a reason: %r" % sorted(
+        r for r in set(reasons) if reasons.count(r) > 1)
+    mod = _load_forwarder()
+    # a status the bridge can return is mapped: it has a phrase, and every phrase belongs to a status some site returns
+    assert {s for _, _, _, s in sites} == set(mod.PHRASE), (sorted({s for _, _, _, s in sites}), sorted(mod.PHRASE))
+    # each site has exactly one kind (it is one literal); a STATUS may carry two kinds, by what the check protects:
+    # 400 is framing and, for a size limit, cap
+    kinds_by_status = {}
+    for _, k, _, s in sites:
+        kinds_by_status.setdefault(s, set()).add(k)
+    assert all(kinds_by_status.values())
+    assert {s for s, ks in kinds_by_status.items() if len(ks) > 1} <= {400}, kinds_by_status
+
+
+def test_t_derived_the_refusal_response_and_the_refusal_line_each_have_one_writer():
+    """A refusal path that builds its own reply or its own line (and so can skip the kind) is found here: the response
+    template and the tagged prefixes are used only inside the two functions that own them."""
+    import ast
+    tree = _forwarder_tree()
+    owner = {"RESP_CLOSE": {"send_refusal"}, "fwd-deny": {"refusal_line"}, "fwd-refuse": {"refusal_line"},
+             "fwd-fault": {"refusal_line"}}
+    found = {k: set() for k in owner}
+
+    class V(ast.NodeVisitor):
+        def __init__(self):
+            self.fn = [None]
+
+        def visit_FunctionDef(self, n):
+            self.fn.append(n.name)
+            self.generic_visit(n)
+            self.fn.pop()
+
+        def visit_Name(self, n):
+            if n.id in found and isinstance(n.ctx, ast.Load):
+                found[n.id].add(self.fn[-1])
+
+        def visit_Constant(self, n):
+            if isinstance(n.value, str):
+                for k in ("fwd-deny", "fwd-refuse", "fwd-fault"):
+                    if k in n.value:
+                        found[k].add(self.fn[-1])
+
+    V().visit(tree)
+    for k, fns in found.items():
+        assert fns <= owner[k], "%s is used outside its writer: %r" % (k, sorted(map(str, fns - owner[k])))
+        assert fns, "%s is not used anywhere: the derivation is reading nothing" % k
+
+
+def test_t_derived_every_site_has_a_driving_cell():
+    """The per-site cell table covers exactly the sites the source has: a new site without a cell fails here."""
+    assert sorted(SITE_CASES) == sorted(r for _, _, r, _ in derived_refusal_sites())
+    for reason, (kind, status, *_rest) in SITE_CASES.items():
+        derived = {(k, s) for _, k, r, s in derived_refusal_sites() if r == reason}
+        assert derived == {(kind, status)}, (reason, derived, kind, status)
+
+
+# ---- precedence: a request is counted by the FIRST refusal the bridge makes, in the code's order
+
+def test_t_precedence_a_fragment_target_with_an_over_cap_declared_body_is_one_rule_line(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "prec1.log")
+    o = outer(stub, allow=ALLOW, log=log, max_request=4096)
+    head = b"POST /v1/messages#x HTTP/1.1\r\nHost: m\r\nContent-Length: 10000\r\n\r\n"
+    s = o.connect()
+    s.sendall(head + b"x" * 6000)
+    assert read_response(s)[0] == 403
+    lines = tagged_lines(log)
+    assert len(lines) == 1 and (lines[0]["kind"], lines[0]["reason"]) == ("rule", "fragment"), lines
+    assert int(lines[0]["bytes_read"]) == len(head), "the body must never be read: %r" % lines   # head only
+    assert stub.bytes_seen() == b""
+
+
+def test_t_precedence_body_header_framing_comes_before_the_rule_checks(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "prec2.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(b"CONNECT example.invalid:443 HTTP/1.1\r\nHost: m\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n")
+    assert read_response(s)[0] == 400
+    lines = tagged_lines(log)
+    assert len(lines) == 1 and (lines[0]["kind"], lines[0]["reason"]) == ("framing", "both-length-and-te"), lines
+
+
+def test_t_precedence_the_rule_checks_come_before_the_head_size_cap(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "prec3.log")
+    o = outer(stub, allow=ALLOW, log=log, max_request=50)       # the head alone is over the cap, and the method is not listed
+    s = o.connect()
+    s.sendall(b"DELETE /api/delete HTTP/1.1\r\nHost: model-host-name\r\n\r\n")
+    assert read_response(s)[0] == 403
+    lines = tagged_lines(log)
+    assert len(lines) == 1 and (lines[0]["kind"], lines[0]["reason"]) == ("rule", "not-on-allow-list"), lines
+
+
+def test_t_precedence_inside_the_body_the_first_to_arrive_is_the_one_line(outer, raw_stub, tmp_path):
+    """A bad chunk-size line that arrives BEFORE the cumulative cap is exceeded is framing, not cap."""
+    stub = raw_stub()
+    log = str(tmp_path / "prec4.log")
+    o = outer(stub, allow=ALLOW, log=log, max_request=4096)
+    s = o.connect()
+    s.sendall(CHUNK_HEAD + b"5\r\nhello\r\nZZ\r\n" + b"fff\r\n" + b"x" * 3000)
+    assert read_response(s)[0] == 400
+    lines = tagged_lines(log)
+    assert len(lines) == 1 and (lines[0]["kind"], lines[0]["reason"]) == ("framing", "chunk-size"), lines
+
+
+def test_t_a_connect_request_yields_one_line_kind_rule_reason_connect(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "conn.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(b"CONNECT example.invalid:443 HTTP/1.1\r\nHost: m\r\n\r\n")
+    assert read_response(s)[0] == 403
+    lines = tagged_lines(log)
+    assert len(lines) == 1 and (lines[0]["kind"], lines[0]["reason"]) == ("rule", "connect"), lines
+
+
+def test_t_the_upstream_connect_failure_is_not_logged_as_a_student_refusal(outer, dead_port_stub, tmp_path):
+    log = str(tmp_path / "up.log")
+    o = outer(dead_port_stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 502
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["status"]) for L in lines] == [("upstream", "connect-failed", "502")], lines
+    text = open(log).read()
+    assert not [l for l in text.splitlines() if l.startswith(("fwd-deny ", "fwd-refuse "))], text
+
+
+# ---- L-S1: Expect: 100-continue is refused at once
+
+def test_l_s1_expect_continue_is_417_promptly_and_nothing_reaches_the_upstream(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "exp.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(3)
+    t0 = time.time()
+    s.sendall(CL_HEAD + b"Content-Length: 100\r\nExpect: 100-continue\r\n\r\n")      # the body is never sent
+    status, _, _ = read_response(s)
+    assert status == 417 and time.time() - t0 < 3, (status, time.time() - t0)
+    assert at_eof(s)
+    assert stub.bytes_seen() == b""
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"]) for L in lines] == [("rule", "expect-continue")], lines
+
+
+def test_l_s1_expect_is_matched_as_a_token_in_any_case(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW, log=str(tmp_path / "e2.log"))
+    s = o.connect()
+    s.sendall(CL_HEAD + b"Content-Length: 100\r\nexpect:  100-Continue \r\n\r\n")
+    assert read_response(s)[0] == 417
+
+
+# ---- L-S2: an idle read timeout while READING A REQUEST (not while relaying a response)
+
+def test_l_s2_a_partial_request_is_cut_by_the_idle_read_timeout(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    log = str(tmp_path / "idle.log")
+    o = outer(stub, allow=ALLOW, log=log, read_idle_s=1)
+    s = o.connect()
+    s.sendall(b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 100\r\n\r\nabc")     # 97 bytes never come
+    t0 = time.time()
+    assert read_response(s)[0] == 408
+    assert 0.8 <= time.time() - t0 < 4, time.time() - t0
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["status"]) for L in lines] == [("cap", "read-timeout", "408")], lines
+    assert stub.bytes_seen() == b""
+
+
+def test_l_s2_a_connection_that_sends_nothing_is_cut_too(outer, raw_stub, tmp_path):
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW, log=str(tmp_path / "idle0.log"), read_idle_s=1)
+    s = o.connect()
+    assert read_response(s)[0] == 408
+
+
+class SlowStub:
+    """An upstream that answers one request after `delay` seconds: a model response that takes longer than the idle timeout."""
+
+    def __init__(self, delay):
+        self.srv = socket.socket()
+        self.srv.bind(("127.0.0.1", free_port()))
+        self.srv.listen(4)
+        self.port = self.srv.getsockname()[1]
+        self.delay = delay
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        while True:
+            try:
+                c, _ = self.srv.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._one, args=(c,), daemon=True).start()
+
+    def _one(self, c):
+        try:
+            c.settimeout(10)
+            buf = b""
+            while b"\r\n\r\n" not in buf:
+                buf += c.recv(65536)
+            time.sleep(self.delay)
+            c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            time.sleep(1)
+        except OSError:
+            pass
+        c.close()
+
+
+def test_l_s2_a_response_that_outlasts_the_timeout_is_not_cut(outer, tmp_path):
+    slow = SlowStub(delay=2.5)
+    log = str(tmp_path / "slow.log")
+    o = outer(slow, allow=ALLOW, log=log, read_idle_s=1)
+    s = o.connect()
+    s.settimeout(8)
+    s.sendall(req("GET", "/v1/models"))
+    status, _, body = read_response(s)
+    assert (status, body) == (200, b"ok"), (status, body)
+    assert tagged_lines(log) == []
+
+
+# ---- L-S3: an unreaped zombie is not alive (Linux reads /proc/<pid>/stat)
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc/<pid>/stat: Linux only; elsewhere os.kill stays")
+def test_l_s3_a_child_that_exited_but_is_not_reaped_reads_dead():
+    mod = _load_forwarder()
+    p = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        end = time.time() + 10
+        state = ""
+        while time.time() < end:
+            state = open("/proc/%d/stat" % p.pid).read().rsplit(")", 1)[1].split()[0]
+            if state == "Z":
+                break
+            time.sleep(0.02)
+        assert state == "Z", "the child never became a zombie: %r" % state
+        os.kill(p.pid, 0)                     # signal 0 still succeeds on a zombie: this is the defect
+        assert mod.alive(p.pid) is False
+    finally:
+        p.wait()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux only")
+def test_l_s3_a_running_child_reads_alive_and_the_reaped_one_dead():
+    mod = _load_forwarder()
+    p = subprocess.Popen(["sleep", "5"])
+    try:
+        assert mod.alive(p.pid) is True
+    finally:
+        p.kill()
+        p.wait()
+    assert mod.alive(p.pid) is False
