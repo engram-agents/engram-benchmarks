@@ -146,14 +146,17 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   scored run that test is run on the study host and its PASS (not a skip) is logged with the date and the
   wrapper file's sha256. A blocked attempt cannot succeed, so it is not a fault (section 14). Four counts are
   reported per arm instead. Three come from the wrapper log (SANDBOX_LOG, always enabled in registered runs), where
-  the bridge writes exactly one line per refused request at the moment it refuses it, carrying `kind=` and
-  `reason=`; each count is the number of lines of one kind, read off the `kind=` field alone. A request is counted
-  once, by the first refusal the bridge makes for it, in the order the wrapper's README states as found in its code:
-  RULE REFUSALS (`kind=rule`), requests the bridge could parse but refuses by rule: a method or path not on the
-  allow-list, CONNECT, upgrade requests, `Expect: 100-continue`, a target not in origin form, a fragment;
-  FRAMING REFUSALS (`kind=framing`), requests the bridge could not parse as HTTP/1.1; CAP REFUSALS (`kind=cap`),
-  refusals that protect the bridge against volume: a request or a header line over its size cap, the total
-  buffered-bytes cap, the connection cap, and a request left half-sent past the idle read timeout. The fourth is
+  the bridge writes exactly one line per refused request or connection at the moment it refuses it, carrying `kind=`
+  and `reason=`; each count is the number of lines of one kind, read off the `kind=` field alone. A request is counted
+  once, by the first refusal the bridge makes for it, in the order the wrapper's README states as found in its code.
+  The kinds are defined by class; the wrapper README's per-reason table lists every reason under its kind, and the
+  wrapper's own test derives the refusal sites from its source, so a reason added later cannot land in no kind.
+  RULE REFUSALS (`kind=rule`): requests the bridge could parse but refuses by rule (for example a method or path not
+  on the allow-list, a path it will not accept, CONNECT, an upgrade, `Expect: 100-continue`, a target not in origin
+  form, a fragment). FRAMING REFUSALS (`kind=framing`): requests the bridge could not parse as HTTP/1.1. CAP REFUSALS
+  (`kind=cap`): refusals that protect the bridge against volume (for example the request head or a chunk-size line
+  over its size limit, a request over the per-request or total buffered-bytes cap, a connection past the connection
+  cap, refused before any request is read, and a request left half-sent past the idle read timeout). The fourth is
   NETWORK-CAPABLE SHELL CALLS, counted from the transcript, whether or not anything was reached, by a rule fixed
   before the first scored run. The per-reason breakdown is reported beside the counts as description, never as an
   outcome. (Amended 2026-11-20, design owner, team crossings 33426, 33428 and 33430: the count named ALLOW-LIST
@@ -222,8 +225,9 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, tool calls (name, ok or
 error), whether ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files
 the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
-preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation; the two
-network counts of section 7 (allow-list refusals; network-capable shell calls); the wrapper's launch line,
+preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation; the four
+network counts of section 7 (rule refusals, framing refusals, cap refusals, network-capable shell calls) with the
+per-reason breakdown beside them; every wrapper-log line of kind `upstream` (section 14); the wrapper's launch line,
 from the wrapper log.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
@@ -235,8 +239,8 @@ a hook that injects changing text early in the prompt would break prefix reuse i
 seconds, per conversation: the GPU broker's lease for the run (one conversation, one arm, reading through
 answering), from grant to release, read from the broker's own log, the same instrument in both arms. Lease
 seconds include idle time inside the lease and are not weighted by utilisation; the co-load sampler's
-readings over the same lease (at a fixed interval set in the run script, 60 s in tuning (tuning log at commit 7cfb3630b87c, lines 1021-1022, the
-co-load section): the GPU's memory and
+readings over the same lease (at a fixed interval set in the run script, 60 s in tuning (the tuning log's co-load section says the sampler "writes, every 60 seconds" its readings;
+branch study/beam-tuning-log-2, commit 7cfb3630b87c, lines 1021-1022): the GPU's memory and
 load, the host's load average and busiest processes, and the GPU reservations; tools/coload-sampler.sh) are
 reported beside them, never multiplied in. Arm 2's setup (section 7) has its own lease, reported as setup
 cost, and each book-closed run is its own run with its own lease; tool
