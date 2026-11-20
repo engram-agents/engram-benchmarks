@@ -460,6 +460,7 @@ class Launch:
 
 MARKER = "fwd-first-request"
 RE_CONNECT_FAILED = re.compile(r"fwd-[a-z]+ method=\S+ path=\S+ status=\S+ bytes_read=\d+ kind=upstream reason=connect-failed detail=.*")
+LAUNCH_PREFIX = "wrapper-launch "   # what student-sandbox.sh's launch line starts with, at column 0: one such line per log
 VERDICT_FLAGGED = "flagged: endpoint unreachable, nothing reached it"
 SEND_FAIL_WAIT_S = 2.0   # how long a failed send waits for the relay to finish relaying what the endpoint already answered
 
@@ -468,7 +469,9 @@ def log_verdict(path):
     """The ONE place the harness-fault flag is decided, from the outer forwarder's log: (exit code, stdout, stderr).
     Flagged only if the log has at least one connect-failed line AND no `fwd-first-request` line at all (a connect failed
     in a launch that never put a request upstream: the endpoint was never reachable). A missing, empty or unreadable log is
-    a named refusal (exit 2): no log is not 'no marker'. Reads line shapes only (the kind and reason fields, anchored to
+    a named refusal (exit 2): no log is not 'no marker'. So is a log that does not hold exactly one line starting
+    `wrapper-launch ` (one log per launch: a shared log would let the first launch's marker hide the second's unreachable
+    endpoint; a log the forwarder wrote alone has no launch line). Reads line shapes only (the kind and reason fields, anchored to
     the line's own format, so a path or a detail cannot imitate them), never a body."""
     try:
         with open(path, "rb") as f:
@@ -478,6 +481,9 @@ def log_verdict(path):
     lines = text.splitlines()
     if not lines:
         return 2, "", "student-sandbox: refused: log-verdict: the log is empty"
+    launches = sum(1 for l in lines if l.startswith(LAUNCH_PREFIX))
+    if launches != 1:   # the wrapper APPENDS: a shared log merges launches, a log without the wrapper has none. A setup error, not a verdict
+        return 2, "", "student-sandbox: refused: log-verdict: expected exactly one line starting %r, found %d" % (LAUNCH_PREFIX, launches)
     marker = any(l == MARKER for l in lines)
     failed = any(RE_CONNECT_FAILED.fullmatch(l) for l in lines)
     return 0, (VERDICT_FLAGGED if failed and not marker else "not-flagged"), ""

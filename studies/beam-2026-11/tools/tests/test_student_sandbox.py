@@ -4454,6 +4454,21 @@ def verdict(log):
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
+LAUNCH_PREFIX = "wrapper-launch "
+
+
+def launch_line(log):
+    """The ONE helper that gives a log its launch line (what student-sandbox.sh writes at launch, minimal): `log-verdict`
+    wants exactly one line starting `wrapper-launch ` per log, and a log made by the forwarder alone has none. Appends,
+    as the wrapper does."""
+    with open(log, "a") as f:
+        f.write(LAUNCH_PREFIX + "time=0 pid=0 test=1\n")
+
+
+def refused_count(n):
+    return "student-sandbox: refused: log-verdict: expected exactly one line starting 'wrapper-launch ', found %d" % n
+
+
 def log_lines(log):
     time.sleep(0.6)
     return open(log).read().splitlines() if os.path.exists(log) else []
@@ -4559,6 +4574,7 @@ def test_r10_c1_one_request_reached_the_endpoint_then_a_connect_fails_is_counted
     """The security seat's case: an endpoint that accepts one connection and then stops listening."""
     stub = fn_stub(_answer_and_close, one_shot=True)
     log = str(tmp_path / "m2.log")
+    launch_line(log)
     o = outer(stub, allow=ALLOW, log=log)
     a = o.connect()
     a.sendall(req("GET", "/v1/models"))
@@ -4575,6 +4591,7 @@ def test_r10_c1_one_request_reached_the_endpoint_then_a_connect_fails_is_counted
 
 def test_r10_c1_an_endpoint_down_from_the_start_is_flagged(outer, dead_port_stub, tmp_path):
     log = str(tmp_path / "m3.log")
+    launch_line(log)
     o = outer(dead_port_stub, allow=ALLOW, log=log)
     s = o.connect()
     s.sendall(req("GET", "/v1/models"))
@@ -4606,6 +4623,7 @@ def test_r10_c1c_a_log_that_is_missing_empty_or_unreadable_is_a_named_refusal(tm
 def test_r10_c1c_the_verdict_reads_line_kinds_and_reasons_only(tmp_path, name, text, want):
     log = str(tmp_path / (name + ".log"))
     open(log, "w").write(text)
+    launch_line(log)
     assert verdict(log) == (0, want, ""), name
 
 
@@ -4621,6 +4639,7 @@ def test_r10_c2_a_big_body_rejected_early_is_one_rejected_early_line_not_flagged
         c.close()
     stub = fn_stub(rejecting)
     log = str(tmp_path / "c2.log")
+    launch_line(log)
     o = outer(stub, allow=ALLOW, log=log)
     s = o.connect()
     s.settimeout(20)
@@ -4646,6 +4665,7 @@ def test_r10_c2_at_256k_the_send_may_complete_before_the_reset_and_the_line_is_s
         c.close()
     stub = fn_stub(rejecting)
     log = str(tmp_path / "c2c.log")
+    launch_line(log)
     o = outer(stub, allow=ALLOW, log=log)
     s = o.connect()
     s.settimeout(20)
@@ -4781,6 +4801,7 @@ def test_r10_c1a_a_connect_followed_by_a_send_that_moves_no_bytes_writes_no_mark
             pass
 
     log = str(tmp_path / "zero.log")
+    launch_line(log)
     a, b = socket.socketpair()
     a.settimeout(10)
     budget = mod.Budget(1 << 20, 1 << 22, 4, log, False)
@@ -4795,3 +4816,189 @@ def test_r10_c1a_a_connect_followed_by_a_send_that_moves_no_bytes_writes_no_mark
     assert _upstream_tagged(tagged_lines(log)) == [("send-failed", "-")]
     assert verdict(log) == (0, "not-flagged", "")
     a.close()
+
+
+# ---------------------------------------------------------------- follow-up to round 10: one log per launch; verdict matching; reset limits
+# L: `log-verdict` counts launches (the wrapper APPENDS to SANDBOX_LOG, so two launches on one log merge: the first launch's
+# marker would hide the second's unreachable endpoint). V: the verdict's line matching is pinned against imitation. R: the
+# reset limits that are stated, and the one deferred write, are pinned.
+
+def test_followup_l_a_two_launches_on_one_log_are_refused_not_merged(outer, fn_stub, dead_port_stub, tmp_path):
+    """Launch 1 reaches a live endpoint (marker written); launch 2, on the SAME log, finds the endpoint dead. Merged, the
+    first launch's marker hid the second's unreachable endpoint (the round-10 head printed `not-flagged` here)."""
+    live = fn_stub(_answer_and_close)
+    log = str(tmp_path / "la.log")
+    launch_line(log)
+    o1 = outer(live, allow=ALLOW, log=log)
+    a = o1.connect()
+    a.sendall(req("GET", "/v1/models"))
+    assert read_response(a)[0] == 200
+    a.close()
+    launch_line(log)
+    o2 = outer(dead_port_stub, allow=ALLOW, log=log)
+    b = o2.connect()
+    b.sendall(req("GET", "/v1/models"))
+    assert read_response(b)[0] == 502
+    lines = log_lines(log)
+    assert [l for l in lines if l.startswith(MARKER)] == [MARKER], lines
+    assert _upstream_tagged(tagged_lines(log)) == [("connect-failed", "502")]
+    assert verdict(log) == (2, "", refused_count(2))
+
+
+def test_followup_l_b_a_log_written_by_the_forwarder_alone_has_no_launch_line_and_is_refused(outer, fn_stub, tmp_path):
+    stub = fn_stub(_answer_and_close)
+    log = str(tmp_path / "lb.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models"))
+    assert read_response(s)[0] == 200
+    log_lines(log)
+    assert verdict(log) == (2, "", refused_count(0))
+
+
+CF_LINE = "fwd-fault method=- path=- status=502 bytes_read=0 kind=upstream reason=connect-failed detail=x"
+
+
+@pytest.mark.parametrize("name,extra,want", [
+    ("one-launch-and-a-dead-endpoint-from-the-start", [CF_LINE], FLAGGED),
+    ("one-launch-marker-then-a-later-connect-failed", [MARKER, CF_LINE], "not-flagged"),
+])
+def test_followup_l_c_exactly_one_launch_line_gives_the_round_10_verdicts(tmp_path, name, extra, want):
+    log = str(tmp_path / (name + ".log"))
+    launch_line(log)
+    open(log, "a").write("".join(l + "\n" for l in extra))
+    assert verdict(log) == (0, want, ""), name
+
+
+def test_followup_l_d_a_refused_request_whose_path_carries_the_launch_token_is_not_a_second_launch(outer, dead_port_stub, tmp_path):
+    """A client cannot make a launch line: its path is logged raw after `method=`, never at the start of a line. (A raw
+    space cannot be in a request target, so the token is carried as `wrapper-launch%20`.)"""
+    log = str(tmp_path / "ld.log")
+    launch_line(log)
+    o = outer(dead_port_stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/wrapper-launch%20x"))
+    assert read_response(s)[0] == 403
+    lines = log_lines(log)
+    assert [L["path"] for L in tagged_lines(log)] == ["/wrapper-launch%20x"], lines
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+@pytest.mark.parametrize("impostor", [" wrapper-launch x", "wrapper-launchx", "wrapper-launch"])
+def test_followup_l_e_only_the_token_and_one_space_at_column_zero_counts(tmp_path, impostor):
+    log = str(tmp_path / "le.log")
+    launch_line(log)
+    open(log, "a").write(impostor + "\n")
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_followup_v_a_a_real_request_imitating_a_connect_failed_line_keeps_its_path_verbatim_and_does_not_flag(outer, dead_port_stub, tmp_path):
+    """Through the bridge, endpoint dead and the request refused by rule (not on the allow-list, 403): the logged path
+    keeps `%20` verbatim, and the line is not a connect-failed line, so nothing flags."""
+    log = str(tmp_path / "va.log")
+    launch_line(log)
+    o = outer(dead_port_stub, allow=ALLOW, log=log)
+    s = o.connect()
+    imitation = "/v1/models%20kind=upstream%20reason=connect-failed"
+    s.sendall(req("GET", imitation))
+    assert read_response(s)[0] == 403
+    lines = tagged_lines(log)
+    assert [(L["kind"], L["reason"], L["path"]) for L in lines] == [("rule", "not-on-allow-list", imitation)], lines
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_followup_v_b_a_connect_failed_shape_with_text_before_it_is_not_a_connect_failed_line(tmp_path):
+    log = str(tmp_path / "vb.log")
+    launch_line(log)
+    open(log, "a").write("noise " + CF_LINE + "\n")
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_followup_v_c_a_request_refused_with_the_marker_text_in_its_path_is_not_the_marker(outer, dead_port_stub, tmp_path):
+    log = str(tmp_path / "vc.log")
+    launch_line(log)
+    o = outer(dead_port_stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("GET", "/fwd-first-request"))
+    assert read_response(s)[0] == 403
+    t = o.connect()
+    t.sendall(req("GET", "/v1/models"))
+    assert read_response(t)[0] == 502
+    lines = log_lines(log)
+    assert [l for l in lines if "fwd-first-request" in l and l != MARKER], lines     # the raw path IS in the log
+    assert not [l for l in lines if l == MARKER], lines
+    assert verdict(log) == (0, FLAGGED, "")
+
+
+def test_followup_r1_a_client_that_half_closes_hides_a_later_upstream_reset_the_stated_limit(outer, fn_stub, tmp_path):
+    """Pins a limit stated in the README, in force since round 10: once the bridge has sent its own FIN upstream (the client
+    half-closed), a later reset from the endpoint is not logged, because our FIN could have provoked it. Descriptive only:
+    nothing flags on it. The stub resets only after it has seen that FIN, so the order is deterministic."""
+    def reset_after_our_fin(c):
+        read_until(c)
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nhalf")
+        while c.recv(65536):        # until the bridge's own FIN
+            pass
+        rst_close(c)
+    stub = fn_stub(reset_after_our_fin)
+    log = str(tmp_path / "r1.log")
+    launch_line(log)
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.settimeout(10)
+    s.sendall(req("GET", "/v1/models"))
+    s.shutdown(socket.SHUT_WR)
+    try:
+        while s.recv(65536):
+            pass
+    except OSError:
+        pass
+    assert _upstream_tagged(tagged_lines(log)) == []
+    assert verdict(log) == (0, "not-flagged", "")
+
+
+def test_followup_r2_a_reset_the_relay_sees_while_a_request_is_being_sent_is_written_once_by_the_send_site(tmp_path):
+    """The parked reset: the relay sees the endpoint fail while the current request has not finished being sent, so it
+    parks the failure; the send site writes the `upstream-reset` line after the send completes. Driven in-process through
+    the `connect` seam: the endpoint's recv raises as soon as the send has begun, and the send then finishes."""
+    mod = _load_forwarder()
+    begun = threading.Event()
+
+    class ParkingEndpoint:
+        def send(self, data):
+            begun.set()             # the relay's recv now fails while this send is still active
+            time.sleep(0.4)         # time for the relay to park the failure
+            return len(data)
+
+        def recv(self, n):
+            begun.wait(10)
+            raise ConnectionResetError("reset while the request was being sent")
+
+        def shutdown(self, how):
+            pass
+
+        def close(self):
+            pass
+
+    log = str(tmp_path / "r2.log")
+    launch_line(log)
+    a, b = socket.socketpair()
+    a.settimeout(10)
+    budget = mod.Budget(1 << 20, 1 << 22, 4, log, False)
+    t = threading.Thread(target=mod.handle_http, args=(b, ParkingEndpoint, log, mod.parse_allow(ALLOW), False, budget, 30,
+                                                       mod.Launch()), daemon=True)
+    t.start()
+    a.sendall(req("GET", "/v1/models"))
+    a.shutdown(socket.SHUT_WR)
+    t.join(10)
+    assert not t.is_alive()
+    assert _upstream_tagged(tagged_lines(log)) == [("upstream-reset", "-")]
+    assert verdict(log) == (0, "not-flagged", "")
+    a.close()
+
+
+def test_followup_the_readme_states_one_log_per_launch_and_the_two_reset_limits():
+    text = _readme_text()
+    for needle in ("one log per launch", "exactly one line starting `wrapper-launch `", "harness setup error",
+                   "a half-closing client hides a real mid-response reset", "the marker write is swallowed", "full disk"):
+        assert needle in text, needle
