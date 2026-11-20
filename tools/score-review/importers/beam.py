@@ -3,6 +3,8 @@ import ast
 import hashlib
 import json
 
+from seeds import require_canonical_seed
+
 
 class ImportError_(ValueError):
     pass
@@ -121,6 +123,7 @@ def build_records(conv, questions, agent_rows, seed, dataset, data_sha256_prefix
     says which answer is official or which arm produced an answer, and no item id says which conversation or
     question it is (the question number maps to the category). Those facts live in grades only.
     """
+    require_canonical_seed(seed, "the import seed (--seed)")  # the answer ids are public hashes of it
     items, grades, skipped = [], [], []
     seen_items = set()
     for q in questions:

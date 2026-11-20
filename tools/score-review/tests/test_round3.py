@@ -12,7 +12,7 @@ import textwrap
 
 import pytest
 
-from helpers import SEED, Store, assert_refused, forge_export, forge_verdict, read_jsonl, run
+from helpers import SEED, SEED_2, Store, assert_refused, forge_export, forge_verdict, read_jsonl, run
 from test_round2 import CStore
 
 NEUTRAL = "Cited messages: not shown for this item"
@@ -74,7 +74,7 @@ def test_b1_the_real_import_shape_shows_no_cited_line_difference(tmp_path):
     rows = [dict(r, rubric_scores=[1.0]) for r in read_jsonl(ans)]
     qs = [{"question_no": 1, "question": "Synthetic question?", "answer": "synthetic official reply", "rubric": ["r"],
            "cited_ids": [4, 7], "category": "c", "metadata": {}}]
-    items, grades, _ = beam.build_records("cv", qs, rows, "sd", "synthetic", "0" * 12)
+    items, grades, _ = beam.build_records("cv", qs, rows, SEED, "synthetic", "0" * 12)
     assert [a["cited_ids"] for a in items[0]["answers"] if a["answer_id"] == grades[0]["official_id"]] == [[4, 7]]
     p = tmp_path / "items.jsonl"
     p.write_text(json.dumps(items[0]) + "\n")
@@ -92,7 +92,7 @@ CONV = "CONVQZ-PLANT"
 QBASE = 73500
 
 
-def _planted(n=24, conv=CONV, seed="sd"):
+def _planted(n=24, conv=CONV, seed=SEED):
     from importers import beam
     questions = [{"question_no": QBASE + k, "question": "Synthetic question about topic zz?",
                   "answer": "Synthetic reply alpha", "rubric": ["rubric one", "rubric two"], "cited_ids": [],
@@ -136,7 +136,7 @@ def test_b2_ids_are_not_ordered_by_question_number_or_category_and_depend_on_see
     cats = [grades[k]["category"] for k in by_id]
     assert any(cats[i] != cats[i + 1] for i in range(len(cats) - 1))
     assert len({k % 3 for k in by_id[:6]}) > 1  # the id-sorted head holds more than one category
-    assert sorted(i["item_id"] for i in _planted(seed="other")[0]) != sorted(ids)
+    assert sorted(i["item_id"] for i in _planted(seed=SEED_2)[0]) != sorted(ids)
     assert sorted(i["item_id"] for i in _planted(conv="OTHERCONV")[0]) != sorted(ids)
     assert sorted(i["item_id"] for i in _planted()[0]) == sorted(ids)  # reproducible
 
@@ -256,7 +256,7 @@ def test_s3_a_failed_packet_write_leaves_neither_packet_nor_key(tmp_path):
     out, keys = tmp_path / "packets", tmp_path / "keys"
     (out / "i02.md").mkdir(parents=True)  # the packet cannot be written over a directory (refused: the path exists)
     with pytest.raises((ValueError, OSError)):
-        blind_packet.write_packet(str(s.items), "i02", "sd", str(keys), str(out))
+        blind_packet.write_packet(str(s.items), "i02", SEED, str(keys), str(out))
     assert not (keys / "i02.json").exists()
     assert _tree(keys) == []  # no temp file left behind either
     assert _tree(out) == ["i02.md"] and (out / "i02.md").is_dir()
@@ -280,7 +280,7 @@ def test_s3_a_failed_key_write_leaves_no_key_and_no_packet(tmp_path, monkeypatch
             return _real(src, dst, *a, **k)
         monkeypatch.setattr(blind_packet.os, name, failing)
     with pytest.raises(OSError):
-        blind_packet.write_packet(str(s.items), "i02", "sd", str(keys), str(out))
+        blind_packet.write_packet(str(s.items), "i02", SEED, str(keys), str(out))
     assert _tree(keys) == [] and _tree(out) == []  # neither file, and no temp file
 
 

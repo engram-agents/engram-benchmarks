@@ -41,7 +41,7 @@ def test_a62_a_pre_existing_packet_is_refused_through_the_api_too(tmp_path):
     out.mkdir(parents=True)
     (out / "i02.md").write_bytes(b"old")
     with pytest.raises((ValueError, OSError)):
-        blind_packet.write_packet(str(s.items), "i02", "sd", str(s.keys), str(out))
+        blind_packet.write_packet(str(s.items), "i02", SEED, str(s.keys), str(out))
     assert (out / "i02.md").read_bytes() == b"old"
     assert not (s.keys / "i02.json").exists()
 
@@ -58,7 +58,7 @@ def test_a62_a_key_failure_removes_the_packet_this_run_wrote(tmp_path, monkeypat
         return real(src, dst, *a, **k)
     monkeypatch.setattr(blind_packet.os, "link", failing)
     with pytest.raises(OSError):
-        blind_packet.write_packet(str(s.items), "i02", "sd", str(s.keys), str(out))
+        blind_packet.write_packet(str(s.items), "i02", SEED, str(s.keys), str(out))
     assert _tree(out) == [] and _tree(s.keys) == []
 
 
@@ -75,7 +75,7 @@ def test_a62_a_packet_placed_by_this_run_is_never_an_overwrite(tmp_path, monkeyp
         calls.append(str(dst))
         return real_replace(src, dst, *a, **k)
     monkeypatch.setattr(blind_packet.os, "replace", spy)
-    blind_packet.write_packet(str(s.items), "i02", "sd", str(s.keys), str(out))
+    blind_packet.write_packet(str(s.items), "i02", SEED, str(s.keys), str(out))
     assert not [c for c in calls if c.endswith("i02.md")], calls
 
 
@@ -94,7 +94,7 @@ def test_a62_a_packet_that_appears_while_the_run_is_staging_is_refused_and_left_
         return real(src, dst, *a, **k)
     monkeypatch.setattr(blind_packet.os, "link", racing)
     with pytest.raises((ValueError, OSError)):
-        blind_packet.write_packet(str(s.items), "i02", "sd", str(s.keys), str(out))
+        blind_packet.write_packet(str(s.items), "i02", SEED, str(s.keys), str(out))
     assert (out / "i02.md").read_bytes() == b"the other run's packet"  # never removed: it is not this run's
     assert _tree(out) == ["i02.md"] and not (s.keys / "i02.json").exists()
 

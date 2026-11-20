@@ -348,3 +348,44 @@ def test_s_every_verb_with_a_seed_flag_is_classified_so_a_new_one_forces_a_decis
     with_seed = {n for n, sp in sub.choices.items() if any("--seed" in a.option_strings for a in sp._actions)}
     secret, public = {"packet2", "import-beam"}, {"draw"}  # draw's seed is the public drand randomness
     assert with_seed == secret | public, with_seed
+
+
+def test_s_write_packet_itself_refuses_a_non_canonical_seed_and_writes_nothing(tmp_path):
+    import blind_packet
+    s = Store(tmp_path)
+    for bad in BAD_SEEDS[:5]:
+        with pytest.raises(ValueError) as exc:
+            blind_packet.write_packet(str(s.items), "i01", bad, str(s.keys), str(tmp_path / "packets"))
+        assert bad not in str(exc.value) and "seed" in str(exc.value)
+    assert not s.keys.exists() and not (tmp_path / "packets").exists()
+    blind_packet.write_packet(str(s.items), "i01", SEED, str(s.keys), str(tmp_path / "packets"))  # positive control
+
+
+def test_s_build_records_itself_refuses_a_non_canonical_seed(tmp_path):
+    from importers import beam
+    q = [{"question_no": 1, "question": "Synthetic question?", "answer": "Synthetic reply alpha", "rubric": ["r1"],
+          "cited_ids": [], "category": "c", "metadata": {}}]
+    rows = [{"question_no": 1, "text": "Synthetic reply beta", "cited_ids": [], "rubric_scores": [1.0], "arm": "armA"}]
+    for bad in BAD_SEEDS[:5]:
+        with pytest.raises(ValueError) as exc:
+            beam.build_records("c1", q, rows, bad, "synthetic", "0" * 12)
+        assert bad not in str(exc.value) and "seed" in str(exc.value)
+    assert beam.build_records("c1", q, rows, SEED, "synthetic", "0" * 12)[0]  # positive control
+
+
+def test_s_the_canonical_seed_rule_has_one_definition_in_seeds_py():
+    import ast
+    import pathlib
+    import score_review as sr
+    tool = pathlib.Path(sr.__file__).resolve().parent
+    offenders = []
+    for path in sorted(tool.glob("*.py")) + sorted((tool / "importers").glob("*.py")):
+        if path.name == "seeds.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and node.value in ("^[0-9a-f]{64}$", "[0-9a-f]{64}"):
+                offenders.append("%s:%d holds the seed pattern" % (path.name, node.lineno))
+            if isinstance(node, ast.FunctionDef) and node.name == "require_canonical_seed":
+                offenders.append("%s:%d defines require_canonical_seed" % (path.name, node.lineno))
+    assert offenders == [], offenders
+    assert "seeds.py" and (tool / "seeds.py").exists()

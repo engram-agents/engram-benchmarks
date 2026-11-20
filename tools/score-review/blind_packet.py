@@ -12,6 +12,7 @@ import random
 
 from chatfile import load_chat
 from ids import valid_answer_id, valid_item_id
+from seeds import require_canonical_seed
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 CITED_NOT_SHOWN = "Cited messages: not shown for this item"
@@ -145,6 +146,7 @@ def write_packet(items_path, item_id, seed, keys_dir, out_dir, chat_path=None):
     the key stage fails is always this run's own, and it is then removed. A stale temporary file beside either
     output (a killed run's residue) is refused by name, never ignored.
     """
+    require_canonical_seed(seed, "the letter seed (--seed)")  # first: before any file is read or written
     item = load_item(items_path, item_id)
     key_path = os.path.join(keys_dir, "%s.json" % item_id)
     packet_path = os.path.join(out_dir, "%s.md" % item_id)

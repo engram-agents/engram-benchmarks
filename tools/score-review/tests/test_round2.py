@@ -121,7 +121,7 @@ def _records(questions_by_cat, arms=("armA", "armB")):
         for arm in arms:
             rows.append({"question_no": q["question_no"], "text": "Synthetic agent reply %s %d" % (arm, q["question_no"]),
                          "cited_ids": [], "rubric_scores": [1.0] * len(q["rubric"]), "arm": arm})
-    items, grades, skipped = beam.build_records("c1", questions, rows, "sd", "synthetic", "0" * 12)
+    items, grades, skipped = beam.build_records("c1", questions, rows, SEED, "synthetic", "0" * 12)
     return in_grade_order(items, grades), grades, skipped
 
 

@@ -422,7 +422,7 @@ def test_cell11_packet_builder_blind_by_construction(tmp_path):
             mods |= {a.name.split(".")[0] for a in n.names}
         if isinstance(n, ast.ImportFrom):
             mods.add((n.module or "").split(".")[0])
-    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "glob", "chatfile", "ids"}, mods
+    assert mods <= {"json", "hashlib", "random", "re", "pathlib", "os", "sys", "glob", "chatfile", "ids", "seeds"}, mods
     for word in ("grades", "verdicts", "draws", "score_review"):
         assert word not in src.lower(), word
     for fn in (blind_packet.build_packet, blind_packet.write_packet):
@@ -437,7 +437,7 @@ def pathlib_text(path):
 
 # ---------------------------------------------------------------- cell 13: opaque, shuffled ids
 
-def _beam_fixture(n=24, seed="fixture-seed"):
+def _beam_fixture(n=24, seed=SEED):
     from importers import beam
     questions = []
     for k in range(1, n + 1):
@@ -484,9 +484,9 @@ def test_cell13_ids_and_positions_do_not_predict_official_or_arm():
 
 
 def test_cell13_ids_are_reproducible_and_depend_on_seed():
-    i1, _ = _beam_fixture(seed="s")
-    i2, _ = _beam_fixture(seed="s")
-    i3, _ = _beam_fixture(seed="t")
+    i1, _ = _beam_fixture(seed=SEED)
+    i2, _ = _beam_fixture(seed=SEED)
+    i3, _ = _beam_fixture(seed=SEED_2)
     assert i1 == i2 and i1 != i3
 
 
@@ -501,8 +501,8 @@ def test_cell14_letters_vary_per_item_and_are_reproducible(tmp_path):
     for it in ids:
         a = tmp_path / "k1"
         b = tmp_path / "k2"
-        blind_packet.write_packet(str(s.items), it, "one-seed", str(a), str(tmp_path / "p1"))
-        blind_packet.write_packet(str(s.items), it, "one-seed", str(b), str(tmp_path / "p2"))
+        blind_packet.write_packet(str(s.items), it, SEED, str(a), str(tmp_path / "p1"))
+        blind_packet.write_packet(str(s.items), it, SEED, str(b), str(tmp_path / "p2"))
         k1 = json.loads((a / ("%s.json" % it)).read_text())["letters"]
         k2 = json.loads((b / ("%s.json" % it)).read_text())["letters"]
         assert k1 == k2  # same seed and item -> same letters
