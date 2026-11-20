@@ -5,50 +5,88 @@ The sandbox has its own network namespace, so the student's model endpoint is ca
 socket, and nothing else crosses:
 
   outer  (host side, started by the wrapper before the box)  UNIX socket  ->  <SANDBOX_MODEL_HOST>:<SANDBOX_MODEL_PORT>
+         TRUSTED, and an HTTP request allow-list: it parses HTTP/1.1 requests on each connection (request line and
+         headers; bodies by Content-Length or chunked; keep-alive, several requests per connection) and forwards a
+         request only if its METHOD and path are on the list (--allow, "METHOD /path" entries, exact path or a prefix
+         ending in "*"). Any other request gets 403 and the connection closes; it never reaches the model server.
+         A request that cannot be framed gets 400; CONNECT, Upgrade and non-origin-form targets get 403.
+         Responses, streamed ones included, are relayed byte for byte. --learn allows everything it can frame and
+         check and logs each request's METHOD and PATH only (never a body, never a query string), so the harness's
+         real set can be learned once and then fixed as the list.
          Records one line per connection to SANDBOX_LOG when set: open/close epoch seconds and bytes each way.
          Exits (and removes its socket and directory) when the watched pid, the wrapper that became the box, is gone.
-  inner  (inside the box)  127.0.0.1:<port>  ->  the UNIX socket bind-mounted from outside.
+  inner  (inside the box)  127.0.0.1:<port>  ->  the UNIX socket bind-mounted from outside. A raw relay: it checks
+         nothing, because everything it carries passes the outer forwarder's list.
          Forks into the background, then execs the command it was given, so the student is the main process.
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
+  check-allow --text LIST     wrapper helper: validate an allow-list (exit 2 with one reason on stderr).
   homes   wrapper helper: every account home in the host's account database, resolved, NUL-separated.
   account-file passwd|group --home H   wrapper helper: the synthetic /etc/passwd or /etc/group of the box (root and the
           invoking uid/gid only; the invoker's home is H).
   etc-scan   wrapper helper: the readable regular files under /etc that name a home or another account, NUL-separated.
 
-Usage (internal): outer --sock S --host H --port P --watch PID [--log FILE]
+Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
                   inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
 """
-import argparse, os, shlex, socket, statistics, subprocess, sys, threading, time
+import argparse, os, re, shlex, socket, statistics, subprocess, sys, threading, time, urllib.parse
 
 LOCK = threading.Lock()
 COUNTER = [0]
 
 
-def pipe(src, dst, counts, idx):
-    """One direction. Counts bytes only."""
+def pipe(src, dst, counts, idx, wlock=None, shutdown_dst=True):
+    """One direction, raw. Counts bytes only. `wlock` serialises writes to a socket two threads may write."""
     try:
         while True:
             data = src.recv(65536)
             if not data:
                 break
-            dst.sendall(data)
+            if wlock is not None:
+                with wlock:
+                    dst.sendall(data)
+            else:
+                dst.sendall(data)
             counts[idx] += len(data)
     except OSError:
         pass
     finally:
+        if shutdown_dst:
+            try:
+                dst.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+
+def write_log(log, line):
+    if not log:
+        return
+    try:
+        fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
-            dst.shutdown(socket.SHUT_WR)
-        except OSError:
-            pass
+            os.write(fd, (line + "\n").encode())
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def next_id():
+    with LOCK:
+        COUNTER[0] += 1
+        return COUNTER[0]
+
+
+def conn_line(cid, t_open, counts, err):
+    line = "fwd-conn id=%d open=%.6f close=%.6f up=%d down=%d" % (cid, t_open, time.time(), counts[0], counts[1])
+    return line + (" error=" + err if err else "")
 
 
 def handle(client, connect, log):
-    with LOCK:
-        COUNTER[0] += 1
-        cid = COUNTER[0]
+    """Raw relay (the inner forwarder inside the box: it carries bytes to the UNIX socket and checks nothing)."""
+    cid = next_id()
     t_open = time.time()
     counts = [0, 0]
     err = None
@@ -63,27 +101,314 @@ def handle(client, connect, log):
         up.start(); down.start(); up.join(); down.join()
         upstream.close()
     client.close()
-    if log:
-        line = "fwd-conn id=%d open=%.6f close=%.6f up=%d down=%d" % (cid, t_open, time.time(), counts[0], counts[1])
-        if err:
-            line += " error=" + err
-        try:
-            fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            try:
-                os.write(fd, (line + "\n").encode())
-            finally:
-                os.close(fd)
-        except OSError:
-            pass
+    write_log(log, conn_line(cid, t_open, counts, err))
 
 
-def serve(listener, connect, log):
+def serve(listener, handler):
     while True:
         try:
             client, _ = listener.accept()
         except OSError:
             return
-        threading.Thread(target=handle, args=(client, connect, log), daemon=True).start()
+        threading.Thread(target=handler, args=(client,), daemon=True).start()
+
+
+def connect_upstream(host, port):
+    """The model endpoint. create_connection leaves its connect timeout on the socket as a receive timeout; a model
+    that is slow to its first byte must not be cut by it, so the timeout applies to the connect only."""
+    s = socket.create_connection((host, port), timeout=10)
+    s.settimeout(None)
+    return s
+
+
+# ---------------------------------------------------------------- the outer forwarder: an HTTP request allow-list
+
+MAX_HEAD = 64 * 1024
+MAX_LINE = 8 * 1024
+RE_REQLINE = re.compile(rb"([A-Z]{1,16}) ([\x21-\x7e]+) HTTP/1\.([01])")
+RE_NAME = re.compile(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
+RE_BADCTL = re.compile(rb"[\x00-\x08\x0a-\x1f\x7f]")
+RE_LENGTH = re.compile(rb"[0-9]{1,15}")
+RE_HEX = re.compile(rb"[0-9A-Fa-f]{1,15}")
+RE_BARE = re.compile(rb"(?<!\r)\n|\r(?!\n|$)")
+RE_ENTRY_PATH = re.compile(r"/[\x21-\x7e]*")
+RESP_CLOSE = b"HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+
+class BadRequest(Exception):
+    """The bytes are not a request we can frame: 400, close."""
+
+
+def parse_allow(text):
+    """'METHOD /path' entries, comma-separated; the path is exact, or a prefix when it ends in '*'. Returns a list of
+    (method, path-or-prefix, is_prefix); raises ValueError with one reason."""
+    if text is None or not text.strip():
+        raise ValueError("is empty")
+    rules = []
+    for raw in text.split(","):
+        entry = raw.strip()
+        if not entry:
+            raise ValueError("has an empty entry")
+        parts = entry.split()
+        if len(parts) != 2:
+            raise ValueError("entry %r is not 'METHOD /path'" % entry)
+        method, path = parts
+        if not re.fullmatch(r"[A-Z]{1,16}", method):
+            raise ValueError("entry %r: the method is not upper-case letters" % entry)
+        if not RE_ENTRY_PATH.fullmatch(path) or "?" in path or "#" in path or "*" in path[:-1]:
+            raise ValueError("entry %r: the path must start with '/', and '*' may only end it" % entry)
+        prefix = path.endswith("*")
+        rules.append((method, path[:-1] if prefix else path, prefix))
+    return rules
+
+
+def allowed(rules, method, path):
+    for m, p, prefix in rules:
+        if m == method and (path.startswith(p) if prefix else path == p):
+            return True
+    return False
+
+
+def request_path(target):
+    """The decoded path to match, or None when it must not be matched at all: not origin-form, undecodable, a control
+    character or backslash, a second layer of percent-encoding, a '.' or '..' segment, or an empty segment."""
+    if not target.startswith("/"):
+        return None
+    raw = target.split("?", 1)[0].split("#", 1)[0]
+    try:
+        path = urllib.parse.unquote(raw, errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if "%" in path or "\\" in path or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
+        return None
+    segs = path.split("/")
+    for i, seg in enumerate(segs[1:], 1):
+        if seg in (".", "..") or (seg == "" and i != len(segs) - 1):
+            return None
+    return path
+
+
+class Reader:
+    """Buffered reads from the client, so pipelined requests and partial segments are framed correctly."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = bytearray()
+
+    def fill(self):
+        data = self.sock.recv(65536)
+        if not data:
+            return False
+        self.buf += data
+        return True
+
+    def read_head(self):
+        """The bytes of one request head, through the blank line; None at EOF on a message boundary."""
+        while True:
+            end = self.buf.find(b"\r\n\r\n")
+            scan = bytes(self.buf[:end + 4] if end >= 0 else self.buf)
+            if RE_BARE.search(scan):
+                raise BadRequest("bare CR or LF in a request head")
+            if end >= 0:
+                head = bytes(self.buf[:end + 4])
+                del self.buf[:end + 4]
+                return head
+            if len(self.buf) > MAX_HEAD:
+                raise BadRequest("request head too large")
+            if not self.fill():
+                if self.buf:
+                    raise EOFError("connection closed inside a request head")
+                return None
+
+    def read_line(self):
+        while True:
+            i = self.buf.find(b"\r\n")
+            if i >= 0:
+                line = bytes(self.buf[:i + 2])
+                del self.buf[:i + 2]
+                return line
+            if len(self.buf) > MAX_LINE:
+                raise BadRequest("line too long")
+            if not self.fill():
+                raise EOFError("connection closed inside a request body")
+
+    def take(self, n):
+        """Up to n bytes (at least one), from the buffer first."""
+        if not self.buf and not self.fill():
+            raise EOFError("connection closed inside a request body")
+        data = bytes(self.buf[:n])
+        del self.buf[:n]
+        return data
+
+
+def parse_head(head):
+    """(method, target, [(lower-case name, value)]) from one request head; BadRequest if it cannot be framed."""
+    lines = head[:-4].split(b"\r\n")
+    m = RE_REQLINE.fullmatch(lines[0])
+    if not m:
+        raise BadRequest("request line")
+    headers = []
+    for l in lines[1:]:
+        if l[:1] in (b" ", b"\t"):
+            raise BadRequest("obsolete line folding")
+        name, sep, value = l.partition(b":")
+        if not sep or not RE_NAME.fullmatch(name):
+            raise BadRequest("header line")
+        value = value.strip(b" \t")
+        if RE_BADCTL.search(value):
+            raise BadRequest("control character in a header")
+        headers.append((name.lower(), value))
+    return m.group(1).decode(), m.group(2).decode(), headers
+
+
+def body_framing(headers):
+    """('none', 0) | ('length', n) | ('chunked', 0). Anything ambiguous is BadRequest (a smuggling guard)."""
+    te = [v for n, v in headers if n == b"transfer-encoding"]
+    cl = [v for n, v in headers if n == b"content-length"]
+    if te and cl:
+        raise BadRequest("both Content-Length and Transfer-Encoding")
+    if te:
+        if [c.strip().lower() for c in b",".join(te).split(b",")] != [b"chunked"]:
+            raise BadRequest("unsupported Transfer-Encoding")
+        return "chunked", 0
+    if cl:
+        if any(not RE_LENGTH.fullmatch(v) for v in cl) or len(set(cl)) != 1:
+            raise BadRequest("Content-Length")
+        return "length", int(cl[0])
+    return "none", 0
+
+
+def drain_briefly(sock):
+    """Discard what the client already sent, so closing does not reset the connection under a reply it has not read."""
+    try:
+        sock.settimeout(0.05)
+        while sock.recv(65536):
+            pass
+    except OSError:
+        pass
+
+
+def handle_http(client, connect, log, rules, learn):
+    """One client connection through the allow-list. Every request on the connection is checked, not only the first."""
+    cid = next_id()
+    t_open = time.time()
+    counts = [0, 0]
+    err = None
+    wlock = threading.Lock()   # guards the client socket's write side between the relay thread and this one
+    state = {"closing": False}
+    upstream = None
+    down = None
+    reply = None               # a 400 or 403 to send after every earlier response has been relayed
+    reader = Reader(client)
+
+    def relay_down(up):
+        pipe(up, client, counts, 1, wlock, shutdown_dst=False)
+        with wlock:   # the model server is done: tell the client, unless a refusal is still to be written
+            if not state["closing"]:
+                try:
+                    client.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+
+    def forward(data):
+        upstream.sendall(data)
+        counts[0] += len(data)
+
+    def forward_exact(n):
+        while n > 0:
+            chunk = reader.take(min(n, 65536))
+            forward(chunk)
+            n -= len(chunk)
+
+    def forward_chunked():
+        while True:
+            line = reader.read_line()
+            forward(line)
+            size_tok = line[:-2].split(b";", 1)[0].strip()
+            if not RE_HEX.fullmatch(size_tok):
+                raise BadRequest("chunk size")
+            size = int(size_tok, 16)
+            if size == 0:
+                while True:   # trailers, through the blank line
+                    t = reader.read_line()
+                    forward(t)
+                    if t == b"\r\n":
+                        return
+            forward_exact(size)
+            crlf = b""
+            while len(crlf) < 2:
+                crlf += reader.take(2 - len(crlf))
+            if crlf != b"\r\n":
+                raise BadRequest("chunk framing")
+            forward(crlf)
+
+    try:
+        while True:
+            head = reader.read_head()
+            if head is None:
+                break
+            method, target, headers = parse_head(head)
+            path_raw = target.split("?", 1)[0].split("#", 1)[0] if target.startswith("/") else None
+            log_path = (path_raw or "-")[:300]
+            names = {n for n, _ in headers}
+            conn_tokens = b",".join(v.lower().replace(b" ", b"") for n, v in headers if n == b"connection").split(b",")
+            framing = body_framing(headers)
+            deny = None
+            if method == "CONNECT" or b"upgrade" in names or b"upgrade" in conn_tokens:
+                deny = "cannot be framed after the switch"
+            else:
+                path = request_path(target)
+                if path is None:
+                    deny = "path"
+                elif not learn and not allowed(rules, method, path):
+                    deny = "not on the list"
+            if deny is not None:
+                write_log(log, "fwd-deny method=%s path=%s" % (method, log_path))
+                reply = RESP_CLOSE % (403, b"Forbidden")
+                break
+            if learn:
+                write_log(log, "fwd-req method=%s path=%s" % (method, log_path))
+            if upstream is None:
+                try:
+                    upstream = connect()
+                except OSError as e:
+                    err = type(e).__name__
+                    break
+                down = threading.Thread(target=relay_down, args=(upstream,), daemon=True)
+                down.start()
+            forward(head)
+            kind, n = framing
+            if kind == "length":
+                forward_exact(n)
+            elif kind == "chunked":
+                forward_chunked()
+    except BadRequest:
+        reply = RESP_CLOSE % (400, b"Bad Request")
+    except (EOFError, OSError):
+        pass
+    finally:
+        with wlock:
+            state["closing"] = True
+        if upstream is not None:
+            try:
+                upstream.shutdown(socket.SHUT_WR)   # the model server finishes what it was sent, then closes
+            except OSError:
+                pass
+            down.join(timeout=30)
+            upstream.close()
+        if reply is not None:
+            with wlock:
+                try:
+                    client.sendall(reply)
+                except OSError:
+                    pass
+        try:
+            client.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        drain_briefly(client)
+        client.close()
+        write_log(log, conn_line(cid, t_open, counts, err))
 
 
 def alive(pid):
@@ -96,6 +421,13 @@ def alive(pid):
 
 
 def run_outer(a):
+    rules = []
+    if not a.learn:
+        try:
+            rules = parse_allow(a.allow)
+        except ValueError as e:
+            sys.stderr.write("student-sandbox: refused: --allow %s\n" % e)
+            return 2
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     # AF_UNIX paths are limited to ~107 bytes and TMPDIR may be long: bind relative to the socket's directory.
     os.chdir(os.path.dirname(a.sock))
@@ -104,9 +436,12 @@ def run_outer(a):
     listener.listen(64)
 
     def connect():
-        return socket.create_connection((a.host, a.port), timeout=10)
+        return connect_upstream(a.host, a.port)
 
-    threading.Thread(target=serve, args=(listener, connect, a.log), daemon=True).start()
+    def handler(client):
+        handle_http(client, connect, a.log, rules, a.learn)
+
+    threading.Thread(target=serve, args=(listener, handler), daemon=True).start()
     try:
         while alive(a.watch):
             time.sleep(0.2)
@@ -147,7 +482,7 @@ def run_inner(a):
 
         os.write(w, b"1")
         os.close(w)
-        serve(listener, connect, None)
+        serve(listener, lambda client: handle(client, connect, None))
         os._exit(0)
     os.close(w)
     if os.read(r, 1) != b"1":
@@ -160,6 +495,16 @@ def run_inner(a):
     except OSError as e:
         sys.stderr.write("student-sandbox: cannot exec %s: %s\n" % (a.cmd[0], e.strerror))
         return 127
+
+
+def run_check_allow(a):
+    try:
+        n = len(parse_allow(a.text))
+    except ValueError as e:
+        sys.stderr.write("%s\n" % e)
+        return 2
+    print(n)
+    return 0
 
 
 def run_homes(a):
@@ -197,7 +542,7 @@ def run_etc_scan(a):
     """Class rule, from the host at launch: a readable regular file under /etc (symlinks never followed) whose content
     contains the string /home/ or any account name other than root and the invoker as a whole colon/comma-delimited
     token (the shape of passwd, group, subuid, subgid and their backups). Prints the paths, NUL-separated."""
-    import pwd, re
+    import pwd
     me = pwd.getpwuid(os.getuid()).pw_name
     others = sorted({u.pw_name for u in pwd.getpwall()} - {"root", me})
     rx = None
@@ -254,7 +599,9 @@ def run_latency_compare(a):
     direct = measure(host, port, a.n)
     inside = "%s -I /run/sandbox-forward.py latency --host 127.0.0.1 --port %d -n %d" % (
         "/usr/bin/python3", port, a.n)
-    env = dict(os.environ, SANDBOX_TEST="1", SANDBOX_TEST_EXEC=inside)
+    # the probe is one request, GET /ping: the boxed run lists exactly that, whatever the real launch lists
+    env = dict(os.environ, SANDBOX_TEST="1", SANDBOX_TEST_EXEC=inside, SANDBOX_MODEL_ALLOW="GET /ping")
+    env.pop("SANDBOX_MODEL_LEARN", None)
     r = subprocess.run(["/bin/bash", a.wrapper], env=env, capture_output=True, text=True)
     if r.returncode != 0 or not r.stdout.startswith("latency "):
         sys.stderr.write("latency-compare: the boxed measurement failed (exit %d): %s\n" % (r.returncode, r.stderr.strip()))
@@ -274,11 +621,13 @@ def main(argv):
     o = sub.add_parser("outer")
     o.add_argument("--sock", required=True); o.add_argument("--host", required=True)
     o.add_argument("--port", type=int, required=True); o.add_argument("--watch", type=int, required=True)
-    o.add_argument("--log")
+    o.add_argument("--log"); o.add_argument("--allow"); o.add_argument("--learn", action="store_true")
     i = sub.add_parser("inner")
     i.add_argument("--sock", required=True); i.add_argument("--port", type=int, required=True)
     i.add_argument("--unset", action="append", default=[])
     i.add_argument("cmd", nargs="*")
+    ca = sub.add_parser("check-allow")
+    ca.add_argument("--text", required=True)
     sub.add_parser("homes")
     af = sub.add_parser("account-file")
     af.add_argument("kind", choices=("passwd", "group")); af.add_argument("--home", required=True)
@@ -290,7 +639,7 @@ def main(argv):
     lc.add_argument("--wrapper", required=True); lc.add_argument("-n", type=int, default=50)
     a = ap.parse_args(argv)
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
-            "latency-compare": run_latency_compare, "homes": run_homes,
+            "latency-compare": run_latency_compare, "check-allow": run_check_allow, "homes": run_homes,
             "account-file": run_account_file, "etc-scan": run_etc_scan}[a.mode](a)
 
 

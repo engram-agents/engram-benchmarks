@@ -116,7 +116,8 @@ class Cfg:
              "ANTHROPIC_API_KEY": "", "DISABLE_TELEMETRY": "1", "DISABLE_AUTOUPDATER": "1",
              "PROCTOR_DIR": os.path.join(self.slot, "proctor"), "TMPDIR": self.tmpd,
              "SANDBOX_SLOT": self.slot, "SANDBOX_BINARY": self.binary, "SANDBOX_BINARY_SHA256": self.sha,
-             "SANDBOX_MODEL_HOST": "127.0.0.1", "SANDBOX_MODEL_PORT": str(self.model_port)}
+             "SANDBOX_MODEL_HOST": "127.0.0.1", "SANDBOX_MODEL_PORT": str(self.model_port),
+             "SANDBOX_MODEL_ALLOW": "GET /*, POST /*"}
         if test:
             e["SANDBOX_TEST"] = "1"
         if exec_ is not None:
@@ -170,7 +171,8 @@ def fake_bwrap(tmp_path):
     return str(d), out
 
 
-REQUIRED = ["SANDBOX_SLOT", "SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST", "SANDBOX_MODEL_PORT"]
+REQUIRED = ["SANDBOX_SLOT", "SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST", "SANDBOX_MODEL_PORT",
+            "SANDBOX_MODEL_ALLOW"]
 
 
 def assert_refused(cfg, fake_bwrap, name, **runkw):
@@ -200,6 +202,7 @@ def test_s1_missing_or_empty_env_refuses(cfg, fake_bwrap, name, how):
 @pytest.mark.parametrize("name,val", [
     ("SANDBOX_BINARY_SHA256", "abc123"), ("SANDBOX_BINARY_SHA256", "g" * 64),
     ("SANDBOX_MODEL_PORT", "http"), ("SANDBOX_MODEL_PORT", "0"), ("SANDBOX_MODEL_PORT", "70000"),
+    ("SANDBOX_MODEL_PORT", "80"), ("SANDBOX_MODEL_PORT", "1023"),   # privileged: the in-box listener could not bind it
     ("SANDBOX_MODEL_HOST", "bad host;rm"),
 ])
 def test_s1_malformed_env_refuses(cfg, fake_bwrap, name, val):
@@ -674,22 +677,25 @@ def test_s7_real_pinned_binary_prints_its_version(cfg):
 
 # ---------------------------------------------------------------- S8: cost is measurable
 
+S8_REQ = (b"POST /v1/messages HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: 18\r\n\r\nREQUEST-SECRET-QQQ")
+
+
 @needs_box
-def test_s8_forwarder_logs_counts_and_timings_never_payloads(cfg, stubs):
-    model = stubs("PAYLOAD-MARKER-ZZZ")
+def test_s8_forwarder_logs_counts_and_timings_never_payloads(cfg, http_stub):
+    model = http_stub()
     cfg.model_port = model.port
-    probe = '%s -I -c \'import socket; s=socket.create_connection(("127.0.0.1",%d)); s.sendall(b"REQUEST-SECRET-QQQ"); d=b""\n' \
-            'while True:\n c=s.recv(99)\n if not c: break\n d+=c\nprint(d.decode())\'' % (PY, model.port)
-    r = cfg.run(exec_=probe, SANDBOX_LOG=cfg.log)
-    assert r.returncode == 0 and "PAYLOAD-MARKER-ZZZ" in r.stdout, r.stderr
+    probe = '%s -I -c \'import socket; s=socket.create_connection(("127.0.0.1",%d)); s.sendall(bytes.fromhex("%s")); d=b""\n' \
+            'while True:\n c=s.recv(99)\n if not c: break\n d+=c\nprint(d.decode())\'' % (PY, model.port, S8_REQ.hex())
+    r = cfg.run(exec_=probe, SANDBOX_LOG=cfg.log, SANDBOX_MODEL_ALLOW="POST /v1/messages")
+    assert r.returncode == 0 and "OK:POST:/v1/messages" in r.stdout, r.stderr
     time.sleep(0.5)
     text = open(cfg.log).read()
-    assert "PAYLOAD-MARKER-ZZZ" not in text and "REQUEST-SECRET-QQQ" not in text
+    assert "OK:POST" not in text and "REQUEST-SECRET-QQQ" not in text
     conns = [l for l in text.splitlines() if l.startswith("fwd-conn ")]
     assert len(conns) == 1, text
     f = dict(kv.split("=", 1) for kv in conns[0].split()[1:])
     assert float(f["close"]) >= float(f["open"]) > 1e9
-    assert int(f["up"]) == len(b"REQUEST-SECRET-QQQ") and int(f["down"]) == len(b"PAYLOAD-MARKER-ZZZ")
+    assert int(f["up"]) == len(S8_REQ) and int(f["down"]) == len(model.sent[0])
     assert any(l.startswith("wrapper-launch ") for l in text.splitlines())
 
 
@@ -1318,3 +1324,433 @@ def test_r4_opt_is_not_bound(cfg):
     r = cfg.run(exec_='if [ -d /opt ]; then ls -A /opt | wc -l; else echo absent; fi')
     assert r.returncode == 0, r.stderr
     assert r.stdout.split()[0] in ("absent", "0"), "host /opt is visible inside: %r" % r.stdout
+
+
+# ---------------------------------------------------------------- R5: the model bridge is an HTTP request allow-list
+
+class HttpStub(socketserver.ThreadingTCPServer):
+    """A model-server stand-in speaking HTTP/1.1 with keep-alive. Records every request it receives as
+    (method, target, exact raw bytes of the request including its body); `sent` holds the exact response bytes."""
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self):
+        outer = self
+        self.records = []
+        self.sent = []
+        self.lock = threading.Lock()
+
+        class H(socketserver.StreamRequestHandler):
+            def handle(h):
+                h.request.settimeout(10)
+                try:
+                    while h._one():
+                        pass
+                except (OSError, ValueError):
+                    pass
+
+            def _one(h):
+                line = h.rfile.readline()
+                if not line:
+                    return False
+                raw, headers = line, {}
+                while True:
+                    l = h.rfile.readline()
+                    raw += l
+                    if l in (b"\r\n", b""):
+                        break
+                    k, _, v = l.decode().partition(":")
+                    headers[k.strip().lower()] = v.strip()
+                if headers.get("transfer-encoding", "").lower() == "chunked":
+                    while True:
+                        sz = h.rfile.readline()
+                        raw += sz
+                        n = int(sz.split(b";")[0], 16)
+                        raw += h.rfile.read(n + 2)
+                        if n == 0:
+                            while True:
+                                t = h.rfile.readline()
+                                raw += t
+                                if t in (b"\r\n", b""):
+                                    break
+                            break
+                elif "content-length" in headers:
+                    raw += h.rfile.read(int(headers["content-length"]))
+                method, target = line.split()[0].decode(), line.split()[1].decode()
+                with outer.lock:
+                    outer.records.append((method, target, raw))
+                if target.endswith("/stream"):
+                    body = b"".join(b"%x\r\n%s\r\n" % (len(c), c) for c in (b"alpha", b"beta-beta", b"g")) + b"0\r\n\r\n"
+                    resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" + body
+                    with outer.lock:
+                        outer.sent.append(resp)
+                    for i in range(0, len(resp), 7):
+                        h.wfile.write(resp[i:i + 7])
+                        h.wfile.flush()
+                        time.sleep(0.002)
+                    return False
+                payload = ("OK:%s:%s" % (method, target)).encode()
+                resp = b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s" % (len(payload), payload)
+                with outer.lock:
+                    outer.sent.append(resp)
+                h.wfile.write(resp)
+                h.wfile.flush()
+                return headers.get("connection", "").lower() != "close"
+
+        super().__init__(("127.0.0.1", free_port()), H)
+        self.port = self.server_address[1]
+        threading.Thread(target=self.serve_forever, daemon=True).start()
+
+    def seen(self):
+        time.sleep(0.3)   # a request that was wrongly forwarded would have arrived by now
+        with self.lock:
+            return [(m, t) for m, t, _ in self.records]
+
+
+class OuterProc:
+    """The host-side forwarder run on its own (no box), so the allow-list contract is tested at its own boundary."""
+
+    def __init__(self, stub_port, allow=None, learn=False, log=None):
+        self.dir = tempfile.mkdtemp(prefix="sbx-")   # short, so the AF_UNIX path stays well under the limit
+        self.sock = os.path.join(self.dir, "b.sock")
+        args = [PY, "-I", FWD, "outer", "--sock", self.sock, "--host", "127.0.0.1", "--port", str(stub_port),
+                "--watch", str(os.getpid())]
+        if allow is not None:
+            args += ["--allow", allow]
+        if learn:
+            args += ["--learn"]
+        if log:
+            args += ["--log", log]
+        self.p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        end = time.time() + 10
+        while not os.path.exists(self.sock) and time.time() < end and self.p.poll() is None:
+            time.sleep(0.02)
+        assert os.path.exists(self.sock), "the forwarder did not start: %r" % self.p.communicate(timeout=5)[1]
+
+    def connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(5)
+        s.connect(self.sock)
+        return s
+
+    def close(self):
+        self.p.terminate()
+        try:
+            self.p.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.p.kill()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+@pytest.fixture
+def http_stub():
+    made = []
+
+    def mk():
+        s = HttpStub()
+        made.append(s)
+        return s
+    yield mk
+    for s in made:
+        s.shutdown()
+        s.server_close()
+
+
+@pytest.fixture
+def outer():
+    made = []
+
+    def mk(stub, **kw):
+        o = OuterProc(stub.port, **kw)
+        made.append(o)
+        return o
+    yield mk
+    for o in made:
+        o.close()
+
+
+def read_response(s):
+    """(status, headers, body) of one Content-Length response; body empty when there is none."""
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        c = s.recv(65536)
+        if not c:
+            break
+        buf += c
+    head, _, rest = buf.partition(b"\r\n\r\n")
+    lines = head.decode(errors="replace").split("\r\n")
+    status = int(lines[0].split()[1]) if lines and len(lines[0].split()) > 1 else 0
+    headers = {k.strip().lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:])}
+    n = int(headers.get("content-length", "0"))
+    while len(rest) < n:
+        c = s.recv(65536)
+        if not c:
+            break
+        rest += c
+    return status, headers, rest[:n]
+
+
+def at_eof(s):
+    try:
+        return s.recv(1) == b""
+    except (ConnectionResetError, socket.timeout):
+        return False
+
+
+def req(method, target, body=b"", extra=b"", version=b"HTTP/1.1"):
+    head = b"%s %s %s\r\nHost: model\r\n" % (method.encode(), target.encode(), version)
+    if body:
+        head += b"Content-Length: %d\r\n" % len(body)
+    return head + extra + b"\r\n" + body
+
+
+ALLOW = "POST /v1/messages, GET /v1/models, POST /api/*"
+
+
+def test_r5_an_allowed_post_reaches_the_stub_with_its_body_intact(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    raw = req("POST", "/v1/messages?beta=1", body=b'{"model":"m","messages":[]}')
+    s.sendall(raw)
+    status, _, body = read_response(s)
+    assert (status, body) == (200, b"OK:POST:/v1/messages?beta=1")
+    assert [(m, t) for m, t, _ in stub.records] == [("POST", "/v1/messages?beta=1")]
+    assert stub.records[0][2] == raw, "the request was altered on the way"
+
+
+def test_r5_a_delete_and_a_non_listed_path_get_403_and_never_reach_the_stub(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    for raw in (req("DELETE", "/api/delete", body=b'{"name":"x"}'),     # method not listed for a listed prefix
+                req("POST", "/api/../admin"),                           # dot segments must not slip past a prefix
+                req("POST", "/api/%2e%2e/admin"),                       # nor an encoded one
+                req("POST", "/api/%252e%252e/admin"),                   # nor a double-encoded one
+                req("POST", "//api/x"),                                 # nor an empty segment
+                req("POST", "/v1/messages/extra"),                      # exact entries are exact
+                req("GET", "/v1/messages"),                             # method must match the entry
+                req("POST", "/v1"), req("GET", "/")):
+        s = o.connect()
+        s.sendall(raw)
+        status, _, _ = read_response(s)
+        assert status == 403, raw
+        assert at_eof(s), "the connection stayed open after a 403: %r" % raw
+    assert stub.seen() == []
+
+
+def test_r5_prefix_entry_matches_beneath_it_only(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    for target, want in (("/api/chat", 200), ("/api/", 200), ("/api/a/b/c", 200), ("/api", 403), ("/apix", 403)):
+        s = o.connect()
+        s.sendall(req("POST", target))
+        assert read_response(s)[0] == want, target
+
+
+def test_r5_the_second_request_on_a_keep_alive_connection_is_checked_too(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("POST", "/v1/messages", body=b"{}"))
+    assert read_response(s)[0] == 200
+    s.sendall(req("POST", "/v1/messages", body=b"{}"))      # a second allowed one on the same connection still works
+    assert read_response(s)[0] == 200
+    s.sendall(req("DELETE", "/v1/messages"))               # the third is not allowed
+    assert read_response(s)[0] == 403
+    assert at_eof(s)
+    assert stub.seen() == [("POST", "/v1/messages"), ("POST", "/v1/messages")]
+
+
+def test_r5_pipelined_requests_in_one_segment_are_each_checked(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("GET", "/v1/models") + req("DELETE", "/v1/models") + req("GET", "/v1/models"))
+    data = b""
+    while True:
+        c = s.recv(65536)
+        if not c:
+            break
+        data += c
+    assert data.count(b"HTTP/1.1 200") == 1 and data.count(b"HTTP/1.1 403") == 1, data
+    assert stub.seen() == [("GET", "/v1/models")]
+
+
+def test_r5_a_chunked_body_passes_intact(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    raw = (b"POST /v1/messages HTTP/1.1\r\nHost: model\r\nTransfer-Encoding: chunked\r\n\r\n"
+           b"5\r\nhello\r\n6;ext=1\r\n world\r\n0\r\nX-Trailer: t\r\n\r\n")
+    s.sendall(raw[:40])
+    time.sleep(0.05)
+    s.sendall(raw[40:70])
+    time.sleep(0.05)
+    s.sendall(raw[70:])
+    assert read_response(s)[0] == 200
+    assert stub.records[0][2] == raw
+    # and a chunked request that is NOT allowed is refused before any of its body is forwarded
+    s2 = o.connect()
+    s2.sendall(raw.replace(b"POST /v1/messages", b"POST /nope"))
+    assert read_response(s2)[0] == 403
+    assert stub.seen() == [("POST", "/v1/messages")]
+
+
+def test_r5_a_large_body_passes_intact(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    body = bytes(range(256)) * 4096   # 1 MiB
+    raw = req("POST", "/v1/messages", body=body)
+    s.sendall(raw)
+    assert read_response(s)[0] == 200
+    assert stub.records[0][2] == raw
+
+
+def test_r5_a_streamed_response_is_relayed_unchanged(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("POST", "/api/stream"))
+    got = b""
+    while True:
+        c = s.recv(65536)
+        if not c:
+            break
+        got += c
+    assert got == stub.sent[0] and b"beta-beta" in got
+
+
+def test_r5_requests_that_cannot_be_framed_or_checked_are_refused(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    cases = {
+        "both length and chunked": (b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 2\r\n"
+                                    b"Transfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n", 400),
+        "two different lengths": (b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\n{}x", 400),
+        "bad length": (b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nContent-Length: -1\r\n\r\n", 400),
+        "folded header": (b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nX-A: 1\r\n  folded\r\n\r\n", 400),
+        "lower-case method": (b"post /v1/messages HTTP/1.1\r\nHost: m\r\n\r\n", 400),
+        "not http": (b"REQUEST-SECRET-QQQ\r\n\r\n", 400),
+        "bare LF": (b"POST /v1/messages HTTP/1.1\nHost: m\n\n", 400),
+        "upgrade": (b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", 403),
+        "connect": (b"CONNECT model:443 HTTP/1.1\r\nHost: model\r\n\r\n", 403),
+        "absolute form": (b"GET http://model/v1/models HTTP/1.1\r\nHost: model\r\n\r\n", 403),
+        "unsupported coding": (b"POST /v1/messages HTTP/1.1\r\nHost: m\r\nTransfer-Encoding: gzip\r\n\r\n", 400),
+    }
+    for name, (raw, want) in cases.items():
+        s = o.connect()
+        s.sendall(raw)
+        status, _, _ = read_response(s)
+        assert status == want, (name, status)
+        assert at_eof(s), name
+    assert stub.seen() == []
+
+
+def test_r5_a_connection_that_sends_nothing_reaches_nothing(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.close()
+    assert stub.seen() == []
+
+
+def test_r5_learn_mode_allows_everything_and_logs_method_and_path_only(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "learn.log")
+    o = outer(stub, learn=True, log=log)
+    s = o.connect()
+    s.sendall(req("DELETE", "/api/delete?secret-query=QQQ-SECRET", body=b"BODY-SECRET-ZZZ"))
+    assert read_response(s)[0] == 200
+    s.sendall(req("POST", "/v1/messages?x=1", body=b"BODY-SECRET-ZZZ"))
+    assert read_response(s)[0] == 200
+    assert stub.seen() == [("DELETE", "/api/delete?secret-query=QQQ-SECRET"), ("POST", "/v1/messages?x=1")]
+    time.sleep(0.5)
+    text = open(log).read()
+    lines = [l for l in text.splitlines() if l.startswith("fwd-req ")]
+    assert lines == ["fwd-req method=DELETE path=/api/delete", "fwd-req method=POST path=/v1/messages"], text
+    assert "SECRET" not in text and "QQQ" not in text and "BODY" not in text
+
+
+def test_r5_enforce_mode_logs_denials_by_method_and_path_only(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "deny.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(req("DELETE", "/api/delete?q=QQQ-SECRET", body=b"BODY-SECRET-ZZZ"))
+    assert read_response(s)[0] == 403
+    time.sleep(0.5)
+    text = open(log).read()
+    assert [l for l in text.splitlines() if l.startswith("fwd-deny ")] == ["fwd-deny method=DELETE path=/api/delete"], text
+    assert "SECRET" not in text and "QQQ" not in text and not [l for l in text.splitlines() if l.startswith("fwd-req ")]
+
+
+def test_r5_the_forwarder_refuses_to_start_without_an_allow_list_or_learn_mode(tmp_path):
+    for args in ([], ["--allow", ""], ["--allow", "get /x"], ["--allow", "POST x"], ["--allow", "POST /a*b"],
+                 ["--allow", "POST /a,,GET /b"], ["--allow", "POST"], ["--allow", "POST /a b"]):
+        d = tempfile.mkdtemp(prefix="sbx-")
+        try:
+            p = subprocess.run([PY, "-I", FWD, "outer", "--sock", os.path.join(d, "b.sock"), "--host", "127.0.0.1",
+                                "--port", "9", "--watch", str(os.getpid())] + args, capture_output=True, text=True, timeout=10)
+            assert p.returncode == 2 and not os.path.exists(os.path.join(d, "b.sock")), (args, p.returncode, p.stderr)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def test_r5_the_upstream_connection_has_no_idle_timeout(http_stub):
+    """A model that is slow to its first byte must not be cut by the connect timeout that create_connection leaves
+    on the socket (the bridge cannot use a socket with a 10 s receive timeout)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sandbox_forward_under_test", FWD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    stub = http_stub()
+    s = mod.connect_upstream("127.0.0.1", stub.port)
+    try:
+        assert s.gettimeout() is None
+    finally:
+        s.close()
+
+
+# the wrapper's own contract for the new variables
+
+def test_r5_wrapper_requires_a_wellformed_allow_list(cfg, fake_bwrap):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_MODEL_ALLOW", drop=("SANDBOX_MODEL_ALLOW",))
+    for val in ("", "   ", ",", "POST", "post /x", "POST x", "POST /a*b", "POST /a,,GET /b", "POST /a b", "POST /a,"):
+        assert_refused(cfg, fake_bwrap, "SANDBOX_MODEL_ALLOW", SANDBOX_MODEL_ALLOW=val)
+    _accepted(cfg, fake_bwrap, SANDBOX_MODEL_ALLOW="POST /v1/messages, GET /v1/models,POST /api/*")
+
+
+def test_r5_wrapper_learn_mode_rules(cfg, fake_bwrap):
+    fdir, out = fake_bwrap
+    # learn mode needs a log to learn into
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_MODEL_LEARN="1", drop=("SANDBOX_MODEL_ALLOW",))
+    assert r.returncode == 2 and "SANDBOX_MODEL_LEARN" in r.stderr and len(r.stderr.splitlines()) == 1, r.stderr
+    assert not os.path.exists(out) and os.listdir(cfg.tmpd) == []
+    # it is only ever "1"
+    for val in ("yes", "true", "2", "0 "):
+        assert_refused(cfg, fake_bwrap, "SANDBOX_MODEL_LEARN", SANDBOX_MODEL_LEARN=val)
+    # with a log, the allow-list is not required
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=cfg.log,
+                SANDBOX_MODEL_LEARN="1", drop=("SANDBOX_MODEL_ALLOW",))
+    assert r.returncode == 99, r.stderr
+    os.unlink(out)
+    _wait_clean(cfg)
+    # an empty learn flag is off: the allow-list is required again
+    assert_refused(cfg, fake_bwrap, "SANDBOX_MODEL_ALLOW", SANDBOX_MODEL_LEARN="", drop=("SANDBOX_MODEL_ALLOW",))
+
+
+@needs_box
+def test_r5_end_to_end_through_the_box(cfg, http_stub):
+    stub = http_stub()
+    cfg.model_port = stub.port
+    probe = ('%s -I -c \'import http.client\n'
+             'c = http.client.HTTPConnection("127.0.0.1", %d, timeout=10)\n'
+             'c.request("POST", "/v1/messages", body=b"{}", headers={"Content-Type": "application/json"})\n'
+             'r = c.getresponse(); print(r.status, r.read().decode())\n'
+             'c.request("DELETE", "/api/delete")\n'
+             'r = c.getresponse(); print(r.status); r.read()\'') % (PY, stub.port)
+    r = cfg.run(exec_=probe, SANDBOX_MODEL_ALLOW="POST /v1/messages")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split("\n")[:2] == ["200 OK:POST:/v1/messages", "403"], r.stdout
+    assert stub.seen() == [("POST", "/v1/messages")]

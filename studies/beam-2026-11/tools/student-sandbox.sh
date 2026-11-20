@@ -34,6 +34,8 @@ done
 [[ $SANDBOX_MODEL_PORT =~ ^[0-9]{1,5}$ ]] && ((10#$SANDBOX_MODEL_PORT >= 1 && 10#$SANDBOX_MODEL_PORT <= 65535)) \
   || refuse "SANDBOX_MODEL_PORT is not a port number (1-65535)"
 PORT=$((10#$SANDBOX_MODEL_PORT))
+# the listener inside the box is unprivileged: a port below 1024 would fail there with a traceback, not a refusal
+[ "$PORT" -ge 1024 ] || refuse "SANDBOX_MODEL_PORT is below 1024: the in-box listener cannot bind a privileged port"
 [[ $SANDBOX_MODEL_HOST =~ ^[A-Za-z0-9._:-]+$ ]] || refuse "SANDBOX_MODEL_HOST is not a host name or address"
 [[ $SANDBOX_SLOT == /* ]] || refuse "SANDBOX_SLOT is not an absolute path"
 [ -d "$SANDBOX_SLOT" ] || refuse "SANDBOX_SLOT is not an existing directory"
@@ -46,6 +48,19 @@ fi
 [ -x "$PY" ] || refuse "$PY not found"
 [ -f "$FWD" ] || refuse "sandbox-forward.py not found next to the wrapper"
 BWRAP=$(command -v bwrap) || refuse "bwrap not found on PATH"
+
+# ---- R5: the model bridge is an HTTP request allow-list. SANDBOX_MODEL_ALLOW is required, unless SANDBOX_MODEL_LEARN=1,
+# which allows everything and logs each request's METHOD and PATH (never bodies or query strings) to SANDBOX_LOG.
+LEARN=0
+case "${SANDBOX_MODEL_LEARN:-}" in
+  "") ;;
+  1) LEARN=1; [ -n "${SANDBOX_LOG:-}" ] || refuse "SANDBOX_MODEL_LEARN=1 needs SANDBOX_LOG to learn into" ;;
+  *) refuse "SANDBOX_MODEL_LEARN must be 1 or unset" ;;
+esac
+if [ "$LEARN" = 0 ]; then
+  [ -n "${SANDBOX_MODEL_ALLOW:-}" ] || refuse "SANDBOX_MODEL_ALLOW is not set or is empty"
+  why=$("$PY" -I "$FWD" check-allow --text="$SANDBOX_MODEL_ALLOW" 2>&1 >/dev/null) || refuse "SANDBOX_MODEL_ALLOW $why"
+fi
 
 # (R3) Open the binary ONCE. The sha256 is taken from that open file and THAT descriptor is what bwrap binds
 # (--ro-bind-fd), so the file hashed is the file bound: replacing the path after this point changes nothing. The
@@ -196,6 +211,7 @@ chmod 700 "$SOCKDIR"
 SOCK="$SOCKDIR/bridge.sock"
 FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
+if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_MODEL_ALLOW"); fi
 # It watches this pid, which becomes bwrap by the exec below, and removes the socket when that pid is gone.
 "$PY" -I "$FWD" "${FWDARGS[@]}" </dev/null >/dev/null 2>&1 {BINFD}<&- &
 FPID=$!
