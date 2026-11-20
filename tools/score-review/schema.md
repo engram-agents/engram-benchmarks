@@ -160,6 +160,13 @@ order for every item and the same seed and item always give the same letters.
 **The key file itself is published only at settlement** (after phase 3, or after phase 2 for an unquestioned control), and
 every reveal is logged with its time (principles 5a).
 
+**`reveal` (letters only, before settlement).** `reveal --items --grades --verdicts --keys-dir [--draws] --item <id>` computes
+outcomes in memory exactly as `map` does and writes nothing. For an item whose status is `control_settled` or `settled` it
+prints one JSON line with exactly `item_id`, `status`, `letters` (the key file's letter map) and `key_sha256` (the sha256 of
+the key file's exact bytes). For any other status, or an unknown item, it refuses with exit code 2 and nothing on stdout.
+It never prints the key file or its `seed`: every key file of a run carries the run's single letter seed, so one verbatim key
+file would unblind every item. No verb emits a key file or the seed; opening them at settlement is a by-hand step.
+
 **Re-keying happens only after the phase-2 verdict is recorded.** `map` and `export-phase3` re-key an item's phase-2
 judgement to answer ids only when that item's phase-2 verdict is in `verdicts.jsonl` with a `record_sha256` that recomputes.
 For an item without one, `export-phase3` refuses, and `map` does not read the key file at all, writes the item without a
@@ -231,7 +238,8 @@ A criterion is visibly not an answer, so an A/B blind between "official" and age
 ## outcomes.jsonl (written by `map`, regenerated, never hand-edited)
 
 One line per item: `official_id`, `official_levels`, `routing` (`set_a`, `set_b`, `set_c`, `in_phase2`, `in_phase3`,
-`unquestioned_control`, `phase3_required`, `forced_phase3`), `reference_kind`, `phases` (per recorded phase: `reviewer`,
+`unquestioned_control`, `phase3_required`, `forced_phase3`, `phase2_recorded`: true when the item has a phase-2 record, for a
+criterion item its 2a), `reference_kind`, `phases` (per recorded phase: `reviewer`,
 `record_sha256`, answer-id-keyed `judgement`, `outcome`, `flagged`, `fuller_answer`; phase 2 adds `official_guess`, and for a
 criterion item `record_sha256_2b`, `fuller_answer_2b` and, when its 2a was revised after the criterion export, `post_reveal_revision`), `agreement`
 (`p1_p2`, `all`), `status`,
@@ -251,8 +259,12 @@ remaining split is recorded as a phase-3 `reviewers split`), `ambiguous_split`.
   `reviewers split`); official judged partly or wrong -> `key_wrong`; official correct and every agent answer's judgement
   level equals its official level -> `key_stands`; otherwise `grading_error` for exactly the answers whose level differs.
 - **Routing.** Phase-2 set = (a) an agent answer below full official score, or (b) a phase-1 outcome other than
-  `key_stands`, or (c) a drawn item. Phase-3 set = phase-2 set minus unquestioned controls (every agent answer full and
-  both the phase-1 and phase-2 outcome `key_stands`); an item not yet reviewed in phase 2 is not yet a control.
+  `key_stands`, or (c) a drawn item, or a forced item, **or any item that has a phase-2 record**: (a) to (c) are the minimum
+  set, and an item the phase-2 reviewer actually read is a phase-2 item (`routing.phase2_recorded`). Phase-3 set = phase-2
+  set minus unquestioned controls (every agent answer full, not forced, and both the phase-1 and phase-2 outcome
+  `key_stands`); an item not yet reviewed in phase 2 is not yet a control. So any complete phase-2 outcome other than
+  `key_stands` puts the item in phase 3, whatever set it was in; an item read in phase 2 with both phases `key_stands` at
+  full official score is `control_settled`, not `not_reviewed`.
 - **Agreement** between phases is identical answer-id-keyed judgements, or both ambiguous. Two grading errors that flag
   different answers do not agree. Whether two settled answers differ on a load-bearing point is the project lead's call in
   phase 3; the script compares only the judgements.

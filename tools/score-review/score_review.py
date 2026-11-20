@@ -29,6 +29,10 @@ class UserError(Exception):
     """A refusal: reported on stderr as `refused: ...`, exit code 1, nothing written."""
 
 
+class Refusal(UserError):
+    """A refusal that exits 2 (the `reveal` verb's): the same `refused: ...` line on stderr, nothing on stdout."""
+
+
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -214,11 +218,19 @@ def agree(j1, j2):
     return j1 == j2
 
 
-def route(levels, p1, p2, drawn, forced=()):
+def route(levels, p1, p2, drawn, forced=(), recorded=()):
     """levels {item: {answer_id: level}}, p1/p2 {item: outcome}, drawn: set of item ids.
+
+    Two rules. (1) An item is in phase 2 when it is in set (a) (an agent answer below full official score), (b) (phase 1
+    questioned the key), (c) (drawn) or forced, OR when phase 2 has actually recorded it: the three sets are the minimum
+    phase-2 set, and an item the phase-2 reviewer read anyway (a reader change that read everything) is a phase-2 item.
+    (2) An item is in phase 3 when it is in phase 2 and is not an unquestioned control (not in set (a), not forced, and
+    both phases say key_stands). So any complete phase-2 outcome other than key_stands, for an item in any set or in none,
+    routes to phase 3: a phase-2 dispute is never dropped.
 
     forced: items whose 2a was changed after the criterion export (amendments 4 and 7). Whatever the outcomes, such an item is
     never an unquestioned control and is always in phase 3.
+    recorded: items that have a phase-2 record (`Ctx.has_phase2_record`, the one definition; a criterion item's is its 2a).
     """
     out = {}
     for item, lv in levels.items():
@@ -226,11 +238,12 @@ def route(levels, p1, p2, drawn, forced=()):
         b = item in p1 and p1[item] != "key_stands"
         c = item in drawn
         f = item in forced
-        in2 = a or b or c or f
+        r = item in recorded
+        in2 = a or b or c or f or r
         control = (not a) and (not f) and p1.get(item) == "key_stands" and p2.get(item) == "key_stands"
         in3 = in2 and not control
-        out[item] = {"set_a": a, "set_b": b, "set_c": c, "forced_phase3": f, "in_phase2": in2, "in_phase3": in3,
-                     "unquestioned_control": control, "phase3_required": in3}
+        out[item] = {"set_a": a, "set_b": b, "set_c": c, "forced_phase3": f, "phase2_recorded": r,
+                     "in_phase2": in2, "in_phase3": in3, "unquestioned_control": control, "phase3_required": in3}
     return out
 
 
@@ -682,7 +695,8 @@ def compute_outcomes(ctx, draws, note):
     for d in draws:
         drawn |= set(d.get("drawn_item_ids", []))
     forced = {item for item in ctx.items if ctx.criterion_change(item)}
-    routing = route(ctx.levels, p1o, p2o, drawn, forced)
+    recorded = {item for item in ctx.items if ctx.has_phase2_record(item)}
+    routing = route(ctx.levels, p1o, p2o, drawn, forced, recorded)
     out = []
     for item in ctx.items:
         r1, r2, r3 = recs[item]
@@ -742,6 +756,26 @@ def cmd_map(a):
     rows = compute_outcomes(ctx, draws, lambda m: (notes.append(m), print("score-review: " + m, file=sys.stderr)))
     write_jsonl_atomic(a.out, rows)
     print("map: wrote %d item(s) to %s" % (len(rows), a.out))
+
+
+def cmd_reveal(a):
+    """Letters only, before settlement: an item's letter map and the sha256 of its key file, never the key file or seed.
+
+    Outcomes are computed in memory exactly as `map` does; nothing is written. Refuses (exit 2, nothing on stdout) unless
+    the item is control_settled or settled."""
+    ctx = Ctx(a.items, a.grades, a.verdicts, a.keys_dir)
+    if a.item not in ctx.items:
+        raise Refusal("unknown item %s" % a.item)
+    draws = read_jsonl(a.draws, required=False) if a.draws else []
+    rows = compute_outcomes(ctx, draws, lambda m: print("score-review: " + m, file=sys.stderr))
+    status = next(r["status"] for r in rows if r["item_id"] == a.item)
+    if status not in ("control_settled", "settled"):
+        raise Refusal("item %s is %s; its letters are revealed only once it is control_settled or settled"
+                      % (a.item, status))
+    letters = ctx.letters(a.item)
+    with open(ctx.key_path(a.item), "rb") as fh:
+        sha = hashlib.sha256(fh.read()).hexdigest()
+    print(json.dumps({"item_id": a.item, "status": status, "letters": letters, "key_sha256": sha}, sort_keys=True))
 
 
 def cmd_export_phase3(a):
@@ -1001,6 +1035,7 @@ def build_parser():
     add("record", cmd_record, "--verdicts", "--items", "--grades", "--phase", "--reviewer", "--file", ("--chat", opt),
         ("--supersedes", opt), ("--reason", opt))
     add("map", cmd_map, "--items", "--grades", "--verdicts", "--keys-dir", "--draws", "--out")
+    add("reveal", cmd_reveal, "--items", "--grades", "--verdicts", "--keys-dir", ("--draws", opt), "--item")
     add("export-criterion", cmd_export_criterion, "--items", "--grades", "--verdicts", "--item", "--reviewer", "--out")
     add("export-phase3", cmd_export_phase3, "--items", "--grades", "--verdicts", "--keys-dir", "--item", "--out")
     add("quote-check", cmd_quote_check, "--verdicts", "--chat")
@@ -1015,7 +1050,7 @@ def main(argv=None):
         args.fn(args)
     except (UserError, ValueError) as exc:
         print("score-review: refused: %s" % exc, file=sys.stderr)
-        return 1
+        return 2 if isinstance(exc, Refusal) else 1
     return 0
 
 
