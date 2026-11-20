@@ -149,8 +149,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   the bridge writes exactly one line per refused request or connection at the moment it refuses it, carrying `kind=`
   and `reason=`; each count is the number of lines of one kind, read off the `kind=` field alone. A request is counted
   once, by the first refusal the bridge makes for it, in the order the wrapper's README states as found in its code.
-  The kinds are defined by class; the wrapper README's per-reason table lists every reason under its kind, and the
-  wrapper's own test derives the refusal sites from its source, so a reason added later cannot land in no kind.
+  The kinds are defined by class. The wrapper's own test derives every refusal site from the wrapper's source and
+  fails on a site with no kind, so a reason added later cannot land in no kind. The wrapper README's per-reason
+  table lists the reasons under their kinds (complete at the wrapper's head 3e9458e).
   RULE REFUSALS (`kind=rule`): requests the bridge could parse but refuses by rule (for example a method or path not
   on the allow-list, a path it will not accept, CONNECT, an upgrade, `Expect: 100-continue`, a target not in origin
   form, a fragment). FRAMING REFUSALS (`kind=framing`): requests the bridge could not parse as HTTP/1.1. CAP REFUSALS
@@ -272,7 +273,8 @@ A run is excluded from the primary only for a FLAGGED harness fault: the post-co
 the student process dies; a timeout (any one turn the proctor sends, in either arm, running past 3,600 s:
 reading, the forced /compact, answering, and arm 2's setup turns alike); the ENGRAM first session does not
 complete (arm 2); the session's tool list differs from section 7's; a scored run with no wrapper launch line
-in the wrapper log (SANDBOX_LOG, section 7). The guard is per scored run: the exam session's own launch line
+in the wrapper log (SANDBOX_LOG, section 7); the bridge cannot reach the model endpoint (a wrapper-log line of
+kind `upstream`, section 7: the bridge answers 502). The guard is per scored run: the exam session's own launch line
 counts, and arm 2's setup session, which also runs inside the wrapper, logs its own. The launch line that
 counts carries the sha256 of the wrapper file itself, logged per run, so it shows which wrapper ran, not only
 that one did; a scored run found outside the wrapper is reported to the security seat before any re-run.
@@ -286,9 +288,8 @@ to 196 (exchanges counted with the reader's own `feed.exchanges()` on the 100K f
 have 94 to 196 each, 2,409 in all; the eight longer than 135 are conversations 10: 172, 11: 194, 12: 196, 13: 155,
 16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of 2026-11-19). Too low a value flags slow but healthy runs and costs
 re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a
-fault: it cannot succeed (section 7), and the four network counts are reported per arm. A line of kind
-`upstream` in the wrapper log (the bridge could not reach the model endpoint; it answers 502) is a harness fault,
-never a student attempt: the run is flagged. Each flagged run may
+fault: it cannot succeed (section 7), and the four network counts are reported per arm. A line of kind `upstream` is the harness fault listed above,
+never a student attempt. Each flagged run may
 be re-run once, with the reason logged before the re-run; a second failure stays excluded. A wrong or empty
 answer is never a harness fault. A book-closed run in which the student opens its own transcript is NOT a
 harness fault: it is the student's behaviour, flagged in the report and reported as it stands, never re-run
