@@ -1754,3 +1754,127 @@ def test_r5_end_to_end_through_the_box(cfg, http_stub):
     assert r.returncode == 0, r.stderr
     assert r.stdout.split("\n")[:2] == ["200 OK:POST:/v1/messages", "403"], r.stdout
     assert stub.seen() == [("POST", "/v1/messages")]
+
+
+# ---------------------------------------------------------------- R6: tmpfs caps
+
+GIB, MIB = 1 << 30, 1 << 20
+SIZE_PROBE = 'for p in /tmp /var/tmp /home /run; do echo "$p $(( $(stat -f -c "%S * %b" "$p") ))"; done'
+
+
+@needs_box
+def test_r6_default_caps_are_2gib_for_tmp_and_vartmp_and_64mib_for_home_and_run(cfg):
+    r = cfg.run(exec_=SIZE_PROBE)
+    assert r.returncode == 0, r.stderr
+    sizes = {l.split()[0]: int(l.split()[1]) for l in r.stdout.splitlines()}
+    assert sizes == {"/tmp": 2 * GIB, "/var/tmp": 2 * GIB, "/home": 64 * MIB, "/run": 64 * MIB}, sizes
+
+
+@needs_box
+@pytest.mark.parametrize("where", ["/tmp", "/var/tmp", "/home", "/run"])
+def test_r6_a_write_past_the_test_cap_fails_inside(cfg, where):
+    r = cfg.run(exec_='dd if=/dev/zero of="$1/small" bs=64k count=4 2>/dev/null && echo SMALL-OK; '
+                      'dd if=/dev/zero of="$1/big" bs=64k count=64 2>/dev/null && echo BIG-OK; echo done',
+                args=[where], SANDBOX_TEST_TMP_CAP=str(1 * MIB), SANDBOX_TEST_HOME_RUN_CAP=str(1 * MIB))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["SMALL-OK", "done"], r.stdout   # 256 KiB fits, 4 MiB does not
+
+
+@needs_box
+def test_r6_the_cap_override_is_honoured_only_in_test_mode(cfg):
+    cfg.set_binary("#!/bin/sh\nstat -f -c '%S * %b' /tmp /home\n")
+    r = cfg.run(test=False, SANDBOX_TEST_TMP_CAP=str(1 * MIB), SANDBOX_TEST_HOME_RUN_CAP=str(1 * MIB))
+    assert r.returncode == 0, r.stderr
+    assert [int(x.split("*")[0]) * int(x.split("*")[1]) for x in r.stdout.splitlines()] == [2 * GIB, 64 * MIB], r.stdout
+
+
+def test_r6_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
+    for var in ("SANDBOX_TEST_TMP_CAP", "SANDBOX_TEST_HOME_RUN_CAP"):
+        for val in ("big", "0", "-5", "1e6"):
+            assert_refused(cfg, fake_bwrap, var, **{var: val})
+
+
+# ---------------------------------------------------------------- nits: a stale socket directory is removed by the next launch
+
+def _dead_pid():
+    p = subprocess.Popen(["/bin/true"])
+    p.wait()
+    return p.pid
+
+
+def _plant(cfg, name, pid=None, sock=True):
+    d = os.path.join(cfg.tmpd, name)
+    os.mkdir(d)
+    if sock:
+        open(os.path.join(d, "bridge.sock"), "w").close()
+    if pid is not None:
+        open(os.path.join(d, "watch.pid"), "w").write("%d\n" % pid)
+    return d
+
+
+def test_nit_the_next_launch_removes_a_stale_socket_directory_and_only_that(cfg, fake_bwrap):
+    stale = _plant(cfg, "student-sandbox.stale1", pid=_dead_pid())
+    live = _plant(cfg, "student-sandbox.live01", pid=os.getpid())
+    nopid = _plant(cfg, "student-sandbox.nopid1")
+    junk = _plant(cfg, "student-sandbox.junkpid")
+    open(os.path.join(junk, "watch.pid"), "w").write("not-a-pid\n")
+    other = _plant(cfg, "someone-elses.dir001", pid=_dead_pid())
+    target = os.path.join(cfg.root, "symlink-target")
+    os.mkdir(target)
+    open(os.path.join(target, "keep"), "w").close()
+    open(os.path.join(target, "watch.pid"), "w").write("%d\n" % _dead_pid())
+    os.symlink(target, os.path.join(cfg.tmpd, "student-sandbox.linked"))
+    afile = os.path.join(cfg.tmpd, "student-sandbox.afile")
+    open(afile, "w").close()
+    r, out = _launch(cfg, fake_bwrap)
+    assert r.returncode == 99, r.stderr
+    assert not os.path.exists(stale), "the stale socket directory was not removed"
+    for keep in (live, nopid, junk, other, afile, os.path.join(cfg.tmpd, "student-sandbox.linked")):
+        assert os.path.exists(keep), "removed something that is not a stale directory of ours: " + keep
+    assert sorted(os.listdir(target)) == ["keep", "watch.pid"], "followed a symlink"
+
+
+def _wait_only(cfg, names):
+    """Wait until nothing but the planted entries is left: the launch's own socket directory is cleaned up by its forwarder."""
+    end = time.time() + 8
+    while set(os.listdir(cfg.tmpd)) - set(names) and time.time() < end:
+        time.sleep(0.05)
+    assert set(os.listdir(cfg.tmpd)) - set(names) == set(), os.listdir(cfg.tmpd)
+
+
+def test_nit_a_refused_launch_removes_nothing(cfg, fake_bwrap):
+    stale = _plant(cfg, "student-sandbox.stale1", pid=_dead_pid())
+    fdir, out = fake_bwrap
+    r = cfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_BINARY_SHA256="0" * 64)
+    assert r.returncode == 2, r.stderr
+    assert os.path.exists(stale)
+
+
+@needs_box
+def test_nit_a_forwarder_killed_with_sigkill_leaves_a_directory_that_the_next_launch_removes(cfg):
+    mark = "6%d" % (int(time.time() * 1000) % 10**9)
+    p = subprocess.Popen(["/bin/bash", WRAPPER], env=cfg.env(exec_="sleep 400.%s" % mark),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        end = time.time() + 15
+        while time.time() < end and not _sleeper_running(".%s" % mark):
+            time.sleep(0.05)
+        assert _sleeper_running(".%s" % mark), "probe never started"
+        fwd = [q for q in procs_with(cfg.tmpd) if q != p.pid]
+        assert fwd, "no outer forwarder found"
+        for q in fwd:
+            os.kill(q, signal.SIGKILL)
+        p.kill()
+        p.wait()
+        assert wait_gone(".%s" % mark)
+    finally:
+        if p.poll() is None:
+            p.kill()
+    left = os.listdir(cfg.tmpd)
+    assert len(left) == 1 and left[0].startswith("student-sandbox."), left   # the leak the README documents
+    r = cfg.run(exec_="true")
+    assert r.returncode == 0, r.stderr
+    end = time.time() + 8
+    while os.listdir(cfg.tmpd) and time.time() < end:
+        time.sleep(0.05)
+    assert os.listdir(cfg.tmpd) == [], "the stale directory survived the next launch"

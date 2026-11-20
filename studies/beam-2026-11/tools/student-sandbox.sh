@@ -205,9 +205,34 @@ else
   TESTMODE=0
 fi
 
+# ---- R6: tmpfs caps, so a student cannot fill host memory: /tmp and /var/tmp 2 GiB each, /home and /run 64 MiB.
+# Overridable only in test mode, so a cell can show a write past a small cap failing.
+TMP_CAP=2147483648; HOME_CAP=67108864
+if [ "${SANDBOX_TEST:-}" = 1 ]; then
+  for v in SANDBOX_TEST_TMP_CAP SANDBOX_TEST_HOME_RUN_CAP; do
+    [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive byte count"; }
+  done
+  [ -z "${SANDBOX_TEST_TMP_CAP:-}" ] || TMP_CAP=$SANDBOX_TEST_TMP_CAP
+  [ -z "${SANDBOX_TEST_HOME_RUN_CAP:-}" ] || HOME_CAP=$SANDBOX_TEST_HOME_RUN_CAP
+fi
+
 # ---- the bridge: a host-side forwarder on a UNIX socket (the only thing that crosses the network boundary) --
-SOCKDIR=$(mktemp -d "${TMPDIR:-/tmp}/student-sandbox.XXXXXX") || refuse "cannot create the bridge socket directory"
+# A forwarder that was SIGKILLed cannot remove its socket directory. Each directory records the pid it watches in
+# watch.pid; the next launch removes the directories of ours (owned by this user, a real directory, never a link)
+# whose watched pid is gone, touching only the two files the launcher itself puts there.
+SOCKBASE=${TMPDIR:-/tmp}
+for d in "$SOCKBASE"/student-sandbox.*; do
+  [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] && [ -f "$d/watch.pid" ] && [ ! -L "$d/watch.pid" ] || continue
+  wp=$(head -c 20 "$d/watch.pid" 2>/dev/null)
+  wp=${wp//[$'\n\r ']/}
+  [[ $wp =~ ^[0-9]{1,10}$ ]] || continue
+  [ -d "/proc/$wp" ] && continue
+  rm -f -- "$d/bridge.sock" "$d/watch.pid"
+  rmdir -- "$d" 2>/dev/null
+done
+SOCKDIR=$(mktemp -d "$SOCKBASE/student-sandbox.XXXXXX") || refuse "cannot create the bridge socket directory"
 chmod 700 "$SOCKDIR"
+printf '%s\n' "$$" > "$SOCKDIR/watch.pid"
 SOCK="$SOCKDIR/bridge.sock"
 FWDARGS=(outer --sock "$SOCK" --host "$SANDBOX_MODEL_HOST" --port "$PORT" --watch "$$")
 [ -n "${SANDBOX_LOG:-}" ] && FWDARGS+=(--log "$SANDBOX_LOG")
@@ -217,7 +242,7 @@ if [ "$LEARN" = 1 ]; then FWDARGS+=(--learn); else FWDARGS+=(--allow "$SANDBOX_M
 FPID=$!
 for ((i = 0; i < 250; i++)); do [ -S "$SOCK" ] && break; sleep 0.02; done
 if [ ! -S "$SOCK" ]; then
-  kill "$FPID" 2>/dev/null; rmdir "$SOCKDIR" 2>/dev/null
+  kill "$FPID" 2>/dev/null; rm -f -- "$SOCKDIR/watch.pid"; rmdir "$SOCKDIR" 2>/dev/null
   printf '%s: the bridge forwarder did not start\n' "$PROG" >&2; exit 3
 fi
 disown "$FPID" 2>/dev/null
@@ -233,7 +258,8 @@ BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unsha
     --ro-bind-try /usr /usr --ro-bind-try /bin /bin --ro-bind-try /sbin /sbin
     --ro-bind-try /lib /lib --ro-bind-try /lib32 /lib32 --ro-bind-try /lib64 /lib64 --ro-bind-try /libx32 /libx32
     --ro-bind-try /etc /etc "${ETCARGS[@]}"
-    --tmpfs /home --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run
+    --size "$HOME_CAP" --tmpfs /home --size "$TMP_CAP" --tmpfs /tmp --size "$TMP_CAP" --tmpfs /var/tmp
+    --size "$HOME_CAP" --tmpfs /run
     --bind "$SLOT" "$SLOT"
     "${EXTRA_BINDS[@]}"
     --ro-bind "$SOCK" /run/sandbox-bridge.sock

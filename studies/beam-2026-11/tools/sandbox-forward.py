@@ -446,7 +446,8 @@ def run_outer(a):
         while alive(a.watch):
             time.sleep(0.2)
     finally:
-        for fn, arg in ((os.unlink, a.sock), (os.rmdir, os.path.dirname(a.sock))):
+        for fn, arg in ((os.unlink, a.sock), (os.unlink, os.path.join(os.path.dirname(a.sock), "watch.pid")),
+                        (os.rmdir, os.path.dirname(a.sock))):
             try:
                 fn(arg)
             except OSError:
