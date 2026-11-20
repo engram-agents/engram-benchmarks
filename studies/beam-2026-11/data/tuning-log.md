@@ -2713,3 +2713,20 @@ Claude Code `version` that wrote it). Versions by session:
   - **Verdict:** usable under the security seat's rule. The exposure bound of A10 travels with every number from it.
 - **What this run does not yet give:** R needs the k = 1 reading of the same exchanges (A8, A9). No R, no answer and
   no comparison is computed from this run alone.
+
+### P1b k = 1 reading (exchanges 46-135): start (A11 overnight; logged before any round completed)
+
+- **Started** 2026-11-20T01:07:23Z (broker start line), the GPU lease granted to it alone. The projected end is by
+  2026-11-20T11:43Z (upper bound 10.6 h); the hang guard is 20 h.
+- **Pin (A9), verified by hand at launch and recorded:** the `claude` on the search path resolves to the pinned copy
+  with sha256 `a982d38030b97e750848add2cbb2df6d9a70d5544a22ca9b216a349ba25865e8`, version 2.1.328. The running student
+  process's executable was read back as that file.
+- **Dry run before it:** launcher `--dry-run` with the exact arguments, exit 0. Loaded feeder files matched the setup;
+  all four protected end states hashed, including the K = 3 reading's (store sha256 `a5ccd595…`); the k = 1 end state
+  copied and verified (store sha256 `29cac9e6…`).
+- **First launch refused, nothing touched:** at 01:07:02Z the launcher refused at step 1 because the dry run had left
+  its plan dumps in the run directory, and run directories are never reused. The dry run's directory was renamed aside
+  (kept, not deleted) and the reading relaunched 21 seconds later. The refusal happened before any slot, home or student
+  action.
+- **Custody:** unwrapped, the last run under the security seat's allowance (A10, A11). The falsifier and the value-blind
+  scan with its control run on its lineage the moment it ends, before any number is used.
