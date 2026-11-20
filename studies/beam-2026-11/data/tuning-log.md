@@ -2846,3 +2846,25 @@ Claude Code `version` that wrote it). Versions by session:
   beside it, not multiplied in; the same instrument in both arms.
 - The text change for (4a), (15) and (4b) goes now; (5) after the recall measurement. Reviewer: Halley, else the
   security seat.
+
+### Per-turn maxima over every tuning turn record (2026-11-20; the basis of the 3,600 s per-turn timeout)
+
+Computed from the `wall_s` field of every turn record the study lead holds from tuning (38 distinct records,
+2026-11-14 to 2026-11-20; one byte copy of the 11-14 long run left out). The longest turn of each kind:
+
+| turn kind | longest turn | run |
+|---|---|---|
+| reading, three exchanges per turn (a tuning setting, not used in scored runs) | 1,108.8 s | p1-p1b-k3 (exchanges 46-135, 30 turns, started 2026-11-19) |
+| reading, one exchange per turn | 1,075.3 s | K1-conv9 (exchanges 1-45, 45 turns, started 2026-11-16) |
+| reading, exchanges per turn not recorded | 1,010.0 s | the 11-14 long run (run1, 48 turns) |
+| arm 2 setup (first session) | 983.2 s | an 11-14 setup run (engram-c15-t3-v2) |
+| answering (question) | 524.8 s | run A (gate 2, conversation 9, 156 turns, 2026-11-15) |
+| reading, five exchanges per turn (tuning setting) | 520.7 s | K5-conv9 |
+| forced /compact | 166.6 s | p1-ctrl2-k1 |
+
+The longest turn of any kind is 1,108.8 s, so 3,600 s is about 3.2 times it.
+
+**Correction.** The rulings entry above, and the study lead's proposal to the design owner, called "k = 1 reading
+1,075.3 s; K = 3 reading 1,108.8 s; answering 322.1 s" the measured maxima over every run record. That scan covered
+only the 9 records of the P1 and P1b runs, not all 38. The two reading maxima stand. The longest answering turn is
+524.8 s (run A), not 322.1 s, and setup turns reach 983.2 s. The ruling is unaffected: 3,600 s clears every kind.
