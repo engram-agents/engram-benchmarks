@@ -2872,3 +2872,13 @@ only the 9 records of the P1 and P1b runs, not all 38. The two reading maxima st
   stay private): p1-p1b-k3 `96c933ec255c96be`; K1-conv9 `a74bde0dda5b32de`; the 11-14 long run `07a666cd00a2537a`;
   the 11-14 setup run `6f2155c3d606b3e4`; run A (gate 2) `f772318ac2f2a4d5`; K5-conv9 `622a9e7d67caba97`;
   p1-ctrl2-k1 `34e13428fa72ac4e`.
+
+### P1b readings: a limits line (2026-11-20; the design owner's ruling on a leftover-process finding)
+
+Two leftover test sandboxes were alive on the study host while both P1b readings ran. They came from the student wrapper's own test cell `test_s3_die_with_parent_when_w…`, run on a build of the wrapper that predates the box scope, and started 2026-11-19 at 23:48:06Z and 23:50:26Z. They were found at 19:57Z on 2026-11-20 and stopped by hand shortly after, so they spanned the end of the K = 3 reading and the whole k = 1 reading.
+
+- **What they were.** Each was a sandbox box (bwrap with the inner forwarder) running a stub `sleep` command that had already finished, in its own pid and network namespaces, with a test slot under a temporary directory. Neither had a live outer forwarder, so neither had a path to the model endpoint. The P1b readings themselves ran without the wrapper.
+- **Why they are judged harmless.** No channel was identified to the reading's student or to the model endpoint, and a sleeping process adds no measurable load. Their CPU time was not recorded: the saved process list holds pid, parent pid, elapsed seconds and argv only.
+- **Ruling.** The readings are not re-run, and the P1b outcome logged above stands.
+
+How such leftovers arise is unproven and filed as #17. The launch module now stops each session's scope and refuses to launch while anything earlier is alive.
