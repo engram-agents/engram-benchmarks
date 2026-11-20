@@ -2730,3 +2730,47 @@ Claude Code `version` that wrote it). Versions by session:
   action.
 - **Custody:** unwrapped, the last run under the security seat's allowance (A10, A11). The falsifier and the value-blind
   scan with its control run on its lineage the moment it ends, before any number is used.
+
+### P1b k = 1 reading (exchanges 46-135): end, the run's facts (logged before any use of the run; counts only, no answer text read)
+
+- **Window:** started 2026-11-20T01:07:23Z (broker start line); ended 2026-11-20T08:13:00Z, exit 1 (broker end line).
+  Nothing stopped it: the hang guard (20 h) did not fire, and the run went to its last round.
+- **Launcher steps:** 1-8 exit 0 and 10 (after-hashes) exit 0. **Step 9, the delivery check, exit 1, for one reason
+  only:** the round carrying exchange 62 (turn record i = 17) has `is_error` true. That round ended at
+  2026-11-20T02:31:53Z when the harness's own automatic compaction failed (its summary came back empty). The student
+  process survived it, and every later round is clean. The error was reported to the design owner when seen.
+- **The end-state save did not run, by design:** the launcher copies the slot out only when the delivery check passes
+  (contract C6), so its save step (9b) was never reached. The student's end state was therefore left only in the
+  disposable slot.
+- **Hand save (a deviation, logged here):** at 08:14Z the slot was copied out by hand. The copy reproduces the
+  launcher's save with the launcher's own functions:
+  - quiescence: no process was using the slot;
+  - `cp -a` of the contents, then the disposable-copy marker removed;
+  - store hash equal on both sides: 21 tables, 4,334 rows, sha256 `92321fb64a4fef7049ca5034fdd20d532fc02dff466ae1b9faa18037a20a2af1`;
+  - the links check the next run's step 1 would make: passed;
+  - built-in memory folder: 0 files.
+
+  The copy carries a `-hand` suffix, so it is never mistaken for a launcher save. Nothing in the slot was changed.
+- **Record:** 90 reading rounds, exchanges 46 through 135 each once and in order; 1 error row (above), 0 EOF,
+  0 timeouts.
+- **Record file sha256:**
+  - setup record `844eed35795239e87007267d0da703558a45717de4e60c1dd7ec21e330a35716`;
+  - turns record `d26db32ca8041f024c0f9454684983d5f3f0f496b9cd89faa0ceb6a8dd2157ef`;
+  - hand-saved end state's hashes file `b05a2e98051e2b9a43c74e0233c7993074d4384110160b494aac0b63b7af849d`.
+- **Harness version:** the pinned Claude Code 2.1.328, hash checked at launch (A9), as at the start.
+- **Custody scan (A10 rule 3), run on the hand-saved end state before any use:**
+  - scope: 2 transcripts, 963 distinct tool calls;
+  - absolute paths outside the student's home or the system read-only directories: 0;
+  - searches rooted at or above the home: 0;
+  - network-capable calls: 0;
+  - secret-shaped targets: 0;
+  - value-blind secret-format and key-list or dataset name hits, in every record type: 0;
+  - positive control (the home's own path): 6,150 hits.
+  - **Verdict:** usable under the security seat's rule. The exposure bound of A10 travels with every number from it.
+    This was the last run without the student wrapper (A10).
+- **What this run does not yet give:** the R script refuses a record with an error row (its contract R3). So no
+  per-exchange time, no R and no comparison is computed until the design owner rules on the exchange-62 round.
+- **Disclosure (counts-only slip):** at about 03:21Z one progress check printed about 300 characters of the run's
+  console output. That output carries the student's own end-of-round notes, here for exchanges 63-71: a tool-name
+  list, one place name with a count and its own 'clean' self-check. No answer text, gold or judge output was seen. It
+  was told to the design owner at the time. Progress reads after it used the record's structural fields only.
