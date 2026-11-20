@@ -595,3 +595,10 @@ Each line is the study lead's own commit. Times are UTC.
   answers, 0 of 16 flagged, with a positive control; and the three held packets sent to the reader as batch 2.
   That commit was already in my tree when I wrote my line. Nothing was waiting, and no reassignment was needed.
   The line stays as written, because this log is append-only; this correction supersedes it.
+- 2026-11-20T14:08Z. MAP GRADES (study lead, on the key holder's question, team crossing 33300): the map step reads the
+  QUESTION-SEEING judge's grades as the official levels, per the design owner's post hoc change of 2026-11-18 above
+  (team crossing 32017), confirmed by the design owner on 2026-11-20 (crossing 33303) on the project lead's 11-18 rule
+  that the question-seeing judge is the canonical one. Two conditions: the judge file is converted to the tool's
+  grades format independently by the key holder and the study lead, and map runs only on equal sha256; the map's
+  record states in one line that phase 3's official grades were changed post hoc on 2026-11-18, from the study
+  lead's hand grades to the question-seeing judge's grades.
