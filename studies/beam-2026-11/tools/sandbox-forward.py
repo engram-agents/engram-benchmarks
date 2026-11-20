@@ -179,11 +179,13 @@ def allowed(rules, method, path):
 
 
 def request_path(target):
-    """The decoded path to match, or None when it must not be matched at all: not origin-form, undecodable, a control
-    character or backslash, a second layer of percent-encoding, a '.' or '..' segment, or an empty segment."""
-    if not target.startswith("/"):
+    """The decoded path to match, or None when it must not be matched at all: not origin-form (a path-absolute with an
+    optional query: absolute-form, authority-form and asterisk-form are refused), a '#' anywhere (a client never sends a
+    fragment, and the whole target is what is forwarded, so the checked string must be the sent string), undecodable, a
+    control character or backslash, a second layer of percent-encoding, a '.' or '..' segment, or an empty segment."""
+    if not target.startswith("/") or "#" in target:
         return None
-    raw = target.split("?", 1)[0].split("#", 1)[0]
+    raw = target.split("?", 1)[0]
     try:
         path = urllib.parse.unquote(raw, errors="strict")
     except UnicodeDecodeError:

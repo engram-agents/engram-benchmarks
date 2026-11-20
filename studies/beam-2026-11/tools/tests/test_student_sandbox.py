@@ -2267,3 +2267,112 @@ def test_s4_dev_shm_has_its_own_capped_tmpfs_and_dev_itself_is_not_writable(cfg)
                 SANDBOX_TEST_TMP_CAP=str(1 * MIB))
     assert r.returncode == 0, r.stderr
     assert r.stdout.split() == ["SMALL-OK", "done"], r.stdout   # 256 KiB fits, 4 MiB does not, /dev itself is read-only
+
+
+# ---------------------------------------------------------------- round 5 (F1/L1, L3): the checked string is the sent string
+
+def _refused_with_nothing_sent(outer, raw_stub, allow, raw, want=403):
+    stub = raw_stub()
+    o = outer(stub, allow=allow)
+    s = o.connect()
+    s.sendall(raw)
+    status, _, _ = read_response(s)
+    assert status == want, (raw, status)
+    assert at_eof(s), raw
+    assert stub.bytes_seen() == b"", "the upstream received bytes of a refused request: %r" % raw
+
+
+# the exact request lines of the colleague review's table (F1), plus the same class
+FRAGMENT_LINES = [
+    b"POST /v1/messages#/../../api/pull HTTP/1.1",
+    b"POST /api/chat#/../../x HTTP/1.1",
+    b"POST /v1/messages?a=1#b HTTP/1.1",
+    b"POST /v1/messages# HTTP/1.1",
+    b"POST /api/x#y HTTP/1.1",
+]
+
+
+@pytest.mark.parametrize("line", FRAGMENT_LINES, ids=[l.decode() for l in FRAGMENT_LINES])
+def test_peer_f1_a_request_target_with_a_fragment_is_refused_and_nothing_is_sent(outer, raw_stub, line):
+    _refused_with_nothing_sent(outer, raw_stub, ALLOW, line + b"\r\nHost: model\r\nContent-Length: 2\r\n\r\n{}")
+
+
+@pytest.mark.parametrize("line", [b"OPTIONS * HTTP/1.1", b"POST model:443 HTTP/1.1",
+                                  b"POST http://model/v1/messages HTTP/1.1", b"POST v1/messages HTTP/1.1"],
+                         ids=["asterisk-form", "authority-form", "absolute-form", "no-leading-slash"])
+def test_peer_l1_only_origin_form_targets_are_matched(outer, raw_stub, line):
+    _refused_with_nothing_sent(outer, raw_stub, "POST /*, OPTIONS /*", line + b"\r\nHost: model\r\n\r\n")
+
+
+def test_peer_f1_the_deny_log_line_keeps_its_own_fragment_split(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "frag.log")
+    o = outer(stub, allow=ALLOW, log=log)
+    s = o.connect()
+    s.sendall(b"POST /v1/messages?q=SECRET#frag-SECRET HTTP/1.1\r\nHost: model\r\n\r\n")
+    assert read_response(s)[0] == 403
+    time.sleep(0.5)
+    text = open(log).read()
+    assert [l for l in text.splitlines() if l.startswith("fwd-deny ")] == ["fwd-deny method=POST path=/v1/messages"], text
+    assert "SECRET" not in text and "frag" not in text
+
+
+def test_peer_f1_a_target_without_a_fragment_is_still_forwarded_byte_for_byte(outer, raw_stub):
+    """Positive control: the fragment refusal must not refuse an ordinary query (and a '%23' stays a plain escaped
+    character that decodes to a path the list does not hold)."""
+    stub = raw_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    raw = b"POST /v1/messages?a=1&b=2 HTTP/1.1\r\nHost: model\r\nContent-Length: 2\r\n\r\n{}"
+    s.sendall(raw)
+    assert stub.bytes_seen() == raw
+    s.close()
+
+
+# L3 (a): a prefix rule matches from the START of the path
+@pytest.mark.parametrize("target", ["/zzz/api/x", "/x/api/y", "/a/api/", "/v1/api/chat"])
+def test_peer_l3a_a_prefix_rule_does_not_match_a_path_that_merely_contains_the_prefix(outer, raw_stub, target):
+    _refused_with_nothing_sent(outer, raw_stub, ALLOW, req("POST", target, body=b"{}"))
+
+
+def test_peer_l3a_the_prefix_rule_still_matches_from_the_start(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("POST", "/api/chat", body=b"{}"))
+    assert read_response(s)[0] == 200
+
+
+# L3 (b): an empty path segment is refused (a prefix rule is matched, so only the segment rule can refuse these)
+@pytest.mark.parametrize("target", ["/api//x", "/api/a//b", "/api///", "/api/a//"])
+def test_peer_l3b_an_empty_path_segment_is_refused(outer, raw_stub, target):
+    _refused_with_nothing_sent(outer, raw_stub, ALLOW, req("POST", target, body=b"{}"))
+
+
+def test_peer_l3b_a_trailing_slash_is_not_an_empty_segment(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(req("POST", "/api/a/", body=b"{}"))
+    assert read_response(s)[0] == 200
+
+
+# L3 (c): the Upgrade header and the Connection token are two independent checks, each with its own cells
+def test_peer_l3c_an_upgrade_header_alone_is_refused(outer, raw_stub):
+    _refused_with_nothing_sent(outer, raw_stub, ALLOW, b"GET /v1/models HTTP/1.1\r\nHost: m\r\nUpgrade: websocket\r\n\r\n")
+
+
+@pytest.mark.parametrize("value", [b"upgrade", b"Upgrade", b"UPGRADE", b"keep-alive, Upgrade", b"keep-alive ,upgrade, x",
+                                   b"close,UpGrade"])
+def test_peer_l3c_a_connection_upgrade_token_alone_is_refused(outer, raw_stub, value):
+    _refused_with_nothing_sent(outer, raw_stub, ALLOW, b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: " + value + b"\r\n\r\n")
+
+
+def test_peer_l3c_other_connection_tokens_still_pass(outer, http_stub):
+    stub = http_stub()
+    o = outer(stub, allow=ALLOW)
+    s = o.connect()
+    s.sendall(b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: keep-alive\r\n\r\n")
+    assert read_response(s)[0] == 200
+    s.sendall(b"GET /v1/models HTTP/1.1\r\nHost: m\r\nConnection: x-upgrade-not, close\r\n\r\n")
+    assert read_response(s)[0] == 200
