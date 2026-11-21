@@ -1567,3 +1567,15 @@ def test_l_close_is_a_named_stop_on_an_unreadable_log_and_never_done(w):
     stop = SL._close_launch(str(rec), r, str(log_in(w, "unreadable")), SL.LaunchResult(None))
     assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
     assert json.load(open(rec))["state"] == "open"
+
+
+@needs_linux_wrapper
+def test_l_a_log_that_becomes_unreadable_between_the_close_and_the_verdict_read_is_a_named_stop(w, monkeypatch):
+    """The close has run and the launch line was read once; the log then becomes unreadable at the verdict read (the hash read
+    is made to raise exactly what an unreadable log raises). run_feeder must raise a named LaunchStop, never return a
+    result. (The record was closed by the close step, which saw a readable log: this cell pins the stop, not the record.)"""
+    def boom(log):
+        raise SL.LaunchLogUnreadable(f"the launch log {log} exists but cannot be read (PermissionError): whether its wrapper launched is not known")
+    monkeypatch.setattr(SL, "read_launch_hashes", boom)
+    with pytest.raises(SL.LaunchStop, match=r"cannot be read.*no answer of this session is read"):
+        w.launch()

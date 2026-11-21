@@ -145,8 +145,26 @@ def test_t7_no_tracked_tool_file_names_the_command_but_the_command_and_p1_sessio
 def test_t7_the_scan_sees_a_call_split_over_two_lines_and_p1_session_never_runs_it():
     split = 'MARKER = os.path.join(HERE, "mark-pre-module-start.py")\nsubprocess.run([sys.executable, MARKER])\n'
     assert mentions_outside_allowed({"launcher.py": split, "README.md": split, "mark-pre-module-start.py": split}) == ["launcher.py"]
-    assert not re.search(r"subprocess|Popen|os\.system", "\n".join(l for l in tracked_tool_texts()["p1-session.py"].splitlines()
-                                                                   if TOOL_NAME in l))
+# The exact mentions of the command's name that p1-session.py may carry: its comment on PRE_MODULE_VERDICT and the --pilot flag's
+# help string. Any other mention, a call split over two lines included, fails.
+P1_ALLOWED_MENTIONS = [
+    'PRE_MODULE_VERDICT = "none (pre-module state, never wrapped)"   # the line mark-pre-module-start.py writes',
+    'help="PILOTS ONLY: allow --end-state to be a pre-module state marked by mark-pre-module-start.py")',
+]
+
+
+def p1_mentions(text):
+    return [l.strip() for l in text.splitlines() if TOOL_NAME in l]
+
+
+def test_t7_p1_session_names_the_command_in_exactly_the_two_allowed_places():
+    assert p1_mentions(tracked_tool_texts()["p1-session.py"]) == [m.strip() for m in P1_ALLOWED_MENTIONS]
+
+
+def test_t7_a_third_mention_in_p1_session_including_a_split_call_fails_the_cell():
+    real = tracked_tool_texts()["p1-session.py"]
+    split = real + '\nM = os.path.join(HERE, "mark-pre-module-start.py")\nsubprocess.run([sys.executable, M])\n'
+    assert p1_mentions(split) != [m.strip() for m in P1_ALLOWED_MENTIONS]
 
 
 # ------------------------------------------------------------------------------------------- 2. the pilot-only switch
@@ -262,7 +280,11 @@ def test_r3_the_flag_is_refused_in_answering_mode_and_an_abbreviation_of_it_is_n
                extra=(FLAG,))
     assert r.returncode == 2 and "only valid with --continue-reading" in r.stdout + r.stderr
     s = marked_copy(w, "abbrev")
-    cr_refusal(w, over=over_for(s), extra=("--pilot-pre",), expect="pilot-pre", P1_PROTECTED=prot(w, s))
+    r = cr_run(w, over=over_for(s), extra=("--pilot-pre",), P1_PROTECTED=prot(w, s))
+    out = r.stdout + r.stderr
+    # argparse's own refusal, not the pre-module reader's: the abbreviation never reached the allowance
+    assert r.returncode == 2 and "unrecognized arguments: --pilot-pre" in out and "REFUSE" not in out, (r.returncode, out)
+    assert not os.path.lexists(str(w.saved))
 
 
 def test_r4_the_record_is_not_world_writable_whatever_the_umask(w):
