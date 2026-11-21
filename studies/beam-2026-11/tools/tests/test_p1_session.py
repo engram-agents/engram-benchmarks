@@ -110,6 +110,9 @@ def emulate_wrapper(a):
     if os.environ.get("STUB_PATH_LOG"):   # the PATH this feeder was actually handed
         with open(os.environ["STUB_PATH_LOG"], "a") as f:
             f.write(os.environ["PATH"] + "\n")
+    if os.environ.get("STUB_ENV_LOG"):    # the NAMES of the environment it was handed (the initial block)
+        with open(os.environ["STUB_ENV_LOG"], "a") as f:
+            f.write(json.dumps(sorted(kv.split("=", 1)[0] for kv in open("/proc/self/environ", "rb").read().decode().split("\0") if "=" in kv)) + "\n")
     log = pairs.get("SANDBOX_LOG")
     mode = os.environ.get("STUB_SANDBOX", "ok")
     if not log or mode == "nolaunch":
@@ -226,7 +229,7 @@ class World:
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
              "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
-             "STUB_PATH_LOG": str(self.root / "stub-path.txt"),
+             "STUB_PATH_LOG": str(self.root / "stub-path.txt"), "STUB_ENV_LOG": str(self.root / "stub-env.json"),
              "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
              "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres),
              # test mode and this run's own scope-name prefix: the before-launch scan sees only this run's units (hermetic)
@@ -943,7 +946,7 @@ GOLDEN_PLAN = os.path.join(TOOLS, "tests", "golden_three_channel_plan.json")
 RECORDER = r'''
 import json, os, runpy, sys
 label, stub = {LABEL!r}, {STUB!r}
-with open(os.environ["REC_LOG"], "a") as f:
+with open(os.environ["STUB_REC_LOG"], "a") as f:
     argv = sys.argv[1:]
     for i in range(len(argv) - 2, -1, -1):   # the module's own `--env SANDBOX_*` pairs are not the caller's arguments
         if argv[i] == "--env" and argv[i + 1].startswith("SANDBOX_"):
@@ -975,7 +978,7 @@ def record_three_channel_run(w):
     for name, label, stub in (("rec-plant.py", "plant-control", w.plant), ("rec-feed4.py", "feed4", w.stub)):
         (w.root / name).write_text(RECORDER.format(LABEL=label, STUB=str(stub)))
     r = w.run(*PLANT, "--plant-question", "What is it?", P1_PLANT_CONTROL=str(w.root / "rec-plant.py"),
-              P1_FEED4=str(w.root / "rec-feed4.py"), REC_LOG=str(log))
+              P1_FEED4=str(w.root / "rec-feed4.py"), STUB_REC_LOG=str(log))
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     return normalized_plan_record(w, log)
 
@@ -1320,3 +1323,17 @@ def test_b_setup_txt_carries_the_built_path_on_one_line_equal_to_the_path_the_fe
     assert lines == ["sandbox feeder PATH: " + handed[0]]
     first, *rest = handed[0].split(":")
     assert rest == list(P1S.SL.FEEDER_SYSTEM_DIRS)                  # wrapper directory first, then the fixed list
+
+
+@needs_linux_wrapper
+def test_e3_the_environment_the_feeder_got_is_built_and_its_names_are_in_setup_txt(w):
+    """A5, the positive cell at the launcher: a real run's launch SUCCEEDS under the built environment; the names recorded in
+    setup.txt are the names the feeder was actually handed; they are the pinned literal's names that the caller set (here only
+    BEAM_PARQUET), PATH, and the stub's own STUB_* steering names, and a variable of the caller's that is not listed is absent."""
+    r = w.run(NODE_OPTIONS="--no-warnings", BASH_ENV="/nonexistent/rc")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    (names,) = [json.loads(l) for l in (w.root / "stub-env.json").read_text().splitlines()]
+    assert "NODE_OPTIONS" not in names and "BASH_ENV" not in names
+    assert [n for n in names if not n.startswith("STUB_")] == ["BEAM_PARQUET", "PATH"]
+    (line,) = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder environment names: ")]
+    assert line == "sandbox feeder environment names: " + ", ".join(names)

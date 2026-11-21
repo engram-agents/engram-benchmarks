@@ -64,7 +64,7 @@
       "<COMPONENTS_FILE>"
     ],
     "exe": "<BEAM_PY>",
-    "prot": "<PROTECTED_A>:<PROTECTED_B>",
+    "prot": null,
     "tool": "feed4"
   }
 ]

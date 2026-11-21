@@ -37,9 +37,13 @@ first = os.environ["PATH"].split(":")[0]
 claude, fwd = os.path.join(first, "claude"), os.path.join(first, "sandbox-forward.py")
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest() if os.path.isfile(p) else None
 log = pairs.get("SANDBOX_LOG")
+try:
+    handed = dict(kv.split("=", 1) for kv in open("/proc/self/environ", "rb").read().decode().split("\0") if "=" in kv)
+except OSError:
+    handed = dict(os.environ)
 with open(os.environ["REC"], "a") as f:
     f.write(json.dumps({"argv": a, "pairs": pairs, "path": os.environ["PATH"], "path0": first,
-                        "claude_is_link": os.path.islink(claude), "claude_sha": sha(claude), "fwd_sha": sha(fwd),
+                        "claude_is_link": os.path.islink(claude), "claude_sha": sha(claude), "fwd_sha": sha(fwd), "env": handed,
                         "log_existed": bool(log) and os.path.exists(log)}) + "\n")
 if "--dump-plan" in a:
     print("[]"); sys.exit(0)
@@ -117,6 +121,10 @@ sys.exit(st.p.wait(timeout=90))
 ''' % TOOLS
 
 
+# What the cells' own stub reads from its environment: it receives these by name through run_feeder's test seam, never by inheritance.
+STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH")
+
+
 class World:
     def __init__(self, root):
         self.root = root
@@ -160,6 +168,7 @@ class World:
         kw.setdefault("log_dir", str(self.logs))
         kw.setdefault("state_dir", str(self.state))
         kw.setdefault("stub_as", "feed2.py")    # the module cells' stub stands in for feed2 (its option set is the broader one)
+        kw.setdefault("test_env_names", STUB_ENV)
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -760,7 +769,8 @@ def real_caller(w, arrow_python, exec_, detach=False):
                       'SL = importlib.util.module_from_spec(spec); spec.loader.exec_module(SL)\n'
                       'c = json.load(open(sys.argv[2]))\n'
                       'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"], allow_test=True),\n'
-                      '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True)\n')
+                      '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True,\n'
+                      '              test_env_names=("DRIVER_DETACH",))\n')
     cj = w.d / "caller.json"
     cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
                               "expected": str(w.expected), "log_dir": str(w.logs), "state_dir": str(w.state),
@@ -770,7 +780,8 @@ def real_caller(w, arrow_python, exec_, detach=False):
 
 def real_launch(w, arrow_python, exec_, detach=False):
     return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_), log_dir=str(w.logs),
-                         state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True)
+                         state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True,
+                         test_env_names=("DRIVER_DETACH",))
 
 
 # ---------------------------------------------------------------------------------------------------- W: the launch line
@@ -1645,7 +1656,8 @@ def test_g_the_fixed_list_is_one_named_constant_of_absolute_directories():
 @needs_linux_wrapper
 def test_g_a_caller_environment_with_no_path_launches_since_nothing_of_it_is_used(w):
     r = SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
-                      env={k: v for k, v in w.env().items() if k != "PATH"}, test_stub=True, stub_as="feed2.py")
+                      env={k: v for k, v in w.env().items() if k != "PATH"}, test_stub=True, stub_as="feed2.py",
+                      test_env_names=STUB_ENV)
     assert r.returncode == 0
 
 
@@ -1778,3 +1790,50 @@ def test_p_the_childs_working_directory_is_not_normalised_lexically_either(w):
     TSS.make_exe(str(wrapper), "#!/bin/sh\n")
     argv = ["--arm-home", "%s/L/../h" % d, "--env", "PATH=:"]
     SL.check_claude_first(str(wrapper), argv, {"PATH": "/usr/bin"}, str(w.tools / "feed2.py"))   # found, and is the wrapper
+
+
+# ============================================================ round 5b (A3, A5): the feeder's ENVIRONMENT is built from an allowlist
+# The names are PINNED HERE AS A LITERAL, not read from the module, so a widening shows as a diff in the constant AND in this test.
+def test_e3_the_allowlist_is_pinned_as_a_literal():
+    assert tuple(SL.FEEDER_ENV_ALLOW) == ("BEAM_OLLAMA_URL", "BEAM_PARQUET")
+
+
+CALLER_ONLY = {"LD_PRELOAD": "/nonexistent/cell.so", "LD_LIBRARY_PATH": "/nonexistent/lib", "BASH_ENV": "/nonexistent/rc",
+               "NODE_OPTIONS": "--require=/nonexistent/cell.js", "BEAM_NOT_LISTED_PROBE": "1"}
+
+
+@pytest.mark.parametrize("name", sorted(CALLER_ONLY))
+@needs_linux_wrapper
+def test_e3_a_variable_set_in_the_callers_environment_and_not_listed_is_absent_in_the_feeder(w, name):
+    r = w.launch(env={name: CALLER_ONLY[name]})
+    (rec,) = w.records()
+    assert name not in rec["env"], name
+    assert r.returncode == 0
+
+
+@needs_linux_wrapper
+def test_e3_a_listed_variable_arrives_with_its_value(w):
+    w.launch(env={"BEAM_PARQUET": "/some/where.parquet"})
+    (rec,) = w.records()
+    assert rec["env"]["BEAM_PARQUET"] == "/some/where.parquet"
+    assert rec["env"]["BEAM_OLLAMA_URL"] == "http://localhost:%d" % w.cfg.model_port
+
+
+@needs_linux_wrapper
+def test_e3_a_launch_under_the_built_environment_succeeds_and_the_names_are_exactly_the_built_ones(w):
+    """The positive cell (stub feeder, the stub's launch line as in every success cell): the launch SUCCEEDS with nothing but the
+    built environment, and the names the feeder got (and that the result reports for the setup record) are the pinned
+    literal's names, PATH, and the stub's own steering names."""
+    r = w.launch(env={"BEAM_PARQUET": "/some/where.parquet", **CALLER_ONLY})
+    assert r.returncode == 0 and r.verdict == NOT_FLAGGED
+    (rec,) = w.records()
+    got = set(rec["env"])
+    assert got - set(STUB_ENV) == {"BEAM_OLLAMA_URL", "BEAM_PARQUET", "PATH"}
+    assert r.feeder_env_names == sorted(got)
+
+
+def test_e3_a_real_feeder_never_gets_extra_names(w):
+    with pytest.raises(SL.LaunchRefused, match="test_env_names"):
+        SL.run_feeder(sys.executable, os.path.join(TOOLS, "feed4.py"), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
+                      state_dir=str(w.state), env=w.env(), test_env_names=("REC",))
+    w.assert_nothing_started()

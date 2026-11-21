@@ -33,7 +33,8 @@ refusal or a launch-line hash mismatch after the session raises LaunchStop (a ha
 any answer of that session; its `.result` holds the feeder's own exit code. `flagged` is a verdict, never a stop.
 
 What the module can and cannot see: it reads the feeder's argv (`--out`, `--env`), the feeder's environment
-(BEAM_OLLAMA_URL) and the PATH the feeder's Popen will use. It cannot see a student started by anything else.
+(BEAM_OLLAMA_URL) and the PATH the feeder's Popen will use. (A student session's feeder gets an environment the module BUILDS:
+FEEDER_ENV_ALLOW from the caller's environment, plus the built PATH; see there.) It cannot see a student started by anything else.
 """
 import hashlib, ipaddress, itertools, json, os, re, secrets, shutil, signal, subprocess, sys, tempfile, time
 import urllib.parse
@@ -100,6 +101,7 @@ class LaunchResult:
         self.test_mode = self.test_exec = None   # from the launch line, after the session
         self.caps = {}                            # every cap_* value the launch line records (the caller writes them to its record)
         self.feeder_path = None                   # the PATH the module built and passed to the feeder (the caller writes it to its record)
+        self.feeder_env_names = None              # the NAMES (never the values) of the environment the module built for the feeder
 
 
 def sha256_file(path):
@@ -304,6 +306,28 @@ def check_model_url(url, port):
 # reach, and never what `claude` means. A directory outside it that a session turns out to need is added here, by name, on the
 # design owner's ruling, and nowhere else.
 FEEDER_SYSTEM_DIRS = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+
+
+# The feeder's ENVIRONMENT is built too: only the names below reach it, from the caller's environment, and nothing else is
+# inherited (so LD_PRELOAD, LD_LIBRARY_PATH, BASH_ENV, NODE_OPTIONS and every other name are simply absent; this is an allowlist,
+# never a deny-list). Derived from what the code reads, not guessed:
+#   BEAM_OLLAMA_URL   feed.py `OLLAMA_URL = os.environ.get("BEAM_OLLAMA_URL", ...)` (imported by feed2.py and feed4.py), and this
+#                     module's own model_url() check of the URL the student will use
+#   BEAM_PARQUET      feed.py data_path() `os.environ.get("BEAM_PARQUET")`, the dataset the feeders read
+# PATH is not a name to pass: it is built (build_feeder_path). Nothing else in the feeders, the wrapper or the forwarder reads the
+# FEEDER's environment: feed.py/feed2.py/feed4.py Student.__init__ build the student's environment from scratch (PATH, HOME,
+# TERM, LANG, ... and the `--env` pairs), and the wrapper and the forwarder run inside THAT environment. A name added here is a
+# name a caller's shell can steer the feeder with: add one only on the design owner's ruling, by name, here and in the pinned
+# literal of tests/test_sandbox_launch.py.
+FEEDER_ENV_ALLOW = ("BEAM_OLLAMA_URL", "BEAM_PARQUET")
+
+
+def build_feeder_env(caller_env, wrapper_dir, extra_names=()):
+    """The feeder's whole environment: the allowlisted names present in `caller_env` (plus `extra_names`, a test seam that
+    run_feeder accepts only for a test stub), and the built PATH. Nothing else of `caller_env` is in it."""
+    out = {k: caller_env[k] for k in (*FEEDER_ENV_ALLOW, *extra_names) if k in caller_env}
+    out["PATH"] = build_feeder_path(wrapper_dir)
+    return out
 
 
 def build_feeder_path(wrapper_dir):
@@ -737,16 +761,19 @@ def _close_launch(rec_path, rec, log, res, prefix=UNIT_PREFIX):
 
 
 def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, state_dir=None, env=None, test_stub=False,
-               stub_as="feed4.py", **run_kw):
+               stub_as="feed4.py", test_env_names=(), **run_kw):
     """Run `py -I feeder *argv`. See the module docstring. `sandbox` is a Sandbox for a student session; None only for a
     call that starts no student (`--dump-plan`). `log_dir` is where this session's SANDBOX_LOG is chosen (or `log_path`
     names it; it must not exist). `state_dir` (required for a student session, no default) holds one record per launch.
     `test_stub=True` lets a test substitute a stub script for a feeder (the P1_FEED4 hook, refused outside
     P1_TEST_HOOKS=1): the stub is wrapped like a feeder, so every check still runs on it, and its argv obeys the allow-list
-    of the feeder it stands in for (`stub_as`, feed4.py by default).
+    of the feeder it stands in for (`stub_as`, feed4.py by default). `test_env_names` (refused without `test_stub`) names further
+    caller-environment variables a STUB needs to receive, on top of FEEDER_ENV_ALLOW.
     Extra keyword arguments go to subprocess.run (stdout=...)."""
     if os.path.basename(feeder) not in FEEDERS and not test_stub:
         raise LaunchRefused(f"{feeder} is not one of the feeders {FEEDERS}")
+    if test_env_names and not test_stub:
+        raise LaunchRefused("test_env_names is a seam for a test stub only; a real feeder gets FEEDER_ENV_ALLOW and nothing else")
     env = dict(os.environ if env is None else env)
     argv = list(argv)
     check_argv_options(argv, FEEDER_OPTIONS[os.path.basename(feeder) if os.path.basename(feeder) in FEEDER_OPTIONS else stub_as],
@@ -780,9 +807,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
             if got[k] != sandbox.expected[k]:
                 raise LaunchRefused(f"{k} of the file this launch would use is {got[k]}, expected {sandbox.expected[k]} "
                                     f"(from {os.path.basename(sandbox.expected_file)})")
-        env["PATH"] = build_feeder_path(wdir)   # built, not inherited: the caller's PATH is not read
-        check_claude_first(wrapper, argv, env, feeder)
-        check_no_other_claude(wrapper, *_feeder_path(argv, env, feeder))
+        fenv = build_feeder_env(env, wdir, test_env_names)   # built, not inherited: the caller's environment is read by name only
+        check_claude_first(wrapper, argv, fenv, feeder)
+        check_no_other_claude(wrapper, *_feeder_path(argv, fenv, feeder))
         os.makedirs(os.path.join(out, "proctor"), exist_ok=True)
         tools = os.path.dirname(os.path.abspath(feeder))
         pairs = dict(sandbox.settings)
@@ -794,9 +821,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         rec = {"state": "open", "log": log_path, "feeder": os.path.basename(feeder)}
         _write_record(rec_path, rec)
         res = LaunchResult(None, log=log_path)
-        res.feeder_path = env["PATH"]
+        res.feeder_path, res.feeder_env_names = fenv["PATH"], sorted(fenv)
         try:
-            res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=env, **run_kw).returncode
+            res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=fenv, **run_kw).returncode
         except BaseException as exc:   # a feeder that could not run, or was interrupted: still torn down
             td = _close_launch(rec_path, rec, log_path, res, sandbox.prefix)
             if td is not None and hasattr(exc, "add_note"):

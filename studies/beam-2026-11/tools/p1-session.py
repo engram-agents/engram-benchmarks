@@ -133,7 +133,9 @@ TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_se
 P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never silently change a real run:
   P1_FEED4            run this script in place of feed4.py (the plan dump and the run). The stub goes through the same
                       sandbox_launch.run_feeder as feed4.py would, wrapped, with every pre-launch and post-session check
-                      live; a stub that starts no student must write the log line the wrapper would (a test stub does)
+                      live; a stub that starts no student must write the log line the wrapper would (a test stub does).
+                      The student run's feeder gets only the environment the module builds; the stub also receives the
+                      caller's STUB_* variables (and no other), so a stub can be steered by a test
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
@@ -871,7 +873,8 @@ def work(a, c, steps):
         return 0
     try:
         res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir, state_dir=os.path.join(os.environ["BEAM_RUNS_DIR"], "sandbox-launches"),
-                            test_stub=bool(os.environ.get("P1_FEED4")))
+                            test_stub=bool(os.environ.get("P1_FEED4")),
+                            test_env_names=[k for k in os.environ if k.startswith("STUB_")] if os.environ.get("P1_FEED4") else ())
     except SL.LaunchRefused as e:   # before anything started: nothing of the session exists
         steps.append(("8 student run", "refused by the sandbox launch module"))
         print(f"REFUSE: {e}"); c["sandbox_leftovers"] = e.leftover_count
@@ -919,6 +922,7 @@ def sandbox_info(c, res):
             f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}",
             f"sandbox launch-line test_mode: {res.test_mode}", f"sandbox launch-line test_exec: {res.test_exec}",
             f"sandbox feeder PATH: {res.feeder_path}",
+            f"sandbox feeder environment names: {', '.join(res.feeder_env_names or [])}",
             *[f"sandbox launch-line {k}: {v}" for k, v in sorted(res.caps.items())]]
 
 
