@@ -964,7 +964,7 @@ from html.parser import HTMLParser  # noqa: E402
 # patterns match case-INSENSITIVELY: a section whose only label is 'official 71%' or 'adjusted 71%' is in the set.
 OFFICIAL_RE = re.compile(r"official_\w+|\bofficial\b(?![- ]dataset)", re.I)
 ADJUSTED_RE = re.compile(r"adjusted_\w+|adjust_delta|\badjusted\b", re.I)
-MARKER_RE = re.compile(r"__[A-Z_]+__")  # the build's own fill-in markers (__OFFICIAL_NOTE__ ...) are not labels
+MARKER_RE = re.compile(r"__[A-Z]+(?:_[A-Z]+)*__")  # the build's own fill-in markers (__OFFICIAL_NOTE__ ...) are not labels
 NOTE_MARKUP = '<p class="bs-k bs-official-note">{}</p>'
 INDEP_MARKUP = '<p class="bs-k bs-independence">{}</p>'
 INDEP_MARKUP_RE = re.compile(r'<p class="bs-k bs-independence">[^<]*</p>')
@@ -1231,9 +1231,37 @@ def test_n1_the_note_is_escaped_like_the_withhold_reason(env):
     assert "<b>&" not in built and "&lt;b&gt;&amp;" in built
 
 
-def test_n1_markers_in_the_note_are_text_not_substituted(env):
-    built = note_build(env, note="see __TITLE__ and __BANNER__ here")
-    assert built.count("see __TITLE__ and __BANNER__ here") == len(generated_sections(page_html_text(), OFFICIAL_RE))
+def template_markers():
+    """Every fill-in marker the page template carries, read off page.html (the build fills exactly these)."""
+    found = sorted(set(MARKER_RE.findall(page_html_text())))
+    assert "__OFFICIAL_NOTE__" in found and "__INDEPENDENCE__" in found, found
+    return found
+
+
+def test_n4_markers_in_title_withhold_reason_and_note_stay_literal_text_where_given(env):
+    markers = template_markers()
+    sample = " ".join(markers) + ' <i>&"q"'  # every marker the builder fills, and text that needs escaping
+    title, reason, note = "T " + sample, "R " + sample, "N " + sample
+    env.write()
+    code, _, err = env.run("--answers-file", env.answers, "--title", title, *env.withhold([(1, 3)], reason=reason),
+                           "--official-note", note)
+    assert code == 0, err
+    built = env.html()
+    esc = {k: htmllib.escape(v) for k, v in (("title", title), ("reason", reason), ("note", note))}
+    off_keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    adj_keys = generated_sections(page_html_text(), ADJUSTED_RE)
+    # each value appears escaped, literally, exactly where it was given
+    assert built.count(f"<title>{esc['title']}</title>") == 1
+    assert built.count(f'<h1 class="bs-title">{esc["title"]}</h1>') == 1
+    assert built.count(f"Reason: {esc['reason']}. Their text") == 1  # the banner adds the closing full stop
+    assert built.count(NOTE_MARKUP.format(esc["note"])) == len(off_keys)
+    assert missing_from(built, off_keys, NOTE_MARKUP.format(esc["note"])) == []
+    assert built.count(indep_markup()) == len(adj_keys) and missing_from(built, adj_keys, indep_markup()) == []
+    # nothing was substituted a second time: take out every place a value was given, and no marker is left
+    rest = built.replace(f"<title>{esc['title']}</title>", "").replace(f'<h1 class="bs-title">{esc["title"]}</h1>', "")
+    rest = rest.replace(f"Reason: {esc['reason']}.", "").replace(NOTE_MARKUP.format(esc["note"]), "")
+    assert [m for m in markers if m in rest] == []
+    assert "<i>&" not in built  # none of the three values went in unescaped
 
 
 def test_n1_the_note_is_stripped_of_surrounding_space_like_the_withhold_reason(env):
