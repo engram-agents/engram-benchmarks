@@ -1693,6 +1693,65 @@ def test_g_the_launch_runs_the_guard_on_the_path_the_feeder_will_see_including_t
     w.assert_nothing_started()
 
 
+# ------------------------------------------------------------ round 5b: the decoy cells
+# A DECOY `claude` that writes a sentinel when run, on a PATH. The contract: a launch whose wrapper cannot be executed ends in
+# LaunchStop with no answer read, and nothing else named `claude` is ever run; and a built path that would resolve `claude` to
+# anything but the wrapper is refused before launch.
+def decoy_claude(where, sentinel):
+    os.makedirs(where, exist_ok=True)
+    TSS.make_exe(os.path.join(str(where), "claude"), "#!/bin/sh\n: > %s\nexit 0\n" % sentinel)
+    return str(where)
+
+
+BROKEN_WRAPPERS = {
+    "missing-interpreter": b"#!/nonexistent/interpreter-for-this-cell\nexit 0\n",     # exec fails: no such interpreter
+    "invalid-format": b"\x7fNOT-AN-EXECUTABLE-FORMAT\x00\x01\x02 no shebang, no ELF magic\n",   # exec fails: exec format error
+}
+
+
+@pytest.mark.parametrize("kind", sorted(BROKEN_WRAPPERS))
+@needs_linux_wrapper
+@needs_arrow
+def test_d_a_wrapper_that_cannot_exec_is_a_launch_stop_and_the_decoy_on_the_callers_path_never_runs(w, arrow_python, monkeypatch, tmp_path, kind):
+    """The real feed4.Student does the exec (the only seam that reaches it): the module's copy of the wrapper is broken in one of
+    the two ways exec can fail, the expected-hashes file matches the broken copy (so the pre-launch hash check passes and the
+    launch reaches the exec), and a decoy `claude` sits on the CALLER's PATH. Popen used to fall through to the next `claude`
+    on a failed exec; the built path no longer contains the caller's directories, so nothing is started. No real binary and no
+    model is involved: the only `claude` that can run is the decoy, and it must not."""
+    broken = tmp_path / "broken-wrapper"; broken.write_bytes(BROKEN_WRAPPERS[kind]); os.chmod(broken, 0o500)
+    monkeypatch.setattr(SL, "WRAPPER_SRC", str(broken))
+    w.write_expected(wrapper=TSS.sha256_of(str(broken)))
+    sentinel = tmp_path / "decoy-ran"
+    decoy = decoy_claude(tmp_path / "decoy-bin", sentinel)
+    env = w.env(PATH="%s:%s" % (decoy, os.environ["PATH"]))
+    with pytest.raises(SL.LaunchStop, match="log-verdict refused") as e:     # no log at all: the wrapper never ran
+        SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
+                      env=env, test_stub=True, stub_as="feed2.py")
+    r = e.value.result
+    assert r.verdict is None and r.wrapper_sha256 is None                # no answer of this session is read
+    assert not sentinel.exists(), "the decoy `claude` on the caller's PATH was run"
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done"
+
+
+@pytest.mark.parametrize("how", ["decoy-ahead-of-the-wrapper", "decoy-instead-of-the-wrapper"])
+def test_a2_a_built_path_that_resolves_claude_to_anything_but_the_wrapper_is_refused_before_launch(w, monkeypatch, tmp_path, how):
+    """The assertion is the security line, not the list: with a seam that puts a directory holding a decoy `claude` into the BUILT
+    path itself (ahead of the wrapper's directory, or in its place), the launch is refused by the equality assertion, named, with
+    nothing started and the decoy never run."""
+    sentinel = tmp_path / "decoy-ran"
+    decoy = decoy_claude(tmp_path / "decoy-in-built", sentinel)
+    if how == "decoy-ahead-of-the-wrapper":
+        monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((decoy, wdir, *SL.FEEDER_SYSTEM_DIRS)))
+    else:
+        monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((decoy, *SL.FEEDER_SYSTEM_DIRS)))
+    with pytest.raises(SL.LaunchRefused, match="not the sandbox wrapper") as e:
+        w.launch()
+    assert decoy in str(e.value)
+    w.assert_nothing_started()
+    assert not sentinel.exists()
+
+
 # ====================================================================================== the PATH resolution is exec's, not lexical
 def test_p_a_path_entry_with_a_symlink_then_dotdot_resolves_to_the_file_a_real_exec_runs(w):
     """<d>/L is a symlink to <d>/real/x, so `<d>/L/../wd` is <d>/real/wd for exec (the kernel follows L, then goes up), while a
