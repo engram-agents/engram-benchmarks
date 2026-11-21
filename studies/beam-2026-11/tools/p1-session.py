@@ -456,8 +456,8 @@ def _end_state_verdict(path, allow_pre_module_start):
     quarantine name (`*.flagged`); (b) a record whose verdict is flagged (so renaming a quarantined state together with its
     record does not launder it); (c) no record, or no verdict line in it (a state saved by an older tool, or copied by
     hand); (d) the pre-module line without the allowance, or with it when the record has no single `state_sha256=` line,
-    or the state's store content hash (protected_store_hash, the same helper) differs from it (a state changed after
-    marking is not the state that was named), or the record holds any other verdict line beside it. The record is looked
+    or the state's store content hash (protected_store_hash, the same helper: the knowledge.db tables only, not memory
+    files, .claude/ or hooks) differs from it (a store changed after marking is not the store that was named), or the record holds any other verdict line beside it. The record is looked
     for beside the path as given and beside its realpath."""
     for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
         if os.path.basename(cand).endswith(QUARANTINE_SUFFIX):
@@ -490,8 +490,9 @@ def _end_state_verdict(path, allow_pre_module_start):
                 return f"the pre-module record {rec} must hold exactly one `state_sha256=` line (found {len(hashes)})", None
             got = protected_store_hash(path)[0]
             if got != hashes[0]:
-                return (f"the end state {path} changed after marking: its store content hash is {got}, the record {rec} "
-                        f"named {hashes[0]}"), None
+                return (f"the end state {path}'s store changed after marking: its knowledge.db store content hash is {got}, "
+                        f"the record {rec} named {hashes[0]} (the hash covers the knowledge.db tables only; memory files, "
+                        ".claude/ and hooks are not covered)"), None
             accepted = hashes[0]
             continue
         if v != "not-flagged":
@@ -970,7 +971,7 @@ def write_setup(a, c, steps, start, rc):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], allow_abbrev=False)  # no prefix of a flag stands for it
     ap.add_argument("--end-state", required=True); ap.add_argument("--session", required=True)
     ap.add_argument("--label", required=True); ap.add_argument("--question-file")  # required unless --continue-reading
     ap.add_argument("--components", required=True)

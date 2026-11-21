@@ -380,6 +380,11 @@ class LaunchMarkerError(Exception):
     pass
 
 
+class LaunchLogUnreadable(Exception):
+    """A launch log that EXISTS but cannot be read: nothing is known about whether its wrapper launched, so it is never
+    read as 'the wrapper never launched' (read_launch_fields raises it; both callers turn it into a named refusal or stop)."""
+
+
 def scope_name(unit):
     """systemctl takes a bare name as a .service; the wrapper's units are scopes (`systemd-run --scope --unit NAME`)."""
     return unit if unit.endswith(".scope") else unit + ".scope"
@@ -394,11 +399,18 @@ def _systemctl(*args, timeout=150):
 
 
 def read_launch_fields(log):
-    """The key=value fields of the log's `wrapper-launch` line, or None when there is no log or no such line."""
+    """The key=value fields of the log's `wrapper-launch` line. THREE cases, told apart: the log is ABSENT (the wrapper refused
+    before it made one: None); the log has NO launch line (a log the forwarder wrote alone: None); the log is PRESENT BUT
+    UNREADABLE (permission, a directory, an I/O error: LaunchLogUnreadable, because nothing is known and it must never be
+    closed as 'never launched'). Absent and no-line both answer None because the callers treat them the same (nothing to stop);
+    only an unreadable log is a different answer."""
     try:
         text = open(log, "rb").read().decode("utf-8", "replace")
-    except OSError:
+    except FileNotFoundError:
         return None
+    except OSError as e:
+        raise LaunchLogUnreadable(f"the launch log {log} exists but cannot be read ({type(e).__name__}): whether its wrapper "
+                                  "launched is not known")
     for line in text.splitlines():
         if line.startswith("wrapper-launch "):
             return dict(tok.partition("=")[::2] for tok in line.split()[1:] if "=" in tok)
@@ -588,7 +600,12 @@ def check_before_launch(state_dir, prefix=UNIT_PREFIX):
                 continue
             if rec.get("state") == "done":
                 continue
-            fields = read_launch_fields(rec.get("log", ""))
+            try:
+                fields = read_launch_fields(rec.get("log", ""))
+            except LaunchLogUnreadable as e:
+                problems.append(f"the earlier launch {name}: {e}; its record is left open, and nothing can be said about what it started")
+                count += 1
+                continue
             if fields is None:
                 rec.update(state="done", note="no launch line in the log: the wrapper never launched, nothing to stop")
                 _write_record(path, rec)
@@ -630,7 +647,10 @@ def _close_launch(rec_path, rec, log, res, prefix=UNIT_PREFIX):
     launching) is told apart by exactly that: there is nothing to stop. Whenever a launch line names a scope_unit that is a
     unit this wrapper makes, that scope is stopped FIRST, whatever the other markers say and whether or not the record can be
     written; the three checks then run with what the line has, and a check that could not run is reported, never read as clean."""
-    fields = read_launch_fields(log)
+    try:
+        fields = read_launch_fields(log)
+    except LaunchLogUnreadable as e:
+        return LaunchStop(f"teardown: {e}; the launch record is left open and nothing of this launch was stopped or checked", res)
     if fields is None:
         try:
             rec.update(state="done", note="no launch line in the log: the wrapper refused before it launched, nothing to stop")
@@ -760,6 +780,8 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
                                      "is not what was registered; no answer of this session is read", res)
         except LaunchStop as e:
             vs = e
+        except LaunchLogUnreadable as e:
+            vs = LaunchStop(f"{e}; no answer of this session is read", res)
         if td is not None:
             raise LaunchStop(str(td) + (f"; also: {vs}" if vs else ""), res) from None
         if vs is not None:

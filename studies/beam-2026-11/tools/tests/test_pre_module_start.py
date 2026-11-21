@@ -111,20 +111,42 @@ def test_t6_a_directory_with_no_store_is_refused_and_nothing_is_written(tmp_path
     assert not os.path.lexists(record_of(d))
 
 
-def test_t7_nothing_calls_the_command_automatically():
-    """No tool file (outside tests/, the command itself, markdown) mentions it on a line that also runs something."""
-    runners = re.compile(r"subprocess|Popen|os\.system|exec|bash |python")
-    for dp, dn, fn in os.walk(TOOLS):
-        dn[:] = [d for d in dn if d not in ("tests", "__pycache__")]
-        for f in fn:
-            if f == "mark-pre-module-start.py" or f.endswith(".md"):
-                continue
-            try:
-                text = open(os.path.join(dp, f), encoding="utf-8").read()
-            except (OSError, UnicodeDecodeError):
-                continue
-            bad = [l for l in text.splitlines() if "mark-pre-module-start" in l and runners.search(l)]
-            assert not bad, (f, bad)
+TOOL_NAME = "mark-pre-module-start"
+# files that may name the command: the command itself, and p1-session.py only in its comments/help (never a call)
+MAY_NAME_IT = {"mark-pre-module-start.py", "p1-session.py"}
+
+
+def mentions_outside_allowed(texts):
+    """{file: text} -> the files that name the command at all and are neither markdown nor allow-listed. A name anywhere
+    in a file (split over two lines, built by concatenation of its two halves is NOT seen) is a failure, because a
+    launcher that runs the command has to spell the name somewhere."""
+    return sorted(f for f, t in texts.items() if TOOL_NAME in t and f not in MAY_NAME_IT and not f.endswith(".md"))
+
+
+def tracked_tool_texts():
+    r = subprocess.run(["git", "-C", TOOLS, "ls-files", "-z", "--", "."], capture_output=True, check=True)
+    out = {}
+    for rel in r.stdout.decode().split("\0"):
+        if not rel or rel.split("/")[0] == "tests":
+            continue
+        try:
+            out[rel] = open(os.path.join(TOOLS, rel), encoding="utf-8").read()
+        except (OSError, UnicodeDecodeError):
+            pass
+    return out
+
+
+def test_t7_no_tracked_tool_file_names_the_command_but_the_command_and_p1_session():
+    texts = tracked_tool_texts()
+    assert "mark-pre-module-start.py" in texts and "p1-session.py" in texts     # the population is not empty
+    assert mentions_outside_allowed(texts) == []
+
+
+def test_t7_the_scan_sees_a_call_split_over_two_lines_and_p1_session_never_runs_it():
+    split = 'MARKER = os.path.join(HERE, "mark-pre-module-start.py")\nsubprocess.run([sys.executable, MARKER])\n'
+    assert mentions_outside_allowed({"launcher.py": split, "README.md": split, "mark-pre-module-start.py": split}) == ["launcher.py"]
+    assert not re.search(r"subprocess|Popen|os\.system", "\n".join(l for l in tracked_tool_texts()["p1-session.py"].splitlines()
+                                                                   if TOOL_NAME in l))
 
 
 # ------------------------------------------------------------------------------------------- 2. the pilot-only switch
@@ -183,3 +205,75 @@ def test_s8_the_scored_door_does_not_know_the_flag():
     """The launch module (what a scored launcher calls) carries neither the flag nor the allowance."""
     text = open(os.path.join(TOOLS, "sandbox_launch.py"), encoding="utf-8").read().lower()
     assert "pre-module" not in text and "pre_module" not in text and "pilot-pre" not in text
+
+
+# ------------------------------------------------------------------------------------------- 3. round 2 (reviewer's round 1)
+def rewrite_record(s, fn):
+    lines = open(record_of(s)).read().splitlines()
+    open(record_of(s), "w").write("\n".join(fn(lines)) + "\n")
+
+
+def test_r1_a_pre_module_line_beside_another_verdict_line_is_refused_even_with_the_flag(w):
+    s = marked_copy(w, "mixed")
+    rewrite_record(s, lambda ls: ls + ["sandbox verdict: not-flagged"])     # no flagged line: only the mixed-record rule can refuse
+    cr_refusal(w, over=over_for(s), extra=(FLAG,), expect="beside another verdict line", P1_PROTECTED=prot(w, s))
+
+
+@pytest.mark.parametrize("second", ["right", "wrong"])
+def test_r1_exactly_one_state_sha256_line_is_required(w, second):
+    s = marked_copy(w, "twohash")
+    right = [l for l in open(record_of(s)).read().splitlines() if l.startswith("state_sha256=")][0]
+    extra = right if second == "right" else "state_sha256=" + "0" * 64
+    rewrite_record(s, lambda ls: ls + [extra])
+    cr_refusal(w, over=over_for(s), extra=(FLAG,), expect="exactly one `state_sha256=` line", P1_PROTECTED=prot(w, s))
+
+
+def test_r1_an_ordinary_not_flagged_run_carries_no_pilot_line(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    text = "\n".join(setup_lines(w))
+    assert "pilot, pre-module start" not in text and "pre-module start state_sha256" not in text
+
+
+def test_r1_the_flag_alone_does_not_label_a_run_a_pilot(w, ollama):
+    """The flag is an allowance, not a label: a state that was never marked (it has an ordinary not-flagged record) runs with
+    the flag set and setup.txt must not say pilot."""
+    r = cr_run(w, extra=(FLAG,), ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "pilot, pre-module start" not in "\n".join(setup_lines(w))
+
+
+def test_r2_what_the_hash_binds_is_the_store_only_and_the_wording_says_so(w):
+    s = marked_copy(w, "bound")
+    # a memory file edit does NOT change the knowledge.db content hash: the check does not see it (the limit, pinned)
+    mem = next(os.path.join(dp, f) for dp, _, fs in os.walk(str(s / ".claude")) for f in fs if f.endswith("a.md"))
+    open(mem, "a").write("edited after marking\n")
+    assert P1S._end_state_verdict(str(s), True)[0] is None
+    # and the refusal for a store change says what it hashed
+    c = sqlite3.connect(str(s / ".engram" / "knowledge.db"))
+    c.execute("insert into nodes values ('late', 'changed')"); c.commit(); c.close()
+    why = P1S._end_state_verdict(str(s), True)[0]
+    assert "knowledge.db" in why and "store" in why and "not covered" in why
+
+
+def test_r3_the_flag_is_refused_in_answering_mode_and_an_abbreviation_of_it_is_not_accepted(w):
+    r = cr_run(w, over={"--continue-reading": None, "--start": None, "--through": None, "--per-round": None,
+                        "--save-end-state": None, "--expect-store-sha256": None, "--question-file": str(w.comps)},
+               extra=(FLAG,))
+    assert r.returncode == 2 and "only valid with --continue-reading" in r.stdout + r.stderr
+    s = marked_copy(w, "abbrev")
+    cr_refusal(w, over=over_for(s), extra=("--pilot-pre",), expect="pilot-pre", P1_PROTECTED=prot(w, s))
+
+
+def test_r4_the_record_is_not_world_writable_whatever_the_umask(w):
+    s = copy_end_state(w, "pre", None)
+    r = subprocess.run([sys.executable, MARK, str(s), "--by", "x"], capture_output=True, text=True, preexec_fn=lambda: os.umask(0))
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert (os.stat(record_of(s)).st_mode & 0o777) == 0o644
+
+
+def test_r5_the_readme_names_no_internal_crossing_number_and_states_the_scored_launchers_must():
+    text = open(os.path.join(TOOLS, "README.md"), encoding="utf-8").read()
+    assert "crossing" not in text.lower().split("a pre-module end state is a pilot start only")[1]
+    assert "knowledge.db" in text.split("A pre-module end state is a PILOT start only")[1]
+    assert "must refuse a run whose" in text and "pilot, pre-module start" in text.split("must refuse a run whose")[1][:200]

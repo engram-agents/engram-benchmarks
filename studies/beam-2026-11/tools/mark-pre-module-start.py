@@ -17,8 +17,8 @@ the record beside the path as given or beside its realpath); STATE is not an exi
 --by is empty or not printable on one line.
 
 Who runs it: the study lead, per run, naming the state. Nothing calls it automatically. What the record buys: only
-`p1-session.py --continue-reading --pilot-pre-module-start` accepts such a state, and only while its store still hashes to
-`state_sha256`. The default reader, and so any scored launcher, refuses it. See README.md."""
+`p1-session.py --continue-reading --pilot-pre-module-start` accepts such a state, and only while its knowledge.db store still
+hashes to `state_sha256` (the hash covers the store's tables only; memory files, .claude/ and hooks are not bound). The default reader, and so any scored launcher, refuses it. See README.md."""
 import argparse, datetime, importlib.util, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -67,7 +67,7 @@ def main(argv=None):
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     body = f"{NONE_LINE}\nstate_sha256={sha}\nmarked_by={by}\nmarked_at={now}\n"
     try:
-        fd = os.open(rec, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666)
+        fd = os.open(rec, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     except FileExistsError:
         return refuse(f"the record {rec} already exists (it is never overwritten)")
     except OSError as e:

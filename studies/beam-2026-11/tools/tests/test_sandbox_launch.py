@@ -1507,3 +1507,63 @@ def test_s2_a_real_feeder_option_that_is_not_in_the_dict_is_refused(w, stub_as):
     with pytest.raises(SL.LaunchRefused, match="'--model'"):
         w.launch(argv=w.argv(extra=("--model", "some-model")), stub_as=stub_as)
     w.assert_nothing_started()
+
+
+# ================================================================ the launch log's THREE states (design owner's finding)
+# `read_launch_fields` used to answer None both when the log could not be opened and when it had no launch line, and both
+# callers then closed the record as "the wrapper never launched". Three cases, told apart: ABSENT (the wrapper refused before
+# it made a log: legitimate), PRESENT BUT UNREADABLE (not known to be anything: a named refusal / stop, the record stays
+# open), PRESENT WITH NO LAUNCH LINE (a log the forwarder wrote alone: nothing to stop). The unreadable log is a DIRECTORY at
+# the log path: unreadable whoever runs the cell (a chmod would not stop root).
+def open_record(w, log, name="x.json"):
+    w.state.mkdir(exist_ok=True)
+    p = w.state / name
+    p.write_text(json.dumps({"state": "open", "log": str(log), "feeder": "stub"}))
+    return p
+
+
+def log_in(w, kind):
+    p = w.logs / f"{kind}.log"
+    if kind == "unreadable":
+        p.mkdir()
+    elif kind == "noline":
+        p.write_text("fwd-first-request\n")
+    return p            # "absent": nothing created
+
+
+def test_l_the_helper_tells_the_three_apart(w):
+    assert SL.read_launch_fields(str(log_in(w, "absent"))) is None
+    assert SL.read_launch_fields(str(log_in(w, "noline"))) is None
+    with pytest.raises(SL.LaunchLogUnreadable, match="cannot be read"):
+        SL.read_launch_fields(str(log_in(w, "unreadable")))
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_before_launch_closes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    SL.check_before_launch(str(w.state))
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_before_launch_refuses_on_an_unreadable_log_by_name_and_leaves_the_record_open(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    with pytest.raises(SL.LaunchRefused, match=r"cannot be read.*not known") as e:
+        SL.check_before_launch(str(w.state))
+    assert "x.json" in str(e.value)
+    assert json.load(open(rec))["state"] == "open"
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_close_finishes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    r = json.load(open(rec))
+    assert SL._close_launch(str(rec), r, str(log_in(w, kind)), SL.LaunchResult(None)) is None
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_close_is_a_named_stop_on_an_unreadable_log_and_never_done(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    r = json.load(open(rec))
+    stop = SL._close_launch(str(rec), r, str(log_in(w, "unreadable")), SL.LaunchResult(None))
+    assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
+    assert json.load(open(rec))["state"] == "open"
