@@ -260,6 +260,34 @@ def env_pairs(argv):
     return out
 
 
+# The caller's `--env KEY=VALUE` pairs are an ALLOWLIST too. feed4.py / feed2.py Student.__init__ put every pair into the STUDENT's
+# environment, which is the environment the shell-script wrapper runs in, so an unlisted key (BASH_ENV, LD_PRELOAD, NODE_OPTIONS,
+# PATH, ...) would be a door past the built feeder environment. Only these keys may be passed by a caller; any other is refused BY
+# NAME before anything starts (never silently dropped), PATH included (the PATH is built, build_feeder_path). The module's own
+# SANDBOX_* pairs are added after this check and a caller's SANDBOX_* pair is refused. Derived from the callers, not guessed:
+#   CLAUDE_CODE_MAX_CONTEXT_TOKENS   p1-session.py feed4_args() passes it (WINDOW); the value is digits only (check_env_pairs)
+#   ANTHROPIC_BASE_URL               read by model_url() below and matched against MODEL_URL_RE before launch
+# A key added here is a name a caller can steer the student with: add one only on the design owner's ruling, by name, here and in the
+# pinned literal of tests/test_sandbox_launch.py.
+CONTEXT_TOKENS_KEY = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+FEEDER_ENV_PAIR_ALLOW = (CONTEXT_TOKENS_KEY, "ANTHROPIC_BASE_URL")
+_DIGITS_RE = re.compile(r"[0-9]+")   # ASCII digits only (not \d: no other script's digits), matched whole (fullmatch: no trailing newline)
+
+
+def check_env_pairs(argv):
+    """Refuse, before anything starts and naming the key, any caller `--env` pair that is not allowed: a SANDBOX_* key (the module
+    passes its own), a key outside FEEDER_ENV_PAIR_ALLOW, a CLAUDE_CODE_MAX_CONTEXT_TOKENS value that is not a positive integer
+    written in digits. (An ANTHROPIC_BASE_URL value is checked by check_model_url.)"""
+    for k, v in env_pairs(argv):
+        if k.startswith("SANDBOX_"):
+            raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
+        if k not in FEEDER_ENV_PAIR_ALLOW:
+            raise LaunchRefused(f"--env {k!r} is refused: a caller may pass only {list(FEEDER_ENV_PAIR_ALLOW)} to the student's "
+                                "environment (the PATH is built by the module, never passed)")
+        if k == CONTEXT_TOKENS_KEY and not (_DIGITS_RE.fullmatch(v) and int(v) > 0):
+            raise LaunchRefused(f"--env {k} value {v!r} is refused: digits only, a positive integer (no sign, no space)")
+
+
 def argv_value(argv, flag):
     for i in range(len(argv) - 2, -1, -1):
         if argv[i] == flag:
@@ -348,13 +376,10 @@ def resolve_on_path(name, path, cwd):
 
 
 def _feeder_path(argv, env, feeder):
-    """(the PATH the feeder's Popen will see, the working directory it resolves an empty or relative entry against)."""
-    path = None
-    for k, v in env_pairs(argv):
-        if k == "PATH":
-            path = v   # an --env PATH replaces the feeder's own (last wins)
-    if path is None:
-        path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
+    """(the PATH the feeder's Popen will see, the working directory it resolves an empty or relative entry against). The feeder
+    builds it as its own PATH (the built one) + `:` + its directory; a caller's `--env PATH=` never gets here (refused by
+    the key check, run_feeder)."""
+    path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
     home = argv_value(argv, "--arm-home")
     cwd = os.path.join(os.getcwd(), home, "work") if home else os.getcwd()   # as the child's chdir resolves it: no lexical abspath
     return path, cwd
@@ -784,9 +809,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         raise LaunchRefused("a feeder call that starts a student needs the sandbox (only --dump-plan runs without it)")
     if not state_dir:
         raise LaunchRefused("a student session needs a state directory for its launch record (the module has no default)")
-    for k, _ in env_pairs(argv):
-        if k.startswith("SANDBOX_"):
-            raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
+    check_env_pairs(argv)
     out = argv_value(argv, "--out")
     if not out:
         raise LaunchRefused("the feeder's --out directory is not in its argv (the proctor binds are made from it)")

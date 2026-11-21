@@ -263,18 +263,22 @@ def test_m3_a_log_path_that_already_exists_is_refused(w):
     assert not w.rec.exists() and p.read_text() == "wrapper-launch earlier\n"
 
 
-def test_m3_a_claude_first_on_the_path_that_is_not_the_wrapper_is_refused(w):
+def test_m3_a_claude_first_on_the_path_that_is_not_the_wrapper_is_refused(w, monkeypatch):
+    """(A6: a caller can no longer reach this by `--env PATH=`, which is refused by name; the seam is the built path itself.)"""
     other = w.d / "other"; other.mkdir()
     TSS.make_exe(str(other / "claude"), "#!/bin/sh\nexit 0\n")
+    monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((str(other), wdir, *SL.FEEDER_SYSTEM_DIRS)))
     with pytest.raises(SL.LaunchRefused, match="not the sandbox wrapper"):
-        w.launch(argv=w.argv(extra=("--env", "PATH=%s:/usr/bin" % other)))
+        w.launch()
     w.assert_nothing_started()
 
 
 @needs_linux_wrapper
-def test_m3_a_path_override_that_keeps_the_wrapper_first_is_fine_and_no_claude_at_all_is_refused(w):
-    with pytest.raises(SL.LaunchRefused, match="not found"):
-        w.launch(argv=w.argv(extra=("--env", "PATH=/nonexistent-dir")))
+def test_m3_a_built_path_with_no_claude_at_all_is_refused_and_the_modules_own_path_passes(w, monkeypatch):
+    with monkeypatch.context() as m:   # (A6: the seam is the built path; a caller's `--env PATH=` is refused by name)
+        m.setattr(SL, "build_feeder_path", lambda wdir: "/nonexistent-dir")
+        with pytest.raises(SL.LaunchRefused, match="not found"):
+            w.launch()
     w.assert_nothing_started()
     assert w.launch().returncode == 0    # the positive control: the module's own PATH passes the same check
 
@@ -1788,8 +1792,8 @@ def test_p_the_childs_working_directory_is_not_normalised_lexically_either(w):
     os.symlink(str(d / "real" / "x"), str(d / "L"))
     wrapper = d / "real" / "h" / "work" / "claude"
     TSS.make_exe(str(wrapper), "#!/bin/sh\n")
-    argv = ["--arm-home", "%s/L/../h" % d, "--env", "PATH=:"]
-    SL.check_claude_first(str(wrapper), argv, {"PATH": "/usr/bin"}, str(w.tools / "feed2.py"))   # found, and is the wrapper
+    argv = ["--arm-home", "%s/L/../h" % d]
+    SL.check_claude_first(str(wrapper), argv, {"PATH": ":"}, str(w.tools / "feed2.py"))   # found, and is the wrapper
 
 
 # ============================================================ round 5b (A3, A5): the feeder's ENVIRONMENT is built from an allowlist
@@ -1859,3 +1863,89 @@ def test_b_a_launch_whose_wrapper_never_ran_is_a_launch_stop_and_no_answer_is_re
     assert r.verdict is None and r.wrapper_sha256 is None and r.forwarder_sha256 is None
     (rec,) = records_in(w.state)
     assert rec["state"] == "done" and "no launch line" in rec["note"]
+
+
+# ================================================ A6: the caller's `--env KEY=VALUE` pairs are an allowlist, not a pass-through
+# `feed4.py`/`feed2.py` Student.__init__ put every `--env` pair into the STUDENT's environment, where the shell-script wrapper runs,
+# so an unlisted key (BASH_ENV, LD_PRELOAD, NODE_OPTIONS, PATH) would be a door. The names are PINNED HERE AS A LITERAL, not read
+# from the module, so a widening shows as a diff in the constant AND in this test. Refusal = the launch does not start, and the
+# message names the key (never a silent drop).
+def test_a6_the_pair_allowlist_is_pinned_as_a_literal():
+    assert tuple(SL.FEEDER_ENV_PAIR_ALLOW) == ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL")
+
+
+@pytest.mark.parametrize("pair,key", [
+    ("BASH_ENV=/nonexistent/rc", "BASH_ENV"),
+    ("LD_PRELOAD=/nonexistent/cell.so", "LD_PRELOAD"),
+    ("PATH=/usr/bin", "PATH"),                         # an --env PATH no longer replaces the built one: it is refused
+    ("NODE_OPTIONS=--require=/nonexistent/cell.js", "NODE_OPTIONS"),
+    ("BEAM_NOT_LISTED_PROBE=1", "BEAM_NOT_LISTED_PROBE"),
+    ("BASH_ENV", "BASH_ENV"),                          # no `=`: the feeder still sets the key (to ""), so it is refused too
+])
+def test_a6_an_env_pair_whose_key_is_not_listed_is_refused_by_name_before_any_launch(w, pair, key):
+    with pytest.raises(SL.LaunchRefused, match=key) as e:
+        w.launch(argv=w.argv(extra=("--env", pair)))
+    assert "--env" in str(e.value)
+    w.assert_nothing_started()
+
+
+def test_a6_an_unlisted_key_after_a_listed_one_is_still_refused(w):
+    with pytest.raises(SL.LaunchRefused, match="BASH_ENV"):
+        w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--env", "BASH_ENV=/x")))
+    w.assert_nothing_started()
+
+
+@needs_linux_wrapper
+def test_a6_the_two_listed_keys_pass_and_reach_the_feeder(w):
+    url = "http://localhost:%d" % w.cfg.model_port
+    r = w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--env", "ANTHROPIC_BASE_URL=" + url)))
+    assert r.returncode == 0
+    (rec,) = w.records()
+    assert rec["pairs"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "131072" and rec["pairs"]["ANTHROPIC_BASE_URL"] == url
+
+
+@pytest.mark.parametrize("value", ["", "-5", "+5", " 5", "5 ", "5\n", "1e5", "0x10", "12.5", "0", "five", "٣"])
+def test_a6_a_context_window_value_that_is_not_a_positive_integer_in_digits_is_refused_by_name(w, value):
+    with pytest.raises(SL.LaunchRefused, match="CLAUDE_CODE_MAX_CONTEXT_TOKENS"):
+        w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" + value)))
+    w.assert_nothing_started()
+
+
+@pytest.mark.parametrize("value", ["131072", "1", "4096"])
+@needs_linux_wrapper
+def test_a6_a_context_window_value_in_digits_passes(w, value):
+    """(The existing cell test_f7_the_exact_allowed_options_are_accepted also passes 131072; these pin the digit rule itself.)"""
+    assert w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" + value))).returncode == 0
+    (rec,) = w.records()
+    assert rec["pairs"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == value
+
+
+@needs_linux_wrapper
+def test_a6_the_modules_own_sandbox_pairs_still_reach_the_feeder(w):
+    sb = w.sandbox()
+    w.launch(sandbox=sb)
+    (rec,) = w.records()
+    for k, v in sb.settings.items():
+        assert rec["pairs"][k] == v, k
+    for k in ("SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT"):
+        assert rec["pairs"].get(k), k
+
+
+def test_a6_a_callers_sandbox_pair_is_still_refused(w):
+    with pytest.raises(SL.LaunchRefused, match="SANDBOX_LOG"):
+        w.launch(argv=w.argv(extra=("--env", "SANDBOX_LOG=/x")))
+    w.assert_nothing_started()
+
+
+def test_a6_the_allowlist_is_defined_once_and_nothing_honours_an_env_path_any_more():
+    src = open(MOD).read()
+    assert src.count('"CLAUDE_CODE_MAX_CONTEXT_TOKENS"') == 1 and src.count('"ANTHROPIC_BASE_URL"') == 2   # the tuple; model_url's read
+    import inspect
+    assert "env_pairs" not in inspect.getsource(SL._feeder_path)      # the branch that honoured an --env PATH is gone
+
+
+def test_a6_the_readme_states_the_rule():
+    text = open(os.path.join(TOOLS, "README.md")).read()
+    assert "FEEDER_ENV_PAIR_ALLOW" in text
+    for name in ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL"):
+        assert name in text
