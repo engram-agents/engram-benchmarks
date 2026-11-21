@@ -273,6 +273,11 @@ minute count and guess goes into this log as plain lines without quotes.
   read, named one of the withheld questions (no grade values), and a team crossing to the design owner gave that
   question's number and two grade values. Rule from here, accepted by the study lead: anything about the withheld
   questions travels by count only until the project lead has judged them.
+- Added 2026-11-21 (design owner's ruling, team crossing 34037): from 2026-11-21, statements in this log about
+  withheld items go by count only. The entry two above, which says that on 'one of the two' criterion items the hand
+  grade differs in level from the official grade, is a statement of that kind, made before the rule. It stays as
+  written (this log is append-only, and the wording was the design owner's); this line says so openly instead of
+  editing it.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
