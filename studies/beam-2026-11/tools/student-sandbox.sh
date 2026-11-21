@@ -21,7 +21,8 @@
 #                         may equal, contain or lie inside: the dataset file, the key-list directory. Empty or unset is a refusal.
 #   HOME (the caller's own)  must resolve to the slot (realpath equal): refused otherwise, so the student's HOME exists inside
 #   SANDBOX_LOG          optional file (outside the box) for launch lines, per-connection counts/timings and refusals
-#   Caps (constants below, provisional until the pilot's learn mode has measured a real run; test-mode overrides only):
+#   Caps (constants below, provisional until a pilot run's lines have been read: the bridge `fwd-peak` line and the
+#   `box-cgroup` line's memory_peak and pids_peak, run peaks because the scope is fresh; test-mode overrides only):
 #                         the bridge's trusted side (per request, total buffered, concurrent connections) and the box's own
 #                         systemd user scope (tasks, memory). Every effective value is on the launch line.
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
@@ -325,8 +326,8 @@ fi
 
 # ---- A2: caps on the TRUSTED side of the bridge. The outer forwarder buffers a whole request before it sends a byte
 # upstream, and it runs outside the box (and outside any cap on the box), so a student must not be able to make it
-# allocate without bound. PROVISIONAL until the wrapper-cost pilot's learn mode records the real maxima (the harness
-# sends whole contexts, order of 1 MB): 32 MiB per request, 64 MiB over all connections, 4 concurrent connections (the
+# allocate without bound. PROVISIONAL until a pilot run's lines have been read (the `fwd-peak` line records the real maxima
+# in both modes; the harness sends whole contexts, order of 1 MB): 32 MiB per request, 64 MiB over all connections, 4 concurrent connections (the
 # harness opens one). Past the first two: a named 413; past the third: a 503. Overridable only in test mode.
 # Also provisional: the idle read timeout (seconds) while a request is being read, 120; past it a 408 and a closed connection.
 REQ_CAP=33554432; TOTAL_CAP=67108864; CONN_CAP=4; READ_IDLE_S=120
@@ -346,8 +347,8 @@ fi
 # Measured on the study host (2026-11-20): bubblewrap 0.9.0 has no rlimit options; prlimit around the wrapper fails
 # (the limit is charged to the uid's host-wide count) and prlimit inside the box caps processes only, not memory;
 # RLIMIT_AS cannot be set from RSS intuition (the pinned binary's runtime reserves about 9.4 GiB of address space for
-# about 200 MiB resident); the cgroup route caps what matters and kills only the hog. PROVISIONAL until the pilot has
-# measured a real run: 1024 tasks, 4 GiB. It replaces the caller's cgroup for the box: a memory limit set around the whole
+# about 200 MiB resident); the cgroup route caps what matters and kills only the hog. PROVISIONAL until a pilot run's
+# lines have been read (memory_peak and pids_peak on the box-cgroup line): 1024 tasks, 4 GiB. It replaces the caller's cgroup for the box: a memory limit set around the whole
 # run (memrun's) no longer covers the box, which has its own. Overridable only in test mode.
 BOX_TASKS=1024; BOX_MEM=4294967296
 if [ "${SANDBOX_TEST:-}" = 1 ]; then

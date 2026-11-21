@@ -2940,7 +2940,7 @@ def test_peer_c2_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
 # ---------------------------------------------------------------- round 5 (C): process and memory caps on the box itself
 # The box runs in its own systemd user scope (TasksMax, MemoryMax, MemorySwapMax=0), entered by the wrapper's own
 # exec, so the cap covers the box alone: the host uid, the host-side forwarder and the feeder are outside it. Limits are
-# SMALL here; the defaults are provisional until the pilot has measured a real run.
+# SMALL here; the defaults are provisional until a pilot run's lines have been read.
 
 FORKER = '''import os, sys, time
 # Bounded forker (never a bomb): up to 300 attempts, each child sleeps; counts successes and failures, then waits.
@@ -5184,3 +5184,21 @@ def test_x_no_unit_created_by_this_file_is_still_active():
     """Last cell of the file: every scope the cells above were attributed (by their own scratch root, see the cfg fixture)
     is gone. Which units this run created is known from that attribution, never from a name pattern."""
     assert not [u for u in CREATED_UNITS if u in active_scope_units()]
+
+
+# ---------------------------------------------------------------- what the caps' provisional status rests on
+
+def test_the_readme_says_what_is_measured_now_and_what_the_caps_wait_for():
+    """The caps stay provisional until a pilot run's lines have been read; the README must not promise a learn-mode
+    measurement (the pilot has no learn mode) and must name what the lines carry now: the bridge peak line in both
+    modes, memory.peak and pids.peak on the box-cgroup line, and that those are run peaks because the scope is fresh."""
+    text = open(README).read()
+    assert not re.search(r"PROVISIONAL until the wrapper-cost pilot's learn mode", text), "a measurement the code cannot make"
+    assert len(re.findall(r"PROVISIONAL until a pilot run's lines have been read", text)) >= 2, "caps row and cap-hits paragraph"
+    caps_row = next(l for l in text.splitlines() if l.startswith("| Caps (no variable outside test mode)"))
+    assert "`fwd-peak`" in caps_row and "`memory_peak`" in caps_row and "`pids_peak`" in caps_row, caps_row
+    hits = next(l for l in text.splitlines() if l.startswith("Cap hits after the run."))
+    assert "`memory_peak`" in hits and "`pids_peak`" in hits and "`memory.peak`" in hits, hits
+    assert "run peaks" in hits and "fresh" in hits, hits
+    sh = open(WRAPPER).read()
+    assert "learn mode has measured" not in sh and "learn mode records the real maxima" not in sh
