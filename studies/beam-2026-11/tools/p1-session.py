@@ -441,6 +441,11 @@ VERDICT_SUFFIX = ".verdict.txt"
 
 
 PRE_MODULE_VERDICT = "none (pre-module state, never wrapped)"   # the line mark-pre-module-start.py writes
+# The one line a session run with --pilot-pre-module-start (whether or not its start was pre-module) adds to the verdict
+# record it saves: `pilot start: state_sha256=<the start's store hash>`. The hash is provenance for a human reader; no reader
+# checks it. A reader refuses ANY record carrying a line with this prefix, unconditionally and by name (a pilot's saved end
+# state is never a start: no flag readmits it, so there is no second generation and no inheritance rule).
+PILOT_START_PREFIX = "pilot start:"
 
 
 def end_state_verdict_problem(path, allow_pre_module_start=False):
@@ -474,6 +479,10 @@ def _end_state_verdict(path, allow_pre_module_start):
             continue
         recs[rec] = lines
         verdicts += [(rec, l[len("sandbox verdict: "):]) for l in lines if l.startswith("sandbox verdict: ")]
+    for rec, lines in recs.items():
+        if any(l.startswith(PILOT_START_PREFIX) for l in lines):
+            return (f"the end state {path} was saved by a PILOT session: its record {rec} carries a `{PILOT_START_PREFIX}` "
+                    "line, and a pilot's saved end state is never read as a start (no flag readmits it)"), None
     if not verdicts:
         return (f"the end state {path} has no verdict line: there is no record {os.path.abspath(path)}{VERDICT_SUFFIX} "
                 "holding `sandbox verdict: ...` (a state saved by an older tool, or copied by hand, is refused)"), None
@@ -768,6 +777,8 @@ def save_end_state(a, c, steps):
         hashes_file.write(rec); hashes_file.close()
         info = c.get("sandbox_info") or []
         verdict_file.write("".join(l + "\n" for l in info if l.startswith(("sandbox verdict: ", "sandbox log: "))))
+        if getattr(a, "pilot_pre_module_start", False):   # whether or not the start was pre-module; provenance for a human reader
+            verdict_file.write(f"{PILOT_START_PREFIX} state_sha256={a.expect_store_sha256}\n")
         verdict_file.write(f"run record: {os.path.join(os.path.basename(c['rundir']), 'setup.txt')}\n")
         verdict_file.close()
     except Refusal as e:

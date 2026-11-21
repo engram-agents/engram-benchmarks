@@ -323,3 +323,50 @@ def test_r5_the_readme_names_no_internal_crossing_number_and_states_the_scored_l
     assert "crossing" not in text.lower().split("a pre-module end state is a pilot start only")[1]
     assert "knowledge.db" in text.split("A pre-module end state is a PILOT start only")[1]
     assert "must refuse a run whose" in text and "pilot, pre-module start" in text.split("must refuse a run whose")[1][:200]
+
+
+# ------------------------------------------------------------------------------------------- 6. a pilot's saved end state
+# Contract (design owner, amended by the security seat): a session that ran with --pilot-pre-module-start (whether or not its
+# start was pre-module) writes ONE pilot line into the saved verdict record, prefix `pilot start:`, carrying the start's
+# state_sha256 for a human reader (nothing checks it). The reader REFUSES any record carrying that line, unconditionally and
+# by name: no flag readmits it. A non-pilot run's record has no such line and is read exactly as before.
+PILOT_PREFIX = "pilot start:"
+
+
+def pilot_pair(w, ollama):
+    """ONE fixture saved twice: an ordinary run and a pilot run from the same ordinary wrapped start."""
+    plain = cr_run(w, ollama_url=ollama["url"])
+    assert plain.returncode == 0, (plain.stdout, plain.stderr)
+    plain_saved = str(w.saved)
+    pilot_saved = str(w.root / "saved-pilot")
+    pilot = cr_run(w, over={"--label": "t2", "--save-end-state": pilot_saved}, extra=(FLAG,), ollama_url=ollama["url"])
+    assert pilot.returncode == 0, (pilot.stdout, pilot.stderr)
+    return plain_saved, pilot_saved
+
+
+@needs_linux_wrapper
+def test_p1_a_pilot_saved_state_is_refused_by_both_readers_naming_the_pilot_line(w, ollama):
+    _, pilot_saved = pilot_pair(w, ollama)
+    assert P1S.PILOT_START_PREFIX == PILOT_PREFIX
+    recs = [l for l in open(pilot_saved + ".verdict.txt").read().splitlines() if l.startswith(PILOT_PREFIX)]
+    assert recs == [f"{PILOT_PREFIX} state_sha256={store_sha(w.pres)}"], recs      # ONE line; provenance for a human reader
+    for allow in (False, True):                                                    # the default reader and the flagged one
+        why = P1S.end_state_verdict_problem(pilot_saved, allow)
+        assert why and PILOT_PREFIX in why, (allow, why)
+    r = cr_run(w, over={"--end-state": pilot_saved, "--label": "t3", "--save-end-state": str(w.root / "saved-gen3"),
+                        "--expect-store-sha256": store_sha(pilot_saved)}, extra=(FLAG,), ollama_url=ollama["url"],
+               P1_PROTECTED=f"{w.pres}:{w.pres2}:{pilot_saved}")
+    assert r.returncode == 2 and PILOT_PREFIX in r.stdout + r.stderr, (r.returncode, r.stdout, r.stderr)
+
+
+@needs_linux_wrapper
+def test_p1_the_ordinary_state_saved_by_the_non_pilot_run_is_still_accepted(w, ollama):
+    plain_saved, _ = pilot_pair(w, ollama)
+    assert not [l for l in open(plain_saved + ".verdict.txt").read().splitlines() if l.startswith(PILOT_PREFIX)]
+    for allow in (False, True):
+        assert P1S.end_state_verdict_problem(plain_saved, allow) is None, allow
+
+
+def test_p1_the_readme_says_the_reader_refuses_a_pilot_saved_state_by_name():
+    text = open(os.path.join(TOOLS, "README.md"), encoding="utf-8").read()
+    assert "`pilot start:`" in text and "refuses a pilot-saved state" in text and "by name" in text.split("refuses a pilot-saved state")[1][:120]
