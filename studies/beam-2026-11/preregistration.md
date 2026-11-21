@@ -17,7 +17,7 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 ## 2. Hypotheses (stated before any scored run)
 
 - H1 (primary): arm 2's OFFICIAL overall score on the scored conversations of the 100K split is higher
-  than arm 1's.
+  than arm 1's (scored by the question-seeing judge of section 10).
 - H0: no difference, or arm 1 higher. A null or a loss is a publishable result.
 - Arm 3 is reported descriptively; no hypothesis is stated for it.
 
@@ -46,9 +46,9 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 
   It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
   study then measures is each setup *when the user has said this material matters*.
-- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14):
-  the rule is told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also excludes the student's own session transcript;
-  that wording is OPEN until frozen.
+- **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14): the rule is
+  told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also
+  excludes the student's own session transcript; that wording is OPEN until frozen.
 - **Each arm's own memory practice.** The earlier condition of comparable length is withdrawn
   (Amendment 2 in the tuning log): it cannot hold together with existing components only and no exam
   prose. Token counts are in the student model's tokenizer (Qwen3.8-27B):
@@ -128,6 +128,12 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 - Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
   proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
   once as setup, outside exam timing. Arm 1 has no equivalent step.
+- Arm 2's recall service (OPEN: the project lead decides at the freeze; the design owner recommends the plan below).
+  The sandbox has no service manager, so the release's own launcher cannot start ENGRAM's recall daemon there; in
+  the cost pilot every prompt then fell back to keyword search. The plan: the harness starts the arm's own daemon
+  inside the sandbox with the release's own launch command before the student starts, starts the student only once
+  the daemon answers, and stops it before the store is saved. The daemon's readiness and its stop are in the run's
+  log; a launch whose daemon never became ready is stopped before any exam begins.
 - One GPU, exclusive per run; the model is unloaded after every run.
 - Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF: web search and
   fetch (also told to the student, section 4); sub-agents, a stated limit (one student, one window; and
@@ -202,22 +208,149 @@ draw (draw 1) is void: its seed could be re-rolled by its committer.
 
 ## 10. Scoring
 
+Two judges, named by the one thing that differs between them (the project lead's request of 2026-11-18):
+
+- **Question-seeing judge**: the judge is shown the question, the rubric item and the response. This is the prompt
+  printed in the benchmark's paper (Listing 20). It is this study's judge for both the OFFICIAL and the ADJUSTED
+  score.
+- **No-question judge**: the judge is shown only the rubric item and the response, never the question. This is what
+  the benchmark's released evaluation code does. In this study it is run only in the known-answer
+  check, never on scored benchmark items.
+
 - Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
   the first scored run after a cost pilot. The judge is never told the arm.
-- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold
-  answer is "confirmed wrong" only after a first-hand check against the conversation text; each one is
-  raised with the BEAM maintainers and cited. The adjusted set is frozen before arm labels are unblinded.
-- Absolute scores are not comparable with the paper's table (different judge). The comparison is
-  between our arms.
+- Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper (published at ICLR 2026,
+  per the paper's own header) and its released code
+  clearly contradict each other (the paper states something at a location we can cite, and the code does
+  otherwise), this study follows the paper. Where the paper is silent or ambiguous, or two places in the paper
+  disagree, the released code stands, and a case of the last kind is listed as unresolved. Every application of
+  this rule is listed here with its paper location and its code location, and is declared before the first
+  scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet). Cases
+  where the paper is silent and the released code therefore stands are listed the same way: one, how an Event
+  Ordering answer is cut into items (the Event Ordering bullets below).
+  Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
+  judge's score as a number (at b2da22e every score conversion of the earlier code, `int()`, upstream issue 8,
+  became `float()`), so the paper and the current code agree.
+- The question-seeing judge's prompt, used for both the OFFICIAL and the ADJUSTED column, is the prompt printed in
+  the benchmark's paper, Listing 20 ("Rubric scoring for nugget satisfaction prompt", arXiv 2510.27246v2, Appendix
+  H), whose inputs are the question, the rubric item and the response, with a responsiveness rule anchored to the
+  question. The exact bytes are the upstream template `unified_llm_judge_base_prompt` at BEAM commit
+  3e12035532eb85768f1a7cd779832b650c4b2ef9 (template sha256
+  d349c9a8559bed9c14bfe2e624212225b09218ff864258a739229c15f4c8e869), with `<question>` filled by the item's
+  question. Compared with Listing 20 word by word after normalising whitespace, every difference between the two is
+  typographic (curly against straight quotes, line-wrap hyphens in the PDF) and none is in wording: they are one
+  text. (How many differences one counts depends on the diff unit, so no count is given; the comparison is
+  repeatable from the two sources.) "Official" in this study therefore means the benchmark's gold answers scored by
+  the question-seeing judge, as printed in the paper.
+- Why not the released code: no judge call in the released evaluation code (the ten of the eleven `evaluate_*`
+  functions in `src/evaluation/compute_metrics.py` that format `unified_llm_judge_base_prompt` from
+  `src/prompts.py`) fills
+  the question in. At
+  3e12035 the template asks for it, so the judge saw the literal string `<question>`; at
+  b2da22eac88bb0874c64665f13457eb99835774a (the current main) the question line is removed, while the
+  instruction to score 0.0 when the response does not address the question remains (reported upstream as
+  issue 15). The paper gives no reason for a no-question judge. The one passage that could bear on it
+  (nuggets are "atomic, self-contained") describes how rubric items are written, not what the judge is shown, so
+  it is not a second place in the paper that disagrees with Listing 20, which shows the question to the judge.
+- Not known: which code produced the paper's results table. "Official" here does not mean that our scores
+  reproduce the paper's numbers.
+- Which judge this study uses is settled: the question-seeing judge is canonical (the
+  project lead's ruling of 2026-11-18). The known-answer check below does not reopen that choice.
+- Known-answer check (the project lead's test), committed and run before any scored item is judged. Its PURPOSE, in
+  the project lead's framing: a rough bound on how far the no-question judge, which the released code uses, may have
+  moved the scores that others report after running the released code. Its limit, plainly: the bound comes from the
+  check's small set alone, so it is an indication, not a measurement over benchmark items. The other source beside
+  it is the upstream tracker's own figure (issue 15: on one run of one system, supplying the question changed the
+  verdict on 160 of 1,051 rubric items), which is that reporter's measurement, cited as theirs and not as ours. The
+  check is not a correction of anyone's score: a judge flaw does not make the answers that judge rejected correct,
+  so a proper score for such a system needs a rerun under the question-seeing judge. The check is a small set of
+  responses whose verdicts are fixed in advance, judged with and without the question by the study's own judge (same
+  model, settings and parsing). Part A: constructed responses that satisfy a rubric item's words without addressing
+  the question, whose right verdict (0.0 under the responsiveness rule) is fixed by construction. Part B: run A
+  items whose verdicts the three-reader score review has settled; these are the team's own verdicts, not independent
+  ones, and are labelled so. Expected direction, written now: showing the question changes verdicts mainly on
+  off-topic and abstention responses and little on on-topic ones; a large shift on on-topic responses would itself
+  be a finding, and is reported. The check's own pre-log fixes the set sizes and the decision rule before the first
+  call. The question-seeing judge counts as CLEARLY BETTER only if it matches the fixed verdicts on more Part A
+  items and on no fewer Part B items. Every other outcome (a tie on Part A, fewer Part A matches, or fewer Part B
+  matches) counts as NOT CLEARLY BETTER; a tie is a legitimate result of the check, not a failed check.
+- Outcomes of the check. CLEARLY BETTER is the expected result and is reported. NOT CLEARLY BETTER, or a REVERSAL
+  (the question-seeing judge matching fewer fixed verdicts than the no-question judge, on Part A or on Part B), is
+  stated in the report's summary, beside the primary result, not only in the check's own log; its cause is then
+  investigated (a rubric item that misleads the judge, or our own fixed verdicts or key points being wrong), and
+  obvious errors are fixed. Any change to the check's fixed verdicts made after its result is seen is logged as post
+  hoc, with the first result kept and reported beside the corrected one (the design owner's requirement).
+- In every outcome, scored benchmark runs are judged by the question-seeing judge only (the project lead's ruling of
+  2026-11-18: the no-question numbers are not worth their cost). H1 and the primary analysis (section 11) are tested
+  on its scores, and "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The no-question judge (the
+  b2da22e template) is run only inside the known-answer check, never on a scored benchmark item.
+- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold answer is
+  "confirmed wrong" only after a first-hand check against the conversation text. Before any finding goes upstream
+  it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported there
+  is credited to its reporter, with the issue number, in the study's per-item change log (the one
+  SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
+  rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
+  whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
+- Event Ordering is the one type the paper does not score by rubric items (the project lead's direction of
+  2026-11-21, "align our scoring method with the paper"; the design owner's ruling the same day). Its OFFICIAL score
+  is the paper's released procedure, exactly:
+  - The answer is cut into items at every line break, with no filter (upstream `evaluate_event_ordering`,
+    `llm_response.split("\n")`). The paper says only that an equivalence detector "aligns events in system responses
+    with nuggets" (section 2, the evaluation paragraph) and is silent on how a response is cut, so under the rule
+    above the released code stands.
+  - Each item, in answer order, is compared with each still-unmatched reference event, in reference order, by a
+    yes/no judge call with the upstream equivalence prompt verbatim; the first yes is the match (upstream
+    `align_with_llm`, `llm_equivalence`). That prompt and the paper's Listing 21 are one text: their only difference
+    in wording is a misspelling in the code ("exaplanation"). Two details are the code's alone, where the paper is
+    silent, so the code stands: the instruction goes as a system message and the two snippets as a user message, and
+    a reply counts as yes if it contains "yes" anywhere.
+  - Kendall tau-b is computed over the matched sequences as upstream computes it (the union of both lists, a tie rank
+    for an item absent from one), normalised to (tau + 1) / 2, the value the upstream report prints for this type
+    (upstream `event_ordering_score`; code read at b2da22e). Our own code computes it, pinned by cells against the
+    upstream arithmetic, including the position cases and repeated identical lines named below.
+  - The yes/no calls use the study's judge model. They run after collection, on the saved answers, and change nothing
+    the student sees; the student is given no format instruction (the texts are frozen).
+- Every yes/no verdict is stored as a match table per question (answer item, reference event, verdict), so the
+  Event Ordering score can be recomputed from the record by anyone.
+- Reported beside the OFFICIAL Event Ordering score, never instead: the question-seeing judge's rubric score for the
+  same questions, and the match's F1 (presence alone, order ignored).
+- What the paper's number rewards, stated in the report: an answer that is only the ordered list of events. Every
+  line that is not an event counts against it, empty lines included (identical lines share one rank but each counts
+  as unmatched). A missing event costs according to its place: of five events in order, the last one missing scores
+  1.0, a middle one 0.8, the first 0.6. On run A's two answer shapes (one tuning conversation; five reference
+  events each; 17 and 22 items after the cut), a perfect recollection written in the student's usual format would
+  score at most 0.65 and 0.57, assuming each event matches exactly one of the answer's list lines, in order, and
+  nothing else matches.
+- Absolute scores are not comparable with the paper's table (a different judge model, and the code that
+  produced that table is not known). The comparison is between our arms.
 
 ## 11. Primary analysis
 
-- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL.
+- Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the question-seeing judge of
+  section 10, with the two Event Ordering questions scored by the paper's measure (section 10). The OFFICIAL score is
+  the central result (Lei, 2026-11-17). Every scored conversation has exactly two questions of each of the ten
+  types, so this mean is also the unweighted mean of its ten per-type scores. The paper does not say how its
+  results tables' "Average" row is formed; checked on its Table 1 (four length blocks, 48 cells), that row equals the
+  unweighted mean of the ten ability rows within rounding (largest difference 0.0009, where rounding three-decimal
+  values allows up to 0.001), so the two are formed the same way.
+- Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
+  in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
+  details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
+  checked afterwards (the design owner's reading, open to the project lead's tightening): the ADJUSTED contrast
+  appears in the same table and the same summary paragraph as the OFFICIAL one, and that summary states how many
+  official answers we dispute and links to the per-item change log.
 - Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
 - Reported beside it, never instead: the ADJUSTED contrast; per question type; the efficiency table
   (section 12) per arm.
+- Per question type (the project lead's request of 2026-11-21): for each of the ten types, each arm's mean score and
+  the paired contrast with its interval, grouped by conversation-length group. This study's scored set is the 100K
+  group, the main bucket; another length group enters only by an amendment registered before its runs.
+- Event Ordering sensitivity (the design owner's ruling of 2026-11-21, declared before any scored run): the paper's
+  Event Ordering measure depends on how an answer is formatted, and the two arms may format differently, so the
+  primary contrast is also reported with the rubric score in place of the paper's measure for the two Event Ordering
+  questions per conversation, next to the OFFICIAL contrast.
 - Secondary, direction only (Lei's idea, ruled by Kepler, 2026-11-14): the arm 2 minus arm 1 paired
   difference is larger in Knowledge Update and Contradiction Resolution than in the other categories,
   because ENGRAM records a change of mind as a supersede. It is conditional on the student superseding
@@ -317,6 +450,16 @@ answer is never a harness fault. A book-closed run in which the student opens it
 harness fault: it is the student's behaviour, flagged in the report and reported as it stands, never re-run
 (section 13).
 
+A failed automatic compaction during reading (the summary the harness makes when the window fills does not complete;
+distinct from the post-compaction check above, which is the leak check on the forced /compact after the last
+exchange, section 8) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this
+rule, and the design owner and the study lead chose it on 2026-11-21). Every such event is named in the run's log
+and in the report, with its exchange. The primary contrast is also reported a second time without the conversations
+in which either arm's exam had one (dropped for both arms, so the pairing holds), next to the primary result.
+Measured before registration: 1 failure in 129 automatic compactions across every reading run on this setup (Claude
+Code 2.1.325 to 2.1.328; exact 95% interval 0.02% to 4.2% per compaction). A long exam makes dozens of compactions,
+so at the measured rate some scored exams would have one; at the interval's low end, none would.
+
 ## 15. What this design can and cannot show
 
 It measures each product's whole memory as shipped, the on-disk session transcript included, in
@@ -361,6 +504,12 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - Two more bounds for section 15: after a compaction the harness re-reads recently edited files, so
   arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
   watch for changes of mind and contradictions, which BEAM scores directly.
+- Whether the scored runs start arm 2's recall daemon in the sandbox (section 7): the project lead's decision at
+  the freeze.
+- How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
+  judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
+  that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
+  judging bias on 100K conversation 1).
 
 ## Deviations log
 
