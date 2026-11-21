@@ -450,14 +450,15 @@ answer is never a harness fault. A book-closed run in which the student opens it
 harness fault: it is the student's behaviour, flagged in the report and reported as it stands, never re-run
 (section 13).
 
-A failed automatic compaction during reading (the summary the harness makes when the window fills does not
-complete) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this rule, and
-the design owner and the study lead chose it on 2026-11-21). Every such event is named in the run's log and in the
-report, with its exchange. The primary contrast is also reported a second time without the conversations in which
-either arm's exam had one (dropped for both arms, so the pairing holds), next to the primary result. Measured
-before registration: 1 failure in 129 automatic compactions across every reading run on this setup (Claude Code
-2.1.325 to 2.1.328; exact 95% interval 0.02% to 4.2% per compaction). A long exam makes dozens of compactions, so
-at the measured rate some scored exams would have one; at the interval's low end, none would.
+A failed automatic compaction during reading (the summary the harness makes when the window fills does not complete;
+distinct from the post-compaction check above, which is the leak check on the forced /compact after the last
+exchange, section 8) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this
+rule, and the design owner and the study lead chose it on 2026-11-21). Every such event is named in the run's log
+and in the report, with its exchange. The primary contrast is also reported a second time without the conversations
+in which either arm's exam had one (dropped for both arms, so the pairing holds), next to the primary result.
+Measured before registration: 1 failure in 129 automatic compactions across every reading run on this setup (Claude
+Code 2.1.325 to 2.1.328; exact 95% interval 0.02% to 4.2% per compaction). A long exam makes dozens of compactions,
+so at the measured rate some scored exams would have one; at the interval's low end, none would.
 
 ## 15. What this design can and cannot show
 
