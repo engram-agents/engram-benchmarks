@@ -438,40 +438,72 @@ QUARANTINE_SUFFIX = ".flagged"
 VERDICT_SUFFIX = ".verdict.txt"
 
 
-def end_state_verdict_problem(path):
+PRE_MODULE_VERDICT = "none (pre-module state, never wrapped)"   # the line mark-pre-module-start.py writes
+
+
+def end_state_verdict_problem(path, allow_pre_module_start=False):
     """The continue-reading reader's check of an end state, BY NAME AND BY CONTENT (design owner's ruling on F5, option C).
+    Returns the reason to refuse, or None. The DEFAULT call (no allowance: what any scored launcher uses) refuses the
+    `none (pre-module ...)` line; only p1-session.py's `--pilot-pre-module-start` passes the allowance. See
+    _end_state_verdict for the rules."""
+    return _end_state_verdict(path, allow_pre_module_start)[0]
+
+
+def _end_state_verdict(path, allow_pre_module_start):
+    """(reason to refuse | None, the record's state_sha256 when a pre-module line was accepted | None).
     The end state's own record is the file `<path>.verdict.txt` beside it (the layout `save_end_state` writes: the hashes
-    file is `<path>.hashes.txt`); it holds the line `sandbox verdict: <the session's log-verdict line>`. Returns the reason
-    to refuse, or None. Refused: (a) a quarantine name (`*.flagged`); (b) a record whose verdict is flagged (so renaming a
-    quarantined state together with its record does not launder it); (c) no record, or no verdict line in it (a state saved
-    by an older tool, or copied by hand). The record is looked for beside the path as given and beside its realpath."""
+    file is `<path>.hashes.txt`); it holds the line `sandbox verdict: <the session's log-verdict line>`. Refused: (a) a
+    quarantine name (`*.flagged`); (b) a record whose verdict is flagged (so renaming a quarantined state together with its
+    record does not launder it); (c) no record, or no verdict line in it (a state saved by an older tool, or copied by
+    hand); (d) the pre-module line without the allowance, or with it when the record has no single `state_sha256=` line,
+    or the state's store content hash (protected_store_hash, the same helper: the knowledge.db tables only, not memory
+    files, .claude/ or hooks) differs from it (a store changed after marking is not the store that was named), or the record holds any other verdict line beside it. The record is looked
+    for beside the path as given and beside its realpath."""
     for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
         if os.path.basename(cand).endswith(QUARANTINE_SUFFIX):
             return (f"the end state {cand} is under a quarantine name ({QUARANTINE_SUFFIX}): it was saved by a FLAGGED "
-                    "session, and an excluded run's end state is never read as a start")
-    verdicts = []
+                    "session, and an excluded run's end state is never read as a start"), None
+    verdicts, recs = [], {}
     for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
         rec = cand + VERDICT_SUFFIX
         try:
             lines = open(rec, encoding="utf-8").read().splitlines()
         except OSError:
             continue
+        recs[rec] = lines
         verdicts += [(rec, l[len("sandbox verdict: "):]) for l in lines if l.startswith("sandbox verdict: ")]
     if not verdicts:
         return (f"the end state {path} has no verdict line: there is no record {os.path.abspath(path)}{VERDICT_SUFFIX} "
-                "holding `sandbox verdict: ...` (a state saved by an older tool, or copied by hand, is refused)")
+                "holding `sandbox verdict: ...` (a state saved by an older tool, or copied by hand, is refused)"), None
+    accepted = None
     for rec, v in verdicts:
         if v.startswith("flagged"):
-            return f"the end state {path} has a FLAGGED verdict in its own record {rec} ({v}): an excluded run's end state is never read as a start"
+            return f"the end state {path} has a FLAGGED verdict in its own record {rec} ({v}): an excluded run's end state is never read as a start", None
+        if v == PRE_MODULE_VERDICT:
+            if not allow_pre_module_start:
+                return (f"the end state {path} is a pre-module state ({PRE_MODULE_VERDICT}) in its record {rec}: it is "
+                        "allowed only as a PILOT start, with --pilot-pre-module-start; a scored run never starts from one"), None
+            if any(x != PRE_MODULE_VERDICT for _, x in verdicts):
+                return f"the record {rec} of the end state {path} holds a pre-module line beside another verdict line", None
+            hashes = [l[len("state_sha256="):] for l in recs[rec] if l.startswith("state_sha256=")]
+            if len(hashes) != 1:
+                return f"the pre-module record {rec} must hold exactly one `state_sha256=` line (found {len(hashes)})", None
+            got = protected_store_hash(path)[0]
+            if got != hashes[0]:
+                return (f"the end state {path}'s store changed after marking: its knowledge.db store content hash is {got}, "
+                        f"the record {rec} named {hashes[0]} (the hash covers the knowledge.db tables only; memory files, "
+                        ".claude/ and hooks are not covered)"), None
+            accepted = hashes[0]
+            continue
         if v != "not-flagged":
-            return f"the end state {path} has an unrecognised verdict {v!r} in its record {rec}"
-    return None
+            return f"the end state {path} has an unrecognised verdict {v!r} in its record {rec}", None
+    return None, accepted
 
 
 def continue_step1(a, env, end, paths):
     """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
     also before anything is touched). Returns the fields the later steps need."""
-    why = end_state_verdict_problem(a.end_state)
+    why, pre_module_sha = _end_state_verdict(a.end_state, bool(getattr(a, "pilot_pre_module_start", False)))
     if why:
         raise Refusal(why)
     if a.per_round < 1:
@@ -515,7 +547,8 @@ def continue_step1(a, env, end, paths):
     serving = serving_record(env)
     if expect_serving is not None and expect_serving != serving:
         raise Refusal(f"the recorded serving setup differs from --expect-serving {a.expect_serving}\n  recorded: {serving}\n  expected: {expect_serving}")
-    return {"save": save, "hashes": hashes, "verdict_rec": save + VERDICT_SUFFIX, "serving": serving}
+    return {"save": save, "hashes": hashes, "verdict_rec": save + VERDICT_SUFFIX, "serving": serving,
+            "pre_module_sha": pre_module_sha}
 
 
 def step1(a):
@@ -913,6 +946,8 @@ def write_setup(a, c, steps, start, rc):
         lines.append(f"continue range: exchanges {a.start}..{a.through} at per-round {a.per_round}")
         lines.append(f"expect-store-sha256: {a.expect_store_sha256} (matched the end state)")
         lines += c["serving"]
+        if c.get("pre_module_sha"):
+            lines += ["pilot, pre-module start", f"pre-module start state_sha256: {c['pre_module_sha']}"]
         if a.expect_serving is not None:
             lines.append(f"{file_sha256(a.expect_serving)}  expect-serving file {os.path.basename(a.expect_serving)} (matched)")
     if c.get("sandbox_info"):
@@ -936,7 +971,7 @@ def write_setup(a, c, steps, start, rc):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], allow_abbrev=False)  # no prefix of a flag stands for it
     ap.add_argument("--end-state", required=True); ap.add_argument("--session", required=True)
     ap.add_argument("--label", required=True); ap.add_argument("--question-file")  # required unless --continue-reading
     ap.add_argument("--components", required=True)
@@ -944,6 +979,8 @@ def main(argv=None):
     ap.add_argument("--plant-question"); ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--expect-sandbox", help="the expected sha256 of student-sandbox.sh and sandbox-forward.py (required for a real run)")
     ap.add_argument("--continue-reading", action="store_true")
+    ap.add_argument("--pilot-pre-module-start", action="store_true",
+                    help="PILOTS ONLY: allow --end-state to be a pre-module state marked by mark-pre-module-start.py")
     ap.add_argument("--start", type=int); ap.add_argument("--through", type=int); ap.add_argument("--per-round", type=int)
     ap.add_argument("--save-end-state"); ap.add_argument("--expect-store-sha256"); ap.add_argument("--expect-serving")
     a = ap.parse_args(argv)
@@ -958,6 +995,8 @@ def main(argv=None):
             if val is None:
                 ap.error(f"--continue-reading requires {flag}")
     else:
+        if a.pilot_pre_module_start:
+            ap.error("--pilot-pre-module-start is only valid with --continue-reading")
         if a.question_file is None:
             ap.error("the following arguments are required: --question-file")
         for name in CONTINUE_ONLY:

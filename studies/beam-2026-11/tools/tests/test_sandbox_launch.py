@@ -1150,14 +1150,19 @@ def test_f4_the_unit_scan_includes_every_unit_under_the_prefix_that_is_not_inact
 
 
 @pytest.mark.parametrize("unit", ["dbus.service", "user.slice", "student-sandbox-1-aa.scope", "x-1-ZZ", "{prefix}1-aa;rm"])
-@needs_linux_wrapper
 def test_f4_a_scope_unit_that_is_not_a_name_this_wrapper_makes_is_a_named_stop_and_is_never_stopped(w, monkeypatch, unit):
+    """A pure judgement (no launch, so no /proc, no systemd, no box): the close step is handed a log whose launch line names
+    the unit, and refuses it by name before anything is stopped."""
     unit = unit.replace("{prefix}", TSS.RUN_UNIT_PREFIX)
-    calls, real = [], SL._systemctl
-    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
-    with pytest.raises(SL.LaunchStop, match="not a unit this wrapper makes"):
-        w.launch(env={"STUB_UNIT": unit})
-    assert not [c for c in calls if c[0] == "stop"], calls
+    assert not SL.unit_name_re(TSS.RUN_UNIT_PREFIX).fullmatch(unit)
+    calls = []
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: calls.append(a))
+    log = w.d / "unit.log"
+    log.write_text(f"wrapper-launch time=1 pid=2 scope_unit={unit} forwarder_pid=1 forwarder_start=1 bridge_sock=/x/y.sock\n")
+    rec = w.d / "unit.json"; rec.write_text(json.dumps({"state": "open", "log": str(log)}))
+    stop = SL._close_launch(str(rec), json.load(open(rec)), str(log), SL.LaunchResult(None), TSS.RUN_UNIT_PREFIX)
+    assert isinstance(stop, SL.LaunchStop) and "not a unit this wrapper makes" in str(stop)
+    assert calls == [], calls
 
 
 def test_f4_a_recorded_scope_unit_that_is_not_a_wrapper_name_is_refused_not_acted_on(w, monkeypatch):
@@ -1248,14 +1253,14 @@ def test_f7_a_token_that_is_not_an_allowed_option_or_its_value_is_refused_naming
     w.assert_nothing_started()
 
 
-@needs_linux_wrapper
 def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_refused(w):
+    """The pure function judges (no launch, so it runs on any OS): the same argvs the launch refuses."""
+    opts, feeder = SL.FEEDER_OPTIONS["feed2.py"], str(w.tools / "feed2.py")
     with pytest.raises(SL.LaunchRefused, match="looks like an option"):
-        w.launch(argv=w.argv(extra=("--env", "--env=PATH=/x")))
+        SL.check_argv_options(w.argv(extra=("--env", "--env=PATH=/x")), opts, feeder)
     with pytest.raises(SL.LaunchRefused, match="has no value"):
-        w.launch(argv=w.argv() + ["--env"])
-    w.assert_nothing_started()
-    assert w.launch(argv=w.argv(extra=("--turns", "-1"))).returncode == 0       # a plain negative number is a value
+        SL.check_argv_options(w.argv() + ["--env"], opts, feeder)
+    SL.check_argv_options(w.argv(extra=("--turns", "-1")), opts, feeder)       # a plain negative number is a value
 
 
 @needs_linux_wrapper
@@ -1507,3 +1512,103 @@ def test_s2_a_real_feeder_option_that_is_not_in_the_dict_is_refused(w, stub_as):
     with pytest.raises(SL.LaunchRefused, match="'--model'"):
         w.launch(argv=w.argv(extra=("--model", "some-model")), stub_as=stub_as)
     w.assert_nothing_started()
+
+
+# ================================================================ the launch log's THREE states (design owner's finding)
+# `read_launch_fields` used to answer None both when the log could not be opened and when it had no launch line, and both
+# callers then closed the record as "the wrapper never launched". Three cases, told apart: ABSENT (the wrapper refused before
+# it made a log: legitimate), PRESENT BUT UNREADABLE (not known to be anything: a named refusal / stop, the record stays
+# open), PRESENT WITH NO LAUNCH LINE (a log the forwarder wrote alone: nothing to stop). The unreadable log is a DIRECTORY at
+# the log path: unreadable whoever runs the cell (a chmod would not stop root).
+def open_record(w, log, name="x.json"):
+    w.state.mkdir(exist_ok=True)
+    p = w.state / name
+    p.write_text(json.dumps({"state": "open", "log": str(log), "feeder": "stub"}))
+    return p
+
+
+def log_in(w, kind):
+    p = w.logs / f"{kind}.log"
+    if kind == "unreadable":
+        p.mkdir(exist_ok=True)
+    elif kind == "noline":
+        p.write_text("fwd-first-request\n")
+    return p            # "absent": nothing created
+
+
+def test_l_the_helper_tells_the_three_apart(w):
+    assert SL.read_launch_fields(str(log_in(w, "absent"))) is None
+    assert SL.read_launch_fields(str(log_in(w, "noline"))) is None
+    with pytest.raises(SL.LaunchLogUnreadable, match="cannot be read"):
+        SL.read_launch_fields(str(log_in(w, "unreadable")))
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_before_launch_closes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    SL.check_before_launch(str(w.state))
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_before_launch_refuses_on_an_unreadable_log_by_name_and_leaves_the_record_open(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    with pytest.raises(SL.LaunchRefused, match=r"cannot be read.*not known") as e:
+        SL.check_before_launch(str(w.state))
+    assert "x.json" in str(e.value)
+    assert json.load(open(rec))["state"] == "open"
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_close_finishes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    r = json.load(open(rec))
+    assert SL._close_launch(str(rec), r, str(log_in(w, kind)), SL.LaunchResult(None)) is None
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_close_is_a_named_stop_on_an_unreadable_log_and_never_done(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    r = json.load(open(rec))
+    stop = SL._close_launch(str(rec), r, str(log_in(w, "unreadable")), SL.LaunchResult(None))
+    assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
+    assert json.load(open(rec))["state"] == "open"
+
+
+@needs_linux_wrapper
+def test_l_a_log_that_becomes_unreadable_between_the_close_and_the_verdict_read_is_a_named_stop(w, monkeypatch):
+    """The close has run and the launch line was read once; the log then becomes unreadable at the verdict read (the hash read
+    is made to raise exactly what an unreadable log raises). run_feeder must raise a named LaunchStop, never return a
+    result. (The record was closed by the close step, which saw a readable log: this cell pins the stop, not the record.)"""
+    def boom(log):
+        raise SL.LaunchLogUnreadable(f"the launch log {log} exists but cannot be read (PermissionError): whether its wrapper launched is not known")
+    monkeypatch.setattr(SL, "read_launch_hashes", boom)
+    with pytest.raises(SL.LaunchStop, match=r"cannot be read.*no answer of this session is read"):
+        w.launch()
+
+
+# ====================================================================================== the PATH resolution is exec's, not lexical
+def test_p_a_path_entry_with_a_symlink_then_dotdot_resolves_to_the_file_a_real_exec_runs(w):
+    """<d>/L is a symlink to <d>/real/x, so `<d>/L/../wd` is <d>/real/wd for exec (the kernel follows L, then goes up), while a
+    LEXICAL normpath would say <d>/wd. Two different `claude` files: the module's choice must be the one a real exec runs."""
+    d = w.d / "pl"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "wd").mkdir(); (d / "wd").mkdir()
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    TSS.make_exe(str(d / "real" / "wd" / "claude"), "#!/bin/sh\necho real\n")
+    TSS.make_exe(str(d / "wd" / "claude"), "#!/bin/sh\necho lexical\n")
+    path = "%s/L/../wd" % d
+    ran = _sp.run(["claude"], env={"PATH": path}, cwd=str(w.d), capture_output=True, text=True).stdout.strip()
+    assert ran == "real"                                         # what exec really starts
+    got = SL.resolve_on_path("claude", path, str(w.d))
+    assert os.path.samefile(got, str(d / "real" / "wd" / "claude")) and not os.path.samefile(got, str(d / "wd" / "claude")), got
+    assert _sp.run([got], capture_output=True, text=True).stdout.strip() == ran
+
+
+def test_p_the_childs_working_directory_is_not_normalised_lexically_either(w):
+    """--arm-home `<d>/L/../h` is <d>/real/h to the child (cwd `<arm-home>/work`), and an empty PATH entry is that directory."""
+    d = w.d / "pc"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "h" / "work").mkdir(parents=True)
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    wrapper = d / "real" / "h" / "work" / "claude"
+    TSS.make_exe(str(wrapper), "#!/bin/sh\n")
+    argv = ["--arm-home", "%s/L/../h" % d, "--env", "PATH=:"]
+    SL.check_claude_first(str(wrapper), argv, {"PATH": "/usr/bin"}, str(w.tools / "feed2.py"))   # found, and is the wrapper
