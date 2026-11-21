@@ -510,16 +510,22 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
 fi
 log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)$DAEMON_FIELDS"
 [ -z "$DAEMON" ] || log "daemon-command $DAEMON_LINE"
-# The daemon's report channel (time to ready, the stop, a named fault) is ONE descriptor on SANDBOX_LOG, held by the in-box
-# supervisor alone: it is made non-dumpable before the descriptor is used, so no process of the box can open it through /proc. A run
-# with no SANDBOX_LOG has no channel and reports on stderr only.
+# The daemon's report channel (time to ready, the stop, a named fault) is a PIPE made here, outside the box. Only its WRITE end goes
+# into the box (to the in-box supervisor, which is also non-dumpable: defence in depth); the READ end belongs to a small reader the
+# wrapper starts OUTSIDE the box (`sandbox-forward.py report-reader`, from the hashed copy), which alone writes SANDBOX_LOG, and only
+# lines that fully match its fixed shapes. Nothing in the box holds a descriptor on SANDBOX_LOG. The reader ends at EOF, when the box and
+# this wrapper hold no write end; it holds none of BOX_FDS. A run with no SANDBOX_LOG has no channel and reports on stderr only.
+# SANDBOX_TEST_REPORT_LEAK=1 (test mode only) lets the client inherit the write end, so a cell can write into the pipe from inside the box.
 if [ -n "$DAEMON" ]; then
   DAEMON_ARGS=(--daemon-line "$DAEMON_LINE" --daemon-sock "$D_SOCK" --daemon-pidfile "$D_HOME/recall-daemon.pid"
                --daemon-ready-s "$DAEMON_READY_S" --daemon-term-s "$DAEMON_TERM_S")
   if [ -n "${SANDBOX_LOG:-}" ]; then
-    exec {RPTFD}>> "$SANDBOX_LOG" || refuse "cannot open SANDBOX_LOG for the daemon's report"
-    BOX_FDS+=("$RPTFD")
-    DAEMON_ARGS+=(--report-fd "$RPTFD")
+    exec {RPTW}> >(for k in "${BOX_FDS[@]}"; do eval "exec $k<&-"; done
+                   exec "$PY" -I "$FWD" report-reader --log "$SANDBOX_LOG" --tag "$SOCK" >/dev/null 2>&1) \
+      || refuse "cannot start the daemon's report reader"
+    BOX_FDS+=("$RPTW")
+    DAEMON_ARGS+=(--report-fd "$RPTW")
+    [ "${SANDBOX_TEST:-}" = 1 ] && [ "${SANDBOX_TEST_REPORT_LEAK:-}" = 1 ] && DAEMON_ARGS+=(--test-report-leak)
   fi
 fi
 

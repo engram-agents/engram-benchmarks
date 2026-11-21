@@ -132,20 +132,46 @@ def client_cmd(cfg):
 def run_daemon(cfg, exec_=None, **kw):
     kw.setdefault("SANDBOX_DAEMON", "engram")
     kw.setdefault("SANDBOX_LOG", cfg.log)
-    return cfg.run(exec_=exec_ or client_cmd(cfg), **kw)
+    r = cfg.run(exec_=exec_ or client_cmd(cfg), **kw)
+    if kw["SANDBOX_DAEMON"] == "engram" and kw["SANDBOX_LOG"] and log_line(cfg, "wrapper-launch"):
+        wait_report_closed(cfg)      # the daemon's lines reach the log through the reader, a moment after the box ends
+    return r
 
 
 def log_lines(cfg):
     return open(cfg.log).read().splitlines() if os.path.exists(cfg.log) else []
 
 
+def wait_report_closed(cfg, secs=20):
+    """The reader's closing line is the sentinel that it has copied everything the box wrote: wait for it (bounded)."""
+    end = time.time() + secs
+    while time.time() < end:
+        if any(l.startswith("daemon-report ") and " closed " in l for l in log_lines(cfg)):
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def fields(line):
     return dict(tok.partition("=")[::2] for tok in line.split() if "=" in tok)
 
 
+RE_REPORT_LINE = re.compile(r"daemon-report seq=[0-9]+ time=[0-9]+\.[0-9]{6} line=(.*)")
+DAEMON_KINDS = ("daemon-ready", "daemon-not-ready", "daemon-stop", "daemon-fault")
+
+
 def log_line(cfg, prefix):
-    got = [l for l in log_lines(cfg) if l.startswith(prefix + " ")]
-    return got[0] if got else None
+    """The first log line that starts with `prefix `. A daemon event is read only as the reader writes it (`daemon-report seq=
+    time= line=<event>`): a bare `daemon-ready ...` line in the log is not an event, and is not returned."""
+    for l in log_lines(cfg):
+        m = RE_REPORT_LINE.fullmatch(l)
+        if m:
+            l = m.group(1)
+        elif l.split(" ", 1)[0] in DAEMON_KINDS:
+            continue
+        if l.startswith(prefix + " "):
+            return l
+    return None
 
 
 def slot_leftovers(cfg):
@@ -436,7 +462,8 @@ def test_a_session_that_was_to_have_the_daemon_and_has_no_ready_line_is_a_named_
     res = SL.LaunchResult(0)
     why = SL.daemon_verdict("engram", {"daemon": "engram"}, [], res)    # a launch line that says it, and no daemon line at all
     assert why and "daemon-ready" in why and "daemon-not-ready" in why
-    assert SL.daemon_verdict("engram", {"daemon": "engram"}, [("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9"})], res) is None
+    assert SL.daemon_verdict("engram", {"daemon": "engram"}, [("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9"}),
+                                                              ("daemon-stop", {"outcome": "term", "pid": "9"})], res) is None
     assert res.daemon == "engram" and res.daemon_time_to_ready_s == 1.5 and res.box_label == ARM_LABEL
     assert SL.daemon_verdict(None, {}, [], SL.LaunchResult(0)) is None
     assert "did not ask" in SL.daemon_verdict(None, {"daemon": "engram"}, [], SL.LaunchResult(0))
@@ -503,8 +530,8 @@ with open(os.path.join(slot, "probe-result"), "w") as f:
 
 @TSS.needs_box
 def test_no_process_of_the_box_can_reach_the_report_descriptor_through_proc(dcfg):
-    """The descriptor on SANDBOX_LOG is a write channel to a file OUTSIDE the box: the supervisor that holds it is non-dumpable,
-    so another process of the box (the student) cannot find or open it through /proc/<pid>/fd."""
+    """No process the box can see holds a descriptor on SANDBOX_LOG (the report channel is a pipe whose reader is outside the box;
+    test_daemon_report.py pins what the wrapper hands the box, which a non-dumpable process hides from this scan)."""
     with open(os.path.join(dcfg.slot, "probe.py"), "w") as f:
         f.write(PROBE)
     r = run_daemon(dcfg, exec_="/usr/bin/python3 %s/probe.py %s %s" % (dcfg.slot, dcfg.slot, os.path.basename(dcfg.log)))

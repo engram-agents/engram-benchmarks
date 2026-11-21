@@ -91,6 +91,11 @@ DAEMON_SOCKET = os.path.join(".engram", "recall-daemon.sock")
 DAEMON_SOCKET_MAX = 107   # an AF_UNIX socket path is limited to 107 bytes (108 with the terminating NUL)
 DAEMON_BOX_LABEL = "the box with the recall daemon"   # the caps and peaks of such a run are those of this box (D7)
 DAEMON_EVENTS = ("daemon-ready", "daemon-not-ready", "daemon-stop", "daemon-fault")
+# What the log's reader (outside the box) writes: `daemon-report seq=N time=T line=<event>` for an accepted daemon line and
+# `daemon-report seq=N time=T dropped reason=R bytes=B count=C` for a line it refused. A bare `daemon-ready ...` line is not an event.
+_REPORT_HEAD = r"daemon-report seq=[0-9]{1,9} time=[0-9]{1,12}\.[0-9]{6} "
+RE_REPORT_EVENT = re.compile(_REPORT_HEAD + r"line=(daemon-(?:ready|not-ready|stop|fault)) (.*)")
+RE_REPORT_DROPPED = re.compile(_REPORT_HEAD + r"dropped reason=(shape|length|count) bytes=([0-9]+) count=([0-9]+)")
 _SEQ = itertools.count(1)
 
 
@@ -227,17 +232,22 @@ def check_daemon_socket(slot):
 
 
 def read_daemon_events(log):
-    """The daemon lines the wrapper's in-box supervisor wrote to the log, in order: [(kind, {key: value})]. A log that cannot be
-    read is LaunchLogUnreadable (as read_launch_fields): nothing is known about the daemon then."""
+    """The daemon lines the log's reader recorded (the in-box supervisor's lines in the reader's own form; every one, duplicates and
+    reordering included) and its drop markers, in order: [(kind, {key: value})]. A log that cannot be read is LaunchLogUnreadable
+    (as read_launch_fields): nothing is known about the daemon then."""
     try:
         text = open(log, "rb").read().decode("utf-8", "replace")
     except OSError as e:
         raise LaunchLogUnreadable(f"the launch log {log} cannot be read ({type(e).__name__}): what the recall daemon did is not known")
     out = []
     for line in text.splitlines():
-        kind, _, rest = line.partition(" ")
-        if kind in DAEMON_EVENTS:
-            out.append((kind, dict(tok.partition("=")[::2] for tok in rest.split() if "=" in tok)))
+        m = RE_REPORT_EVENT.fullmatch(line)
+        if m:
+            out.append((m.group(1), dict(tok.partition("=")[::2] for tok in m.group(2).split() if "=" in tok)))
+            continue
+        m = RE_REPORT_DROPPED.fullmatch(line)
+        if m:
+            out.append(("daemon-report-dropped", {"reason": m.group(1), "bytes": m.group(2), "count": m.group(3)}))
     return out
 
 
@@ -263,6 +273,22 @@ def daemon_verdict(expected, launch_fields, events, res):
     if not ready:
         return ("the launch was to have the recall daemon (SANDBOX_DAEMON=engram) but its log has neither a `daemon-ready` nor a "
                 "`daemon-not-ready` line: whether the daemon ran is not known")
+    drops = [f for k, f in events if k == "daemon-report-dropped"]
+    if drops:
+        return (f"the daemon's report channel dropped {len(drops)} line(s) (first: reason {drops[0].get('reason')}, {drops[0].get('bytes')} "
+                "bytes): what the box wrote is not all in the log")
+    lost = 0
+    for k, f in events:
+        try:
+            lost = max(lost, int(f.get("rpt_dropped", "0") or 0))
+        except ValueError:
+            lost = max(lost, 1)
+    if lost:
+        return f"the in-box supervisor could not write {lost} report line(s) to the daemon's report channel: what the box did is not all in the log"
+    stops = sum(1 for k, f in events if k == "daemon-stop")
+    if stops != 1:
+        return ("the log has a `daemon-ready` line but " + ("no `daemon-stop` line" if not stops else f"{stops} `daemon-stop` lines")
+                + " (exactly one is required): whether the daemon was stopped before the slot was saved is not known")
     faults = [f for k, f in events if k == "daemon-fault"]
     if faults:
         why = []

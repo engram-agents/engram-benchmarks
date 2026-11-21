@@ -29,6 +29,12 @@ socket, and nothing else crosses:
          launcher's own line, waits for the daemon's socket to answer (--daemon-ready-s), starts the command, and after the command
          exits sends the daemon SIGTERM, waits (--daemon-term-s), and SIGKILLs it with a named fault if it must. Its exit code is the
          command's (128+signal if killed), or 4 if the daemon never became ready (the command is then never started).
+         A signal during the readiness wait stops the daemon, writes daemon-not-ready (reason=signalled) and daemon-stop, and exits
+         128+signal; the command is never started. The daemon's identity is its pid AND its start time, read once at spawn.
+         The supervisor reports to a PIPE (--report-fd, the write end, non-blocking); nothing in the box holds SANDBOX_LOG.
+  report-reader  (outside the box, started by the wrapper)  reads the pipe's other end and writes SANDBOX_LOG: only lines that fully
+         match one of the fixed shapes of REPORT_SHAPES, each under the reader's own `daemon-report seq=N time=T` prefix; one marker line per
+         dropped line (never its content); bounded by REPORT_MAX_LINE, REPORT_MAX_LINES and REPORT_MAX_MARKERS; one closing line at EOF.
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
   log-verdict --log FILE   run-script helper: the ONE harness-fault flag rule, read from the outer forwarder's log
@@ -45,7 +51,8 @@ socket, and nothing else crosses:
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
                         --max-request N --max-total N --max-conns N --read-idle-s S [--scope-unit NAME]
                   inner --sock S --port P [--unset NAME]... [--daemon-line L --daemon-sock S --daemon-pidfile F
-                        --daemon-ready-s N --daemon-term-s N [--report-fd FD]] -- CMD [ARG...]
+                        --daemon-ready-s N --daemon-term-s N [--report-fd FD] [--test-report-leak]] -- CMD [ARG...]
+                  report-reader --log FILE --tag TAG      (the pipe is its stdin; TAG only labels its argv)
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
 """
@@ -951,19 +958,167 @@ EXIT_DAEMON_NOT_READY = 4      # the command was never started (3 is the bridge 
 EXIT_REPORT_CHANNEL = 5        # the report descriptor could not be made private: nothing was started
 
 
-def report(fd, line):
-    """One line on the report descriptor (SANDBOX_LOG, opened by the wrapper); a single write, so lines never interleave."""
-    if fd is None:
-        return
+# ---- the report channel. The supervisor (in the box) writes to a PIPE; the reader (outside the box) writes SANDBOX_LOG. The shapes below
+# are the ONLY lines the reader copies; the cells that run the box check the supervisor's own format strings against them.
+REPORT_PREFIX = "daemon-report"
+REPORT_MAX_LINE = 256       # bytes, newline excluded: a longer line is dropped (reason=length)
+REPORT_MAX_LINES = 64       # accepted lines per launch: a valid line past it is dropped (reason=count)
+REPORT_MAX_MARKERS = 64     # drop markers written individually per launch; past it drops are only counted, on the closing line
+REPORT_STOP_WAIT_S = 2.0    # how long the supervisor's daemon-stop line may wait, once, for a full pipe to drain; no other line waits
+# value grammar name -> (regex, an example the cells generate samples from)
+REPORT_VALUES = {
+    "time": (r"[0-9]{1,12}\.[0-9]{3}", "1700000000.123"),
+    "pid": (r"[0-9]{1,10}", "4242"),
+    "secs": (r"[0-9]{1,6}\.[0-9]{3}", "1.250"),
+    "limit": (r"[0-9]{1,6}(?:\.[0-9]{1,6})?", "20.0"),
+    "count": (r"[0-9]{1,6}", "0"),
+    "not_ready_reason": (r"(?:spawn-failed|timeout|exited-early|signalled)", "timeout"),
+    "outcome": (r"(?:already-gone|term|killed)", "term"),
+    "kind_sigkill": (r"sigkill", "sigkill"),
+    "kind_files_left": (r"files-left", "files-left"),
+    "files": (r"(?:recall-daemon\.pid,recall-daemon\.sock|recall-daemon\.pid|recall-daemon\.sock)", "recall-daemon.pid"),
+}
+# THE table: (event, ((key, value grammar), ...)). Fields in this order, single spaces, nothing before or after. daemon-fault has two
+# shapes, one per fault kind the supervisor names.
+REPORT_SHAPES = (
+    ("daemon-ready", (("time", "time"), ("pid", "pid"), ("time_to_ready_s", "secs"), ("rpt_dropped", "count"))),
+    ("daemon-not-ready", (("time", "time"), ("reason", "not_ready_reason"), ("waited_s", "secs"), ("rpt_dropped", "count"))),
+    ("daemon-stop", (("time", "time"), ("pid", "pid"), ("outcome", "outcome"), ("waited_s", "secs"), ("rpt_dropped", "count"))),
+    ("daemon-fault", (("time", "time"), ("kind", "kind_sigkill"), ("pid", "pid"), ("after_s", "limit"), ("rpt_dropped", "count"))),
+    ("daemon-fault", (("time", "time"), ("kind", "kind_files_left"), ("pid", "pid"), ("files", "files"), ("rpt_dropped", "count"))),
+)
+
+
+def report_pattern(shape):
+    event, flds = shape
+    return event + "".join(" %s=%s" % (k, REPORT_VALUES[v][0]) for k, v in flds)
+
+
+REPORT_REGEXES = tuple(re.compile(report_pattern(sh).encode()) for sh in REPORT_SHAPES)
+
+
+def report_shape_ok(line):
+    """True only if the WHOLE line (bytes, no newline) matches one shape of the table."""
+    return any(rx.fullmatch(line) for rx in REPORT_REGEXES)
+
+
+class ReportReader:
+    """The reader's logic, with no I/O but the log: bytes in (any chunking), lines out under the reader's own prefix. One sequence number
+    runs over everything it writes (accepted lines, markers, the closing line), so a gap cannot hide. It never dedupes and never
+    reorders: a duplicated or out-of-order line is recorded as it came. Memory is bounded by one longest line."""
+
+    def __init__(self, log, clock=time.time):
+        self.log, self.clock = log, clock
+        self.buf = bytearray()
+        self.over, self.over_bytes = False, 0
+        self.seq = self.accepted = self.dropped = self.markers = 0
+
+    def write(self, body):
+        self.seq += 1
+        write_log(self.log, "%s seq=%d time=%.6f %s" % (REPORT_PREFIX, self.seq, self.clock(), body))
+
+    def drop(self, reason, nbytes):
+        """ONE marker per dropped line, naming the reason, the byte count and a running count: never the content."""
+        self.dropped += 1
+        if self.markers < REPORT_MAX_MARKERS:
+            self.markers += 1
+            self.write("dropped reason=%s bytes=%d count=%d" % (reason, nbytes, self.dropped))
+
+    def one(self, line):
+        if len(line) > REPORT_MAX_LINE:
+            self.drop("length", len(line))
+        elif not report_shape_ok(line):
+            self.drop("shape", len(line))
+        elif self.accepted >= REPORT_MAX_LINES:
+            self.drop("count", len(line))
+        else:
+            self.accepted += 1
+            self.write("line=" + line.decode("ascii"))
+
+    def push(self, data):
+        while data:
+            i = data.find(b"\n")
+            if self.over:                                   # discarding the rest of a line already past the longest
+                if i < 0:
+                    self.over_bytes += len(data)
+                    return
+                self.over_bytes += i
+                data = data[i + 1:]
+                self.drop("length", self.over_bytes)
+                self.over, self.over_bytes = False, 0
+                continue
+            if i < 0:
+                self.buf += data
+                if len(self.buf) > REPORT_MAX_LINE:
+                    self.over, self.over_bytes, self.buf = True, len(self.buf), bytearray()
+                return
+            line, self.buf, data = bytes(self.buf) + data[:i], bytearray(), data[i + 1:]
+            self.one(line)
+
+    def finish(self):
+        """EOF: an unterminated tail is a dropped line (never a recorded one); then the one closing line."""
+        if self.over:
+            self.drop("length", self.over_bytes)
+        elif self.buf:
+            self.drop("shape", len(self.buf))
+        self.over, self.over_bytes, self.buf = False, 0, bytearray()
+        self.write("closed accepted=%d dropped=%d markers_suppressed=%d" % (self.accepted, self.dropped, self.dropped - self.markers))
+
+
+def run_report_reader(a):
+    """stdin is the report pipe's read end; it ends when every write end is closed (the box and the wrapper are gone)."""
+    reader = ReportReader(a.log)
     try:
-        os.write(fd, (line + "\n").encode())
+        while True:
+            data = os.read(0, 65536)
+            if not data:
+                break
+            reader.push(data)
     except OSError:
         pass
+    reader.finish()
+    return 0
+
+
+class Report:
+    """The supervisor's end: ONE non-blocking write per line (a line is far under PIPE_BUF, so it is all or nothing). A line that cannot
+    be written (pipe full, no reader, any OSError) is COUNTED and NAMED on stderr, never swallowed, and the count rides on every later
+    line as `rpt_dropped=N`, so the log shows what the supervisor could not say. Only a line given `wait_s` waits, once and for a
+    bounded time, for a full pipe to drain (the stop line). With no descriptor there is no channel and nothing is counted."""
+
+    def __init__(self, fd):
+        self.fd, self.dropped = fd, 0
+        if fd is not None:
+            os.set_blocking(fd, False)
+
+    def send(self, line, wait_s=0.0):
+        if self.fd is None:
+            return False
+        data = ("%s rpt_dropped=%d\n" % (line, self.dropped)).encode()
+        end = time.monotonic() + wait_s
+        while True:
+            try:
+                os.write(self.fd, data)
+                return True
+            except BlockingIOError as e:
+                err = e
+            except OSError as e:
+                err = e
+                break
+            left = end - time.monotonic()
+            if left <= 0:
+                break
+            select.select([], [self.fd], [], left)
+        self.dropped += 1
+        sys.stderr.write("student-sandbox: report channel: a %s line was not written (%s); %d lost so far\n" % (
+            line.split(" ", 1)[0], type(err).__name__, self.dropped))
+        return False
 
 
 def make_undumpable():
     """prctl(PR_SET_DUMPABLE, 0): /proc/<this pid>/fd is then not reachable from any other process of the box, so the student
-    cannot open the report descriptor (a write into SANDBOX_LOG, outside the box) through /proc. Returns True when it took."""
+    cannot open the report pipe's write end through /proc (defence in depth: the pipe reaches only the reader's fixed shapes). Returns
+    True when it took."""
     try:
         import ctypes
         libc = ctypes.CDLL(None, use_errno=True)
@@ -972,35 +1127,41 @@ def make_undumpable():
         return False
 
 
+def proc_start(pid):
+    """Field 22 of /proc/<pid>/stat (clock ticks since boot at which the process started), or None when it cannot be read. It does not
+    change across an exec, and a reused pid has another one."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return int(f.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
 def start_daemon(a, env):
-    """Run the launcher's own line through /bin/sh (it ends in `&`) and return the daemon's pid, or None."""
+    """Run the launcher's own line through /bin/sh (it ends in `&`): (the daemon's pid, its start time), or (None, None). The start time
+    is read once, here, and is the daemon's identity from then on (None: it was already gone)."""
     try:
         r = subprocess.run(["/bin/sh", "-c", a.daemon_line + "\necho $!"], env=env, stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, timeout=30)
         pid = int(r.stdout.decode().split()[-1])
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
-        return None
-    return pid if pid > 1 else None
+        return None, None
+    return (pid, proc_start(pid)) if pid > 1 else (None, None)
 
 
-def is_daemon(pid, a):
-    """The pid is still the process the line started: its argv holds the daemon's own directory (never signal a reused pid)."""
-    try:
-        with open("/proc/%d/cmdline" % pid, "rb") as f:
-            return os.path.dirname(a.daemon_sock).encode() in f.read()
-    except OSError:
-        return False
+def daemon_up(pid, a, start):
+    """The process is still the one that was started: the pid is there (not a zombie) AND has the start time read at spawn. Its argv is
+    NOT consulted: between fork and exec it is empty or the shell's, which is 'not yet exec'd', never 'exited'."""
+    return start is not None and alive(pid) and proc_start(pid) == start
 
 
-def daemon_up(pid, a):
-    return alive(pid) and is_daemon(pid, a)
-
-
-def wait_daemon_ready(a, pid):
-    """('ready' | 'timeout' | 'exited-early', seconds waited): ready when a connect to the daemon's socket succeeds."""
+def wait_daemon_ready(a, pid, start, stop=None):
+    """('ready' | 'timeout' | 'exited-early' | 'signalled', seconds waited): ready when a connect to the daemon's socket succeeds."""
     t0 = time.monotonic()
     while True:
-        if not daemon_up(pid, a):
+        if stop is not None and stop():
+            return "signalled", time.monotonic() - t0
+        if not daemon_up(pid, a, start):
             return "exited-early", time.monotonic() - t0
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.settimeout(1.0)
@@ -1016,25 +1177,26 @@ def wait_daemon_ready(a, pid):
         time.sleep(DAEMON_POLL_S)
 
 
-def wait_daemon_gone(pid, a, secs):
+def wait_daemon_gone(pid, a, start, secs):
     end = time.monotonic() + secs
-    while daemon_up(pid, a) and time.monotonic() < end:
+    while daemon_up(pid, a, start) and time.monotonic() < end:
         time.sleep(DAEMON_POLL_S)
-    return not daemon_up(pid, a)
+    return not daemon_up(pid, a, start)
 
 
-def stop_daemon(a, pid, rfd):
-    """SIGTERM, a bounded wait, then SIGKILL and a NAMED fault. One `daemon-stop` line always; a `daemon-fault` line for a kill, and
-    for a daemon that exited on SIGTERM yet left its pid file or socket (the slot is about to be saved)."""
+def stop_daemon(a, pid, start, rpt):
+    """SIGTERM, a bounded wait, then SIGKILL and a NAMED fault. A `daemon-fault` line for a kill, and for a daemon that exited on SIGTERM
+    yet left its pid file or socket (the slot is about to be saved); then ONE `daemon-stop` line, always, LAST, so its rpt_dropped covers
+    every line before it (it alone may wait, boundedly, for a full pipe)."""
     t0 = time.monotonic()
-    if not daemon_up(pid, a):
+    if not daemon_up(pid, a, start):
         outcome = "already-gone"
     else:
         try:
             os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-        if wait_daemon_gone(pid, a, a.daemon_term_s):
+        if wait_daemon_gone(pid, a, start, a.daemon_term_s):
             outcome = "term"
         else:
             outcome = "killed"
@@ -1042,22 +1204,20 @@ def stop_daemon(a, pid, rfd):
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
-            wait_daemon_gone(pid, a, 5.0)
+            wait_daemon_gone(pid, a, start, 5.0)
     waited = time.monotonic() - t0
     now = time.time()
-    report(rfd, "daemon-stop time=%.3f pid=%d outcome=%s waited_s=%.3f" % (now, pid, outcome, waited))
     if outcome == "killed":
         sys.stderr.write("student-sandbox: the recall daemon ignored SIGTERM for %ss and was killed with SIGKILL (a fault: its "
                          "state may not have been written)\n" % a.daemon_term_s)
-        report(rfd, "daemon-fault time=%.3f kind=sigkill pid=%d after_s=%s" % (now, pid, a.daemon_term_s))
+        rpt.send("daemon-fault time=%.3f kind=sigkill pid=%d after_s=%s" % (now, pid, a.daemon_term_s))
     elif outcome == "term":
         left = [n for n in (a.daemon_pidfile, a.daemon_sock) if os.path.lexists(n)]
         if left:
             sys.stderr.write("student-sandbox: the recall daemon exited on SIGTERM but left %s in the slot\n" % ", ".join(left))
-            report(rfd, "daemon-fault time=%.3f kind=files-left pid=%d files=%s" % (now, pid, ",".join(os.path.basename(n) for n in left)))
+            rpt.send("daemon-fault time=%.3f kind=files-left pid=%d files=%s" % (now, pid, ",".join(os.path.basename(n) for n in left)))
+    rpt.send("daemon-stop time=%.3f pid=%d outcome=%s waited_s=%.3f" % (now, pid, outcome, waited), wait_s=REPORT_STOP_WAIT_S)
     return outcome
-
-
 
 
 def run_supervised(a, env):
@@ -1065,31 +1225,50 @@ def run_supervised(a, env):
     if rfd is not None and not make_undumpable():
         sys.stderr.write("student-sandbox: refused: the report descriptor could not be made private (prctl PR_SET_DUMPABLE)\n")
         return EXIT_REPORT_CHANNEL
-    pid = start_daemon(a, env)
+    rpt = Report(rfd)
+    # The handlers go in BEFORE the daemon starts: a signal during its start or readiness wait must still stop it and say so.
+    st = {"child": None, "sig": None}
+
+    def on_signal(n, f):
+        if st["child"] is not None:
+            st["child"].send_signal(n)
+        else:
+            st["sig"] = n
+
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, on_signal)
+    pid, start = start_daemon(a, env)
     if pid is None:
         state, waited = "spawn-failed", 0.0
     else:
-        state, waited = wait_daemon_ready(a, pid)
+        state, waited = wait_daemon_ready(a, pid, start, lambda: st["sig"] is not None)
     if state != "ready":
-        report(rfd, "daemon-not-ready time=%.3f reason=%s waited_s=%.3f" % (time.time(), state, waited))
+        rpt.send("daemon-not-ready time=%.3f reason=%s waited_s=%.3f" % (time.time(), state, waited))
         sys.stderr.write("student-sandbox: the recall daemon did not become ready (%s after %.1fs; limit %ss): the client was "
                          "not started\n" % (state, waited, a.daemon_ready_s))
         if pid is not None:
-            stop_daemon(a, pid, rfd)
-        return EXIT_DAEMON_NOT_READY
-    report(rfd, "daemon-ready time=%.3f pid=%d time_to_ready_s=%.3f" % (time.time(), pid, waited))
+            stop_daemon(a, pid, start, rpt)
+        return 128 + st["sig"] if state == "signalled" else EXIT_DAEMON_NOT_READY
+    rpt.send("daemon-ready time=%.3f pid=%d time_to_ready_s=%.3f" % (time.time(), pid, waited))
+    if st["sig"] is not None:                              # signalled after ready, before the client: stop the daemon, start nothing
+        stop_daemon(a, pid, start, rpt)
+        return 128 + st["sig"]
+    leak = rfd is not None and getattr(a, "test_report_leak", False)   # test mode only (the wrapper passes it only under SANDBOX_TEST=1)
+    if leak:
+        env[b"SANDBOX_TEST_REPORT_FD"] = str(rfd).encode()
     try:
-        child = subprocess.Popen(a.cmd, env=env, close_fds=True)    # close_fds: the child holds nothing but 0, 1, 2
+        child = subprocess.Popen(a.cmd, env=env, close_fds=True, pass_fds=(rfd,) if leak else ())   # nothing but 0, 1, 2 (and the test knob's)
     except OSError as e:
         sys.stderr.write("student-sandbox: cannot exec %s: %s\n" % (a.cmd[0], e.strerror))
-        stop_daemon(a, pid, rfd)
+        stop_daemon(a, pid, start, rpt)
         return 127
-    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):    # a signal to the box reaches the client; the stop below still runs
-        signal.signal(sig, lambda n, f: child.send_signal(n))
+    st["child"] = child
+    if st["sig"] is not None:                              # a signal that landed between the spawn and the line above
+        child.send_signal(st["sig"])
     rc = child.wait()
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, signal.SIG_IGN)
-    stop_daemon(a, pid, rfd)
+    stop_daemon(a, pid, start, rpt)
     return 128 - rc if rc < 0 else rc
 
 
@@ -1288,7 +1467,10 @@ def main(argv):
     i.add_argument("--daemon-line"); i.add_argument("--daemon-sock"); i.add_argument("--daemon-pidfile")
     i.add_argument("--daemon-ready-s", type=float); i.add_argument("--daemon-term-s", type=float)
     i.add_argument("--report-fd", type=int)
+    i.add_argument("--test-report-leak", action="store_true")
     i.add_argument("cmd", nargs="*")
+    rr = sub.add_parser("report-reader")
+    rr.add_argument("--log", required=True); rr.add_argument("--tag", required=True)
     ca = sub.add_parser("check-allow")
     ca.add_argument("--text", required=True)
     sub.add_parser("homes")
@@ -1309,7 +1491,8 @@ def main(argv):
     return {"outer": run_outer, "inner": run_inner, "latency": run_latency,
             "latency-compare": run_latency_compare, "check-allow": run_check_allow, "homes": run_homes,
             "account-file": run_account_file, "etc-scan": run_etc_scan,
-            "seccomp-bpf": run_seccomp_bpf, "log-verdict": run_log_verdict}[a.mode](a)
+            "seccomp-bpf": run_seccomp_bpf, "log-verdict": run_log_verdict,
+            "report-reader": run_report_reader}[a.mode](a)
 
 
 if __name__ == "__main__":
