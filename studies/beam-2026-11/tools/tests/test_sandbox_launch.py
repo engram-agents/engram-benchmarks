@@ -1845,3 +1845,17 @@ def test_e3_every_allowlisted_name_is_one_the_feeders_actually_read():
     src = open(os.path.join(TOOLS, "feed.py")).read()
     for name in SL.FEEDER_ENV_ALLOW:
         assert re.search(r'os\.environ\.get\("%s"' % re.escape(name), src), name
+
+
+@needs_linux_wrapper
+def test_b_a_launch_whose_wrapper_never_ran_is_a_launch_stop_and_no_answer_is_read(w):
+    """Seam: the stub feeder's `nowrapper` mode, a log the forwarder wrote alone with NO launch line. It stands in for a session
+    that ran without the wrapper, because a stub starts no student and the real exec path is reached only through the decoy cells
+    above (test_d_*). The result must be a LaunchStop, with no verdict, no launch-line hashes and the record closed as
+    'no launch line', never a result that could be read."""
+    with pytest.raises(SL.LaunchStop, match="found 0") as e:
+        w.launch("nowrapper")
+    r = e.value.result
+    assert r.verdict is None and r.wrapper_sha256 is None and r.forwarder_sha256 is None
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done" and "no launch line" in rec["note"]
