@@ -697,11 +697,14 @@ def test_protected_store_hash_matches_the_in_place_method_on_an_ordinary_store(t
     assert P1S.protected_store_hash(h) == P1S.store_content_hash(os.path.join(h, ".engram", "knowledge.db"))
 
 
-def test_protected_store_hash_removes_its_temporary_copy(wal_home):
+def test_protected_store_hash_removes_its_temporary_copy(wal_home, tmp_path, monkeypatch):
+    """The call gets a PRIVATE temporary directory, so no other process on the host can add or remove entries in it."""
     import tempfile
-    before = set(os.listdir(tempfile.gettempdir()))
+    private = tmp_path / "private-tmp"
+    private.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(private))
     P1S.protected_store_hash(wal_home)
-    assert set(os.listdir(tempfile.gettempdir())) == before
+    assert os.listdir(private) == []
 
 
 def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
