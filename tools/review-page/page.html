@@ -53,7 +53,7 @@
 
   <section class="bs-tiles" id="tiles" aria-label="Latest run">
     <div class="bs-card"><div class="bs-tile-label">Official score</div><div class="bs-big" data-draw="official">—</div><div class="bs-tile-note">Official answers as given, known issues included</div>__OFFICIAL_NOTE__</div>
-    <div class="bs-card"><div class="bs-tile-label">Adjusted score</div><div class="bs-big" data-draw="adjusted">—</div><div class="bs-tile-note" data-draw="adjusted-note">—</div>__INDEPENDENCE__</div>
+    <div class="bs-card"><div class="bs-tile-label">Adjusted score</div><div class="bs-big" data-draw="adjusted">—</div><div class="bs-tile-note" data-draw="adjusted-note">—</div>__OFFICIAL_NOTE____INDEPENDENCE__</div>
     <div class="bs-card"><div class="bs-tile-label">Pass · partial · fail</div><div class="bs-big" data-draw="grades">—</div><div class="bs-tile-note" data-draw="grades-note">—</div></div>
     <div class="bs-card"><div class="bs-tile-label">Asked the user back</div><div class="bs-big" data-draw="asked">—</div><div class="bs-tile-note" data-draw="asked-note">—</div></div>
   </section>
@@ -94,7 +94,7 @@
   </section>
 
   <details class="bs-notes" id="method">
-    <summary>How the scores and statuses work</summary>
+    <summary>How the scores and statuses work</summary>__OFFICIAL_NOTE____INDEPENDENCE__
     <p>Each question has rubric lines from the dataset. A line scores 1 if the answer meets it, 0.5 if partly, 0 if not; the question scores the mean of its lines, and the run scores the mean over its questions.</p>
     <p>The official score uses the dataset's answers exactly as given. The adjusted score re-rates a question against a corrected answer, and only when that question is tied to a dataset problem already checked in the raw data or further along.</p>
     <p>A possible problem climbs four steps: suspected, checked in the raw data, confirmed by a second reader who had not seen our verdict, ready to report. A string search never proves something is missing from the conversation: that needs a full read of every exchange about it, user and assistant lines both.</p>

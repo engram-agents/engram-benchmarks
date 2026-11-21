@@ -960,9 +960,11 @@ import html as htmllib  # noqa: E402
 import itertools  # noqa: E402
 from html.parser import HTMLParser  # noqa: E402
 
-# 'Official dataset' / 'Official-dataset' is a findings AREA, not a score label, so it does not count.
-OFFICIAL_RE = re.compile(r"official_\w+|\bOfficial\b(?![- ]dataset)")
-ADJUSTED_RE = re.compile(r"adjusted_\w+|adjust_delta|\bAdjusted\b")
+# 'Official dataset' / 'Official-dataset' is a findings AREA, not a score label, so it does not count. Both
+# patterns match case-INSENSITIVELY: a section whose only label is 'official 71%' or 'adjusted 71%' is in the set.
+OFFICIAL_RE = re.compile(r"official_\w+|\bofficial\b(?![- ]dataset)", re.I)
+ADJUSTED_RE = re.compile(r"adjusted_\w+|adjust_delta|\badjusted\b", re.I)
+MARKER_RE = re.compile(r"__[A-Z_]+__")  # the build's own fill-in markers (__OFFICIAL_NOTE__ ...) are not labels
 NOTE_MARKUP = '<p class="bs-k bs-official-note">{}</p>'
 INDEP_MARKUP = '<p class="bs-k bs-independence">{}</p>'
 INDEP_MARKUP_RE = re.compile(r'<p class="bs-k bs-independence">[^<]*</p>')
@@ -1058,7 +1060,7 @@ def generated_sections(page_text, rx):
     hit = []
     for key, markup in sections(page_text):
         names = re.findall(r'data-draw="([\w-]+)"', markup)
-        if rx.search(markup + "\n" + "\n".join(code.get(n, "") for n in names)):
+        if rx.search(MARKER_RE.sub("", markup + "\n" + "\n".join(code.get(n, "") for n in names))):
             hit.append(key)
     return hit
 
@@ -1093,9 +1095,10 @@ def test_n1_the_generated_set_of_official_sections_is_the_expected_kind():
     keys = generated_sections(page_html_text(), OFFICIAL_RE)
     ids = [k[0] for k in keys]
     assert len(keys) >= 5, keys  # the header, the Official tile, by question type, all runs, every question
-    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"'):
+    # 'method' is the explanatory note: it names the official score, so a case-insensitive match takes it in
+    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"', 'id="method"'):
         assert any(want in i for i in ids), (want, ids)
-    for notwant in ('id="findings"', 'id="causes"', 'id="method"'):  # 'Official dataset' only, or no official column
+    for notwant in ('id="findings"', 'id="causes"'):  # 'Official dataset' only, or no official column
         assert not any(notwant in i for i in ids), (notwant, ids)
 
 
@@ -1111,6 +1114,36 @@ def test_n1_the_set_is_generated_a_new_official_section_joins_it():
     m2 = text.replace('<section id="findings">', '<section id="added2"><div data-draw="added2"></div></section>\n  <section id="findings">', 1)
     m2 = m2.replace("<script>\n  // Runs table body", "<script>\n  dash.draw('added2', (el) => { el.textContent = BS.latest().official_pct; });\n  // Runs table body", 1)
     assert m2 != text and len(generated_sections(m2, OFFICIAL_RE)) == len(before) + 1
+
+
+@pytest.mark.parametrize("rx,label", [(OFFICIAL_RE, "official 71%"), (ADJUSTED_RE, "adjusted 71%")])
+def test_n1_a_section_labelled_in_lower_case_only_joins_the_set(rx, label):
+    text = page_html_text()
+    before = generated_sections(text, rx)
+    extra = f'<section id="added-lc"><h2>{label}</h2></section>\n  '
+    mutated = text.replace('<section id="findings">', extra + '<section id="findings">', 1)
+    assert mutated != text
+    after = generated_sections(mutated, rx)
+    assert len(after) == len(before) + 1 and any('id="added-lc"' in k[0] for k in after)
+    # and through draw code: a lower-case label in a draw's code, static markup silent
+    m2 = text.replace('<section id="findings">', '<section id="added-lc2"><div data-draw="added-lc2"></div></section>\n  <section id="findings">', 1)
+    m2 = m2.replace("<script>\n  // Runs table body", f"<script>\n  dash.draw('added-lc2', (el) => {{ el.textContent = '{label}'; }});\n  // Runs table body", 1)
+    assert m2 != text and len(generated_sections(m2, rx)) == len(before) + 1
+
+
+@pytest.mark.parametrize("area", ["Official dataset", "official dataset", "OFFICIAL-DATASET"])
+def test_n1_the_official_dataset_area_stays_out_whatever_its_case(area):
+    text = page_html_text()
+    before = generated_sections(text, OFFICIAL_RE)
+    mutated = text.replace('<section id="findings">', f'<section id="added-area"><h2>{area}</h2></section>\n  <section id="findings">', 1)
+    assert mutated != text and generated_sections(mutated, OFFICIAL_RE) == before
+
+
+def test_n1_the_builds_own_markers_are_not_labels():
+    text = page_html_text()
+    before = generated_sections(text, OFFICIAL_RE)
+    mutated = text.replace('<section id="findings">', '<section id="added-mk"><h2>x</h2>__OFFICIAL_NOTE__</section>\n  <section id="findings">', 1)
+    assert mutated != text and generated_sections(mutated, OFFICIAL_RE) == before
 
 
 def test_n1_the_note_is_in_every_generated_section_when_given(env):
@@ -1220,9 +1253,9 @@ def test_n2_the_generated_set_of_adjusted_sections_is_the_expected_kind():
     keys = generated_sections(page_html_text(), ADJUSTED_RE)
     ids = [k[0] for k in keys]
     assert len(keys) >= 5, keys  # the header, the Adjusted tile, by question type, all runs, every question
-    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"'):
+    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"', 'id="method"'):
         assert any(want in i for i in ids), (want, ids)
-    for notwant in ('id="findings"', 'id="causes"', 'id="method"'):
+    for notwant in ('id="findings"', 'id="causes"'):
         assert not any(notwant in i for i in ids), (notwant, ids)
 
 
