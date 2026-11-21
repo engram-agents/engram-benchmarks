@@ -198,9 +198,9 @@ def refusal_line(ref, method, path, bytes_read):
 class Budget:
     """The caps of the trusted side. The outer forwarder buffers a whole request before it sends a byte upstream, and a
     student controls what it sends, so every byte buffered is counted: per request (`max_request`, head and body), over
-    all connections (`max_total`) and as concurrent connections (`max_conns`). In learn mode it also records the
-    largest request, the most concurrent connections and the most buffered bytes seen, so the caps can be set from
-    measurement. Counts only, never content."""
+    all connections (`max_total`) and as concurrent connections (`max_conns`). In BOTH modes it records the
+    largest request, the most concurrent connections and the most buffered bytes seen (one `fwd-peak` line per change,
+    so the last such line holds the run's maxima), so the caps can be set from measurement. Counts only, never content."""
 
     def __init__(self, max_request, max_total, max_conns, log=None, learn=False):
         self.max_request, self.max_total, self.max_conns = max_request, max_total, max_conns
@@ -242,11 +242,9 @@ class Budget:
         self.record()
 
     def record(self):
-        """Learn mode: one line per change of any maximum, so the last such line holds the run's maxima."""
-        if not self.learn:
-            return
+        """Both modes: one line per change of any maximum, so the last such line holds the run's maxima."""
         with self.lock:
-            line = "fwd-learn-max request_bytes=%d connections=%d total_buffered=%d" % (
+            line = "fwd-peak request_bytes=%d connections=%d total_buffered=%d" % (
                 self.peak["request_bytes"], self.peak["connections"], self.peak["total_buffered"])
             if line == self.written:
                 return

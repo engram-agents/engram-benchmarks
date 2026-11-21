@@ -2708,10 +2708,14 @@ def test_peer_a2_connections_past_the_cap_get_503_and_a_log_line(outer, http_stu
     held[1].close()
 
 
-def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
-    stub = http_stub()
-    log = str(tmp_path / "learn-max.log")
-    o = outer(stub, learn=True, log=log)
+def _peak_line_fields(log):
+    lines = [l for l in open(log).read().splitlines() if l.startswith("fwd-peak ")]
+    assert lines, "no peak line"
+    return dict(kv.split("=") for kv in lines[-1].split()[1:])
+
+
+def _drive_known_sequence(o):
+    """Two connections, a 500-byte and a 5000-byte body on the first, a 500-byte body on the second."""
     small = req("POST", "/v1/messages", body=b"x" * 500)
     big = req("POST", "/v1/messages", body=b"x" * 5000)
     s = o.connect()
@@ -2723,26 +2727,34 @@ def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
     s2.sendall(small)
     assert read_response(s2)[0] == 200
     time.sleep(0.5)
-    maxes = [l for l in open(log).read().splitlines() if l.startswith("fwd-learn-max ")]
-    assert maxes, "no maxima line"
-    f = dict(kv.split("=") for kv in maxes[-1].split()[1:])
-    assert int(f["request_bytes"]) == len(big), (f, len(big))
+    return len(big)
+
+
+def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "learn-max.log")
+    o = outer(stub, learn=True, log=log)
+    n = _drive_known_sequence(o)
+    f = _peak_line_fields(log)
+    assert int(f["request_bytes"]) == n, (f, n)
     assert int(f["connections"]) == 2, f
-    assert int(f["total_buffered"]) == len(big), f
+    assert int(f["total_buffered"]) == n, f
     assert "SECRET" not in open(log).read()
 
 
-def test_peer_a2_enforce_mode_does_not_record_maxima(outer, http_stub, tmp_path):
+def test_peak_line_allow_list_mode_records_the_same_maxima(outer, http_stub, tmp_path):
+    """The bridge peaks are written in BOTH modes (the pilot has no learn mode): the allow-list run's last peak line
+    holds the largest request, the most concurrent connections and the most buffered bytes, counts only."""
     stub = http_stub()
-    log = str(tmp_path / "enf.log")
+    log = str(tmp_path / "allow-peak.log")
     o = outer(stub, allow=ALLOW, log=log)
-    s = o.connect()
-    s.sendall(req("POST", "/v1/messages", body=b"x" * 500))
-    assert read_response(s)[0] == 200
-    s.close()
-    time.sleep(0.6)   # the connection's own log line is written when it ends
-    text = open(log).read()
-    assert "fwd-conn " in text and "fwd-learn-max" not in text
+    n = _drive_known_sequence(o)
+    f = _peak_line_fields(log)
+    assert int(f["request_bytes"]) == n, (f, n)
+    assert int(f["connections"]) == 2, f
+    assert int(f["total_buffered"]) == n, f
+    assert set(f) == {"request_bytes", "connections", "total_buffered"}, f   # counts only
+    assert "fwd-learn-max" not in open(log).read()
 
 
 def test_peer_a2_many_small_chunks_that_add_up_past_the_cap_are_413(outer, raw_stub):
