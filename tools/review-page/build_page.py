@@ -13,6 +13,7 @@ import collections
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import sys
@@ -64,7 +65,7 @@ def _kind_ok(kind, v):
     if kind == "str?":
         return v is None or isinstance(v, str)
     if kind == "num":
-        return isinstance(v, (int, float)) and not isinstance(v, bool)
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
     if kind == "int":
         return isinstance(v, int) and not isinstance(v, bool)
     if kind == "int?":
@@ -85,13 +86,24 @@ def _conv(v):
     return None
 
 
+def _no_constant(token):
+    raise ValueError(f"{token} is not a finite number")
+
+
+def _finite_float(text):
+    v = float(text)
+    if not math.isfinite(v):
+        raise ValueError(f"{text} is not a finite number")
+    return v
+
+
 def load_dataset(data_dir, name):
     path = os.path.join(data_dir, name + ".json")
     if not os.path.isfile(path):
         raise InputError(f"{name}.json: file not found in {data_dir}")
     try:
         with open(path, encoding="utf-8") as fh:
-            d = json.load(fh)
+            d = json.load(fh, parse_constant=_no_constant, parse_float=_finite_float)
     except (OSError, ValueError) as e:
         raise InputError(f"{name}.json: cannot be read as JSON ({e})")
     if not isinstance(d, dict) or not isinstance(d.get("rows"), list):
@@ -222,7 +234,7 @@ def check_shipped(data):
         om, am = parse_rubric(a, f"answers.json {a['key']}")
         o, d = 100 * _mean(om), 100 * _mean(am)
         for field, exact in (("official_score", o), ("adjusted_score", d)):
-            if abs(exact - a[field]) > SHIPPED_TOLERANCE:
+            if not abs(exact - a[field]) <= SHIPPED_TOLERANCE:  # written so NaN / inf fail it
                 raise InputError(f"answers.json {a['key']}: shipped {field} {a[field]} but its rubric recomputes "
                                  f"to {exact:.2f}")
         by_run[a["run_id"]].append((o, d))
@@ -232,7 +244,7 @@ def check_shipped(data):
             continue
         for field, exact in (("official_pct", sum(x for x, _ in qs) / len(qs)),
                              ("adjusted_pct", sum(y for _, y in qs) / len(qs))):
-            if abs(exact - r[field]) > SHIPPED_TOLERANCE:
+            if not abs(exact - r[field]) <= SHIPPED_TOLERANCE:  # written so NaN / inf fail it
                 raise InputError(f"runs.json run {r['run_id']}: shipped {field} {r[field]} but its {len(qs)} answer "
                                  f"rows recompute to {exact:.2f}")
 
@@ -426,9 +438,12 @@ def build(args):
     if not os.path.isdir(args.data):
         raise InputError(f"--data {args.data}: not a directory")
     data = {n: load_dataset(args.data, n) for n in NAMES}
-    d3_text = load_d3(args.d3) if args.d3 else None
-    withheld = parse_withhold(args.withhold) if args.withhold else None
-    texts = answer_texts(args.answers_file) if args.answers_file else {}
+    # `is not None`, never truthiness: an unset shell variable gives '' and must fail, not switch the option off
+    if args.withhold_reason is not None and not args.withhold_reason.strip():
+        raise InputError("--withhold-reason is empty: say why the questions are withheld")
+    d3_text = load_d3(args.d3) if args.d3 is not None else None
+    withheld = parse_withhold(args.withhold) if args.withhold is not None else None
+    texts = answer_texts(args.answers_file) if args.answers_file is not None else {}
     conv_of = {r["run_id"]: r["conv"] for r in data["runs"]}
     for a in data["answers"]:
         if a["run_id"] not in conv_of:
@@ -438,7 +453,7 @@ def build(args):
             a["answer"] = t
     check_shipped(data)  # over ALL input rows, before anything is withheld; also rejects a bad rubric
     banner = ""
-    if withheld:
+    if withheld is not None:
         datasets = apply_withhold(data, withheld)
         banner = banner_html(withheld, args.withhold_reason)
     else:

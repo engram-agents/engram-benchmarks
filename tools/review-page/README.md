@@ -38,6 +38,14 @@ an integer everywhere it appears** (`runs.json`, the optional `conv` on a findin
 keys of `--withhold` and `--answers-file`): a non-negative integer, or a string of ASCII digits, which is
 normalised to an integer. Anything else (text, a decimal, a negative number, a boolean) is refused, named.
 
+**Numbers must be finite.** `NaN`, `Infinity`, `-Infinity` and a number too large to represent (`1e999`) are
+refused when a dataset file is read, naming the file. The score comparison below is also written so that any
+non-finite value fails it.
+
+**An option that is given must work.** `--withhold`, `--answers-file` and `--d3` each refuse an empty string (an
+unset shell variable) as exit 2, instead of being treated as absent; `--withhold` must name a readable file with
+at least one pair; `--withhold-reason` may not be blank.
+
 **Every build re-checks the scores against the input's own.** Before anything is withheld, the tool recomputes
 every question score from its rubric and every run score from all of that run's answer rows (formula under
 "Withhold contract", clause 2) and compares them with the `official_score` / `adjusted_score` the answer rows
@@ -118,4 +126,13 @@ been confirmed. The page's own "How the scores and statuses work" note says the 
 - `build_page.py`: the CLI (the checks, the withhold logic, the recomputation, the page assembly).
 - `page.html`: the page body (markup, styles, scripts). It reads data through a small `dash` shim that
   `build_page.py` inlines; `__TITLE__` and `__BANNER__` are filled by the build.
+- `tests/`: the field list the page reads is derived from `page.html` by two cells. One reads each `r.` / `d.` /
+  `x.` row variable inside each draw block (a hand-written table says which dataset each variable names, and the
+  cell fails if a draw block is missing from it). The other scans EVERY `<identifier>.<member>` in the page's
+  scripts and fails on a member that is not a dataset field, not a documented JS/DOM built-in, not a field of
+  the JSON nested inside a row field (rubric lines, verifications, evidence), and not on a documented page or
+  library namespace (`BS`, `dash`, `d3`, `Math`, `JSON`, `Object`, `document`). A read through an alias the first
+  cell does not map therefore still fails, unless it uses a built-in member name. Both lists are explicit in
+  the test file. It does not run the JS, and it cannot see a field read through a computed key (`row[k]`) other
+  than the one chart loop the cell names.
 - `tests/`: `fixtures.py` (a tiny invented two-run, eight-question dataset) and `test_build_page.py`.

@@ -728,3 +728,123 @@ def test_s5_banner_punctuation(env, reason, want, notwant):
     assert env.run(*env.withhold([(1, 3)], reason=reason))[0] == 0
     html = env.html()
     assert want in html and notwant not in html
+
+
+# ----------------------------------------------------------------------------------------------
+# Round 3
+@pytest.mark.parametrize("opt", ["--withhold", "--answers-file", "--d3"])
+def test_r3_an_empty_string_option_is_refused_not_ignored(env, opt):
+    """An unset shell variable gives ''. For --withhold that used to withhold nothing, silently."""
+    env.write()
+    extra = [opt, ""] + (["--withhold-reason", "r"] if opt == "--withhold" else [])
+    code, _, err = env.run(*extra)
+    assert code == 2 and opt in err
+    assert not os.path.exists(env.out)
+
+
+def test_r3_withhold_with_a_missing_file_or_an_empty_list_is_refused(env):
+    env.write()
+    code, _, err = env.run("--withhold", str(env.tmp / "absent.txt"), "--withhold-reason", "r")
+    assert code == 2 and "absent.txt" in err
+    p = str(env.tmp / "empty.txt")
+    open(p, "w").write("")
+    code, _, err = env.run("--withhold", p, "--withhold-reason", "r")
+    assert code == 2 and "no pairs" in err
+    assert not os.path.exists(env.out)
+
+
+def test_r3_a_blank_withhold_reason_is_refused(env):
+    env.write()
+    code, _, err = env.run(*env.withhold([(1, 3)], reason="  "))
+    assert code == 2 and "--withhold-reason" in err
+    assert not os.path.exists(env.out)
+
+
+def _write_raw(env, name, mutate):
+    """Write the fixture, then edit one dataset file's TEXT (json.dump writes NaN / Infinity as bare tokens)."""
+    env.write()
+    p = os.path.join(env.data, name + ".json")
+    text = open(p, encoding="utf-8").read()
+    new = mutate(text)
+    assert new != text
+    open(p, "w", encoding="utf-8").write(new)
+
+
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity", "1e999"])
+@pytest.mark.parametrize("ds,field,old", [
+    ("runs", "official_pct", '"official_pct": '), ("answers", "official_score", '"official_score": '),
+    ("runs", "pass_n", '"pass_n": '), ("categories", "n", '"n": '), ("causes", "count", '"count": '),
+])
+def test_r3_non_finite_numbers_are_refused_at_load_and_named(env, ds, field, old, token):
+    def mutate(text):
+        i = text.index(old) + len(old)
+        j = i
+        while text[j] not in ",}":
+            j += 1
+        return text[:i] + token + text[j:]
+    _write_raw(env, ds, mutate)
+    code, _, err = env.run()
+    assert code == 2 and f"{ds}.json" in err
+    assert not os.path.exists(env.out)
+
+
+def test_r3_the_shipped_comparison_itself_fails_on_non_finite(bp):
+    """The load check is not the only guard: hand the comparison a NaN directly."""
+    data = fx.build_data()
+    data["runs"]["rows"][0]["official_pct"] = float("nan")
+    with pytest.raises(bp.InputError):
+        bp.check_shipped({n: d["rows"] if isinstance(d, dict) else d for n, d in data.items()})
+    data = fx.build_data()
+    data["answers"]["rows"][0]["adjusted_score"] = float("inf")
+    with pytest.raises(bp.InputError):
+        bp.check_shipped({n: d["rows"] for n, d in data.items()})
+
+
+# ---- page reads: every `<identifier>.<field>` in the page's scripts, not only the mapped variables ----
+# What a `<identifier>.<member>` read in the page's scripts may be, besides a dataset field. All three lists are
+# explicit and were read off the page; a name that is not here and is not a field fails the cell.
+# 1. Members of the JSON held INSIDE a row field (the rubric string, the verifications string), which the README
+#    documents beside the table: rubric line {line, mark, adjusted}; verification {at, reader, method, result,
+#    exchanges_read, speakers_read, evidence, notes}; evidence {exchange, speaker, quote}.
+NESTED_FIELDS = {"line", "mark", "adjusted", "at", "reader", "method", "result", "exchanges_read", "speakers_read",
+                 "evidence", "exchange", "speaker", "quote"}
+# 2. JS built-in and DOM members the page uses.
+JS_MEMBERS = {"append", "appendChild", "assign", "ceil", "className", "clientWidth", "clientX", "clientY", "create",
+              "createElement", "createTextNode", "data", "dataset", "filter", "forEach", "getBoundingClientRect",
+              "getComputedTextLength", "hidden", "id", "lastChild", "left", "length", "max", "min", "node", "onclick",
+              "parse", "querySelector", "replaceChildren", "round", "scaleLinear", "selectAll", "setAttribute",
+              "style", "textContent", "toFixed", "top", "type", "width"}
+# 3. Namespaces the page itself or its libraries define (any member is fine), and the window.BS handle.
+JS_OBJECTS = {"BS", "dash", "Math", "d3", "JSON", "Object", "document"}
+JS_MEMBERS |= {"BS"}  # window.BS
+
+
+def script_text():
+    src = open(PAGE, encoding="utf-8").read()
+    return "\n".join(re.findall(r"<script>(.*?)</script>", src, re.S))
+
+
+def unknown_dotted_reads(text, known_fields):
+    """(identifier, member) pairs read in `text` that are neither a dataset field, a documented JS member, nor a
+    member of a documented non-row object."""
+    bad = set()
+    for ident, member in re.findall(r"(?<![\w.$'\"])([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)", text):
+        if member in known_fields or member in NESTED_FIELDS or member in JS_MEMBERS or ident in JS_OBJECTS:
+            continue
+        bad.add((ident, member))
+    return bad
+
+
+def test_r3_every_dotted_read_in_the_page_is_a_dataset_field_or_a_documented_builtin(bp):
+    known = {f for fields in bp.SCHEMA.values() for f in fields} | {"answer", "questions_total", "conv"}
+    text = script_text()
+    assert len(text) > 5000  # something was scanned
+    assert unknown_dotted_reads(text, known) == set()
+
+
+def test_r3_the_dotted_read_scan_goes_red_on_a_read_through_an_unmapped_alias(bp):
+    known = {f for fields in bp.SCHEMA.values() for f in fields} | {"answer", "questions_total", "conv"}
+    text = script_text()
+    mutated = text.replace("x.question_no - y.question_no", "x.question_no - y.newfield")
+    assert mutated != text, "the sort comparator moved: update this control"
+    assert unknown_dotted_reads(mutated, known) == {("y", "newfield")}
