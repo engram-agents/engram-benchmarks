@@ -10,7 +10,7 @@ scored launcher calls) refuses the pre-module line; continue-reading accepts it 
 against the record, and writes `pilot, pre-module start` into setup.txt. A state with no line at all is refused everywhere."""
 import os, re, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, needs_linux_wrapper
 from test_p1_session import P1S
 from test_p1_continue_reading import (w, ollama, cr_run, cr_refusal, setup_lines, store_sha, copy_end_state)  # noqa: F401  (fixtures)
 
@@ -259,6 +259,27 @@ def test_r1_the_flag_alone_does_not_label_a_run_a_pilot(w, ollama):
     r = cr_run(w, extra=(FLAG,), ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
     assert "pilot, pre-module start" not in "\n".join(setup_lines(w))
+
+
+FLAG_LINE = "pilot flag passed: --pilot-pre-module-start"
+
+
+@needs_linux_wrapper
+def test_f2_the_flag_on_an_ordinary_wrapped_state_is_recorded_in_setup_txt(w, ollama):
+    """Round 5: whenever the flag is passed, setup.txt carries one line saying so, whether or not the state is pre-module
+    (the state here has an ordinary not-flagged record), so a later ingest can refuse a scored run on the flag itself."""
+    r = cr_run(w, extra=(FLAG,), ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = setup_lines(w)
+    assert lines.count(FLAG_LINE) == 1
+    assert "pilot, pre-module start" not in lines      # the flag line is not the pre-module label
+
+
+@needs_linux_wrapper
+def test_f2_without_the_flag_setup_txt_carries_no_flag_line(w, ollama):
+    r = cr_run(w, ollama_url=ollama["url"])
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "--pilot-pre-module-start" not in "\n".join(setup_lines(w))
 
 
 def test_r2_what_the_hash_binds_is_the_store_only_and_the_wording_says_so(w):

@@ -946,6 +946,8 @@ def write_setup(a, c, steps, start, rc):
         lines.append(f"continue range: exchanges {a.start}..{a.through} at per-round {a.per_round}")
         lines.append(f"expect-store-sha256: {a.expect_store_sha256} (matched the end state)")
         lines += c["serving"]
+        if getattr(a, "pilot_pre_module_start", False):   # the flag itself, whether or not the state is pre-module (round 5)
+            lines.append("pilot flag passed: --pilot-pre-module-start")
         if c.get("pre_module_sha"):
             lines += ["pilot, pre-module start", f"pre-module start state_sha256: {c['pre_module_sha']}"]
         if a.expect_serving is not None:
