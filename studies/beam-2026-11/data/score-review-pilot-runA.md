@@ -268,6 +268,11 @@ minute count and guess goes into this log as plain lines without quotes.
   phase-3 items plus Q9 and Q16) and show 6. Where such a page says 'official' it names the grader: the
   question-seeing judge (claude-sonnet-5-5, low effort, chosen 2026-11-18); the benchmark's released code never
   shows its judge the question. Whether the project lead opened those rows is asked of him with the 12.
+- Added 2026-11-21, to the entry above (design owner, team crossing 34032; the study lead reported both items
+  himself): on 2026-11-21 a status reply of the study lead in his own terminal session, which the project lead can
+  read, named one of the withheld questions (no grade values), and a team crossing to the design owner gave that
+  question's number and two grade values. Rule from here, accepted by the study lead: anything about the withheld
+  questions travels by count only until the project lead has judged them.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
