@@ -1574,6 +1574,31 @@ def test_l_close_is_a_named_stop_on_an_unreadable_log_and_never_done(w):
     assert json.load(open(rec))["state"] == "open"
 
 
+def dangling_log(w):
+    """A symlink at the log path whose target does not exist: open() raises FileNotFoundError, yet the path IS there."""
+    p = w.logs / "dangling.log"
+    os.symlink(str(w.logs / "no-such-target"), str(p))
+    assert os.path.lexists(p) and not os.path.exists(p)
+    return p
+
+
+def test_l_a_dangling_symlink_at_the_log_path_is_present_and_unreadable_never_absent(w):
+    """Absence is decided by os.path.lexists, not by the open error: a link that cannot be followed is present-and-unreadable
+    at the helper, at the before-launch scan (a named refusal, record left open) and at the close (a named stop, record
+    left open), never 'the wrapper never launched'."""
+    log = dangling_log(w)
+    with pytest.raises(SL.LaunchLogUnreadable, match="cannot be read"):
+        SL.read_launch_fields(str(log))
+    rec = open_record(w, log)
+    with pytest.raises(SL.LaunchRefused, match=r"cannot be read.*not known") as e:
+        SL.check_before_launch(str(w.state))
+    assert "x.json" in str(e.value)
+    assert json.load(open(rec))["state"] == "open"
+    stop = SL._close_launch(str(rec), json.load(open(rec)), str(log), SL.LaunchResult(None))
+    assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
+    assert json.load(open(rec))["state"] == "open"
+
+
 @needs_linux_wrapper
 def test_l_a_log_that_becomes_unreadable_between_the_close_and_the_verdict_read_is_a_named_stop(w, monkeypatch):
     """The close has run and the launch line was read once; the log then becomes unreadable at the verdict read (the hash read

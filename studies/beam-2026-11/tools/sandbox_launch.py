@@ -407,8 +407,11 @@ def read_launch_fields(log):
     only an unreadable log is a different answer."""
     try:
         text = open(log, "rb").read().decode("utf-8", "replace")
-    except FileNotFoundError:
-        return None
+    except FileNotFoundError as e:
+        if not os.path.lexists(log):   # absence is decided by lexists: a link that cannot be followed is PRESENT, not absent
+            return None
+        raise LaunchLogUnreadable(f"the launch log {log} exists but cannot be read ({type(e).__name__}): whether its wrapper "
+                                  "launched is not known")
     except OSError as e:
         raise LaunchLogUnreadable(f"the launch log {log} exists but cannot be read ({type(e).__name__}): whether its wrapper "
                                   "launched is not known")
