@@ -3657,6 +3657,65 @@ def test_r7_2_a_fork_bomb_shows_a_pids_max_event_on_the_line(cfg):
     assert int(f["pids_max_events"]) >= 1, line
 
 
+def _watch_over(tmp_path, files):
+    """A CgroupWatch pointed at a fake scope directory holding exactly `files` (name -> text): no box, no cgroup."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sandbox_forward_cgroup_under_test", FWD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    d = tmp_path / "scope"
+    d.mkdir()
+    for name, text in files.items():
+        (d / name).write_text(text)
+    w = mod.CgroupWatch("student-sandbox-fake-0000", os.getpid())
+    w.base = str(d)
+    return w
+
+
+FAKE_SCOPE = {"memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n", "pids.events": "max 0\n",
+              "memory.peak": "123456789\n", "pids.peak": "37\n"}
+
+
+def test_peaks_the_line_carries_memory_peak_and_pids_peak(tmp_path):
+    w = _watch_over(tmp_path, FAKE_SCOPE)
+    w.tick()
+    line = w.final_line()
+    assert line.startswith("box-cgroup scope=student-sandbox-fake-0000 oom_kill=0 "), line   # the old fields, in place
+    f = dict(kv.split("=", 1) for kv in line.split()[1:])
+    assert f["memory_peak"] == "123456789" and f["pids_peak"] == "37", line
+
+
+@pytest.mark.parametrize("missing", ["memory.peak", "pids.peak"])
+def test_peaks_an_absent_peak_file_reads_unavailable_and_never_raises(tmp_path, missing):
+    files = {k: v for k, v in FAKE_SCOPE.items() if k != missing}
+    w = _watch_over(tmp_path, files)
+    w.tick()   # must not raise
+    f = dict(kv.split("=", 1) for kv in w.final_line().split()[1:])
+    other = "pids_peak" if missing == "memory.peak" else "memory_peak"
+    assert f[missing.replace(".", "_")] == "unavailable", f
+    assert f[other] != "unavailable", f           # only the missing one
+    assert f["polls"] == "1", f                    # the events were still read: the run's line is not lost
+
+
+def test_peaks_an_unreadable_peak_value_reads_unavailable(tmp_path):
+    w = _watch_over(tmp_path, dict(FAKE_SCOPE, **{"memory.peak": "not-a-number\n"}))
+    w.tick()
+    f = dict(kv.split("=", 1) for kv in w.final_line().split()[1:])
+    assert f["memory_peak"] == "unavailable" and f["pids_peak"] == "37", f
+
+
+@needs_box
+def test_peaks_a_box_run_writes_memory_peak_and_pids_peak_for_a_fresh_scope(cfg):
+    """The values are RUN peaks because the scope is fresh: its name carries this launch's wrapper pid and a random
+    suffix, and the box-cgroup line names exactly the scope the launch line named."""
+    r = cfg.run(exec_="sleep 3", SANDBOX_LOG=cfg.log)
+    assert r.returncode == 0, r.stderr
+    f, line = _box_cgroup_line(cfg)
+    assert f["scope"] == _launch_line_fields(cfg)["scope_unit"], line
+    assert re.fullmatch(r"[0-9]+", f["memory_peak"]) and int(f["memory_peak"]) > 0, line
+    assert re.fullmatch(r"[0-9]+", f["pids_peak"]) and int(f["pids_peak"]) >= 1, line
+
+
 def test_r7_2_a_forwarder_that_never_finds_the_cgroup_says_so(tmp_path):
     """Never silent: a scope that does not exist gives one line that names why."""
     sock_dir = tmp_path / "sd"

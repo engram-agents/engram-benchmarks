@@ -763,7 +763,10 @@ class CgroupWatch:
     from /proc/<watched pid>/cgroup once that pid has moved into the NAMED scope; memory.events (oom_kill, max) and
     pids.events (max) are then read about once a second, and the last values read are kept for the line written at exit.
     An event in the last interval before exit can be missed by the counters (the journal for the unit still records an OOM
-    kill)."""
+    kill). memory.peak and pids.peak are read in the same poll and appended to the line: the highest memory and the most
+    tasks the scope has held. They are RUN peaks only because the scope is fresh (named for this launch's wrapper pid and
+    a random suffix, so nothing ran in it before); a peak file that is absent or unreadable reads `unavailable` and never
+    fails the run. A peak reached in the last poll interval before exit can be missed, like an event."""
 
     def __init__(self, unit, pid):
         self.unit, self.pid = unit, pid
@@ -773,6 +776,7 @@ class CgroupWatch:
         self.last_poll = None
         self.vals = {"oom_kill": 0, "memory_max_events": 0, "pids_max_events": 0}
         self.next_poll = 0.0
+        self.peaks = {"memory_peak": "unavailable", "pids_peak": "unavailable"}
 
     def find(self):
         try:
@@ -794,6 +798,15 @@ class CgroupWatch:
                 out[k] = int(v)
         return out
 
+    @staticmethod
+    def peak(path):
+        """The one integer in a peak file, or None if the file is absent or unreadable: never an exception."""
+        try:
+            with open(path) as f:
+                return int(f.read().strip())
+        except (OSError, ValueError):
+            return None
+
     def tick(self):
         now = time.monotonic()
         if self.base is None:
@@ -811,15 +824,20 @@ class CgroupWatch:
             return
         self.vals = {"oom_kill": mem.get("oom_kill", 0), "memory_max_events": mem.get("max", 0),
                      "pids_max_events": pids.get("max", 0)}
+        for key, name in (("memory_peak", "/memory.peak"), ("pids_peak", "/pids.peak")):
+            v = self.peak(self.base + name)
+            if v is not None:                    # a peak only rises: a failed later read keeps the last good value
+                self.peaks[key] = v
         self.polls += 1
         self.last_poll = now
 
     def final_line(self):
         if not self.polls:
             return "box-cgroup unavailable reason=%s" % self.reason.replace("\n", " ")
-        return "box-cgroup scope=%s oom_kill=%d memory_max_events=%d pids_max_events=%d polls=%d last_poll_age_s=%.1f" % (
+        return ("box-cgroup scope=%s oom_kill=%d memory_max_events=%d pids_max_events=%d polls=%d last_poll_age_s=%.1f"
+                " memory_peak=%s pids_peak=%s") % (
             self.unit, self.vals["oom_kill"], self.vals["memory_max_events"], self.vals["pids_max_events"], self.polls,
-            time.monotonic() - self.last_poll)
+            time.monotonic() - self.last_poll, self.peaks["memory_peak"], self.peaks["pids_peak"])
 
 
 def run_outer(a):
