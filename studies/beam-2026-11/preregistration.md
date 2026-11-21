@@ -295,8 +295,10 @@ Two judges, named by the one thing that differs between them (the project lead's
 - Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the question-seeing judge of
   section 10, with the two Event Ordering questions scored by the paper's measure (section 10). The OFFICIAL score is
   the central result (Lei, 2026-11-17). Every scored conversation has exactly two questions of each of the ten
-  types, so this mean is also the unweighted mean of its ten per-type scores; the paper's results tables print an
-  "Average" row without saying how it is formed, so no claim is made that the two are the same.
+  types, so this mean is also the unweighted mean of its ten per-type scores. The paper does not say how its
+  results tables' "Average" row is formed; checked on its Table 1 (four length blocks, 48 cells), that row equals the
+  unweighted mean of the ten ability rows within rounding (largest difference 0.0009, where rounding three-decimal
+  values allows up to 0.001), so the two are formed the same way.
 - Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
   in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
   details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
