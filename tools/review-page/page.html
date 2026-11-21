@@ -1,0 +1,346 @@
+<style>
+  .bs { display: grid; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+  .bs-title { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .bs-lede { margin: var(--cds-gap-sm) 0 0; max-width: 68ch; line-height: 1.5; }
+  .bs-sub { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); margin: var(--cds-gap-xs) 0 0; }
+  .bs-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--cds-gap-md); }
+  .bs-card { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); min-width: 0; }
+  .bs-tile-label { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); letter-spacing: .02em; }
+  .bs-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 2.2rem; line-height: 1.1; font-variant-numeric: tabular-nums; margin-top: var(--cds-gap-xs); }
+  .bs-tile-note { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-top: var(--cds-gap-xs); }
+  .bs-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--cds-gap-md); }
+  .bs h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0 0 var(--cds-gap-xs); }
+  .bs-chart { position: relative; min-height: 220px; }
+  .bs-chart svg text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); }
+  .bs-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: var(--cds-pad-xs) var(--cds-pad-sm); font-size: var(--cds-font-size-caption); white-space: nowrap; }
+  .bs-legend { display: flex; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); margin-bottom: var(--cds-gap-xs); flex-wrap: wrap; }
+  .bs-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .bs-scroll { overflow-x: auto; }
+  .bs-table { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-body); font-variant-numeric: tabular-nums; }
+  .bs-table th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+  .bs-table td { padding: var(--cds-pad-xs) var(--cds-pad-sm); border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+  .bs-list { display: grid; gap: var(--cds-gap-sm); }
+  .bs-item { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); }
+  .bs-item > summary { cursor: pointer; padding: var(--cds-pad-sm) var(--cds-pad-md); display: flex; gap: var(--cds-gap-sm); align-items: baseline; flex-wrap: wrap; }
+  .bs-item > summary:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+  .bs-item-body { padding: 0 var(--cds-pad-md) var(--cds-pad-md); display: grid; gap: var(--cds-gap-sm); min-width: 0; }
+  .bs-q { font-weight: var(--cds-font-weight-medium); font-variant-numeric: tabular-nums; }
+  .bs-claim { flex: 1 1 300px; min-width: 0; }
+  .bs-pill { display: inline-block; font-size: var(--cds-font-size-caption); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--color-border-line); white-space: nowrap; }
+  .bs-pill.ok { color: var(--color-ok); border-color: var(--color-ok); }
+  .bs-pill.warn { color: var(--color-warn); border-color: var(--color-warn); }
+  .bs-pill.bad { color: var(--color-bad); border-color: var(--color-bad); }
+  .bs-pill.muted { color: var(--color-fg-muted); }
+  .bs-k { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+  .bs-rub { display: grid; grid-template-columns: auto 1fr; gap: var(--cds-gap-xs) var(--cds-gap-sm); align-items: baseline; }
+  .bs-answer { white-space: pre-wrap; font-size: var(--cds-font-size-caption); line-height: 1.5; background: var(--color-bg); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-sm); max-height: 360px; overflow: auto; }
+  .bs-ev { border-left: 2px solid var(--color-border-line); padding-left: var(--cds-pad-sm); font-size: var(--cds-font-size-caption); }
+  .bs-filters { display: flex; gap: var(--cds-gap-sm); flex-wrap: wrap; align-items: center; }
+  .bs-btn { font: inherit; font-size: var(--cds-font-size-caption); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); cursor: pointer; }
+  .bs-btn[aria-pressed="true"] { background: var(--color-fg); color: var(--color-bg); }
+  .bs-notes { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); line-height: 1.5; }
+  .bs-notes summary { cursor: pointer; color: var(--color-fg); }
+</style>
+
+<div class="bs">
+  __BANNER__
+  <header id="top">
+    <h1 class="bs-title">__TITLE__</h1>
+    <p class="bs-lede" id="takeaway">Run <b data-draw="t-run">—</b> scored <b data-draw="t-official">—</b> on the official answers and <b data-draw="t-adjusted">—</b> after correcting official answers we have checked in the raw data. The most common reason for lost points: <b data-draw="t-cause">—</b>.</p>
+    <p class="bs-sub">The ENGRAM student on the BEAM memory benchmark, tuning conversations only. Grades are by hand until a judge model runs.</p>
+    <p class="bs-sub" data-draw="scope"></p>
+  </header>
+
+  <section class="bs-tiles" id="tiles" aria-label="Latest run">
+    <div class="bs-card"><div class="bs-tile-label">Official score</div><div class="bs-big" data-draw="official">—</div><div class="bs-tile-note">Official answers as given, known issues included</div></div>
+    <div class="bs-card"><div class="bs-tile-label">Adjusted score</div><div class="bs-big" data-draw="adjusted">—</div><div class="bs-tile-note" data-draw="adjusted-note">—</div></div>
+    <div class="bs-card"><div class="bs-tile-label">Pass · partial · fail</div><div class="bs-big" data-draw="grades">—</div><div class="bs-tile-note" data-draw="grades-note">—</div></div>
+    <div class="bs-card"><div class="bs-tile-label">Asked the user back</div><div class="bs-big" data-draw="asked">—</div><div class="bs-tile-note" data-draw="asked-note">—</div></div>
+  </section>
+
+  <section class="bs-two">
+    <div class="bs-card" id="by-category">
+      <h2>Score by question type</h2>
+      <div class="bs-legend"><span><span class="bs-sw" data-draw="sw0"></span>Official</span><span><span class="bs-sw" data-draw="sw1"></span>Adjusted</span></div>
+      <div class="bs-chart" data-draw="cat-chart" data-source="categories"></div>
+    </div>
+    <div class="bs-card" id="causes">
+      <h2>Why points were lost</h2>
+      <p class="bs-k">Questions affected, by cause. One question can have two causes.</p>
+      <div class="bs-chart" data-draw="cause-chart" data-source="causes"></div>
+    </div>
+  </section>
+
+  <section class="bs-card" id="runs">
+    <h2>All runs</h2>
+    <div class="bs-scroll">
+      <table class="bs-table" data-source="runs" data-row-key="run_id">
+        <thead><tr><th data-field="run_id">Run</th><th data-field="conv">Conversation</th><th data-field="setup_hash">Setup</th><th data-field="official_pct">Official %</th><th data-field="adjusted_pct">Adjusted %</th><th data-field="pass_n">Pass</th><th data-field="partial_n">Partial</th><th data-field="fail_n">Fail</th><th data-field="grader">Graded by</th></tr></thead>
+        <tbody data-draw="runs-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="findings">
+    <h2>Possible problems, and their checks</h2>
+    <p class="bs-k">Official-dataset items go into the bundled report only at "Ready to report". Our student and harness items are ours to fix.</p>
+    <div class="bs-filters" data-draw="finding-filters" role="group" aria-label="Show findings for"></div>
+    <div class="bs-list" data-draw="finding-list" data-source="findings"></div>
+  </section>
+
+  <section id="questions">
+    <h2>Every question in the latest run</h2>
+    <div class="bs-list" data-draw="question-list" data-source="answers"></div>
+  </section>
+
+  <details class="bs-notes" id="method">
+    <summary>How the scores and statuses work</summary>
+    <p>Each question has rubric lines from the dataset. A line scores 1 if the answer meets it, 0.5 if partly, 0 if not; the question scores the mean of its lines, and the run scores the mean over its questions.</p>
+    <p>The official score uses the dataset's answers exactly as given. The adjusted score re-rates a question against a corrected answer, and only when that question is tied to a dataset problem already checked in the raw data or further along.</p>
+    <p>A possible problem climbs four steps: suspected, checked in the raw data, confirmed by a second reader who had not seen our verdict, ready to report. A string search never proves something is missing from the conversation: that needs a full read of every exchange about it, user and assistant lines both.</p>
+    <p>BEAM's own published way of combining rubric marks has not yet been checked against this one.</p>
+  </details>
+</div>
+
+<script>
+  window.BS = window.BS || {};
+  BS.latest = () => { const r = dash.data('runs'); return r.status === 'ok' && r.data.length ? r.data[r.data.length - 1] : null; };
+  BS.pct = (v) => (v == null || isNaN(+v)) ? '—' : (+v).toFixed(1) + '%';
+  BS.mark = (tag, text, source, field, where) => {
+    const e = document.createElement(tag); e.textContent = text;
+    if (source) { e.dataset.source = source; e.dataset.field = field; if (where) e.dataset.where = where; }
+    return e;
+  };
+  BS.enc = (s) => encodeURIComponent(String(s));
+  BS.gradeClass = { pass: 'ok', partial: 'warn', fail: 'bad' };
+  BS.statusClass = { candidate: 'muted', verified_in_material: 'warn', independently_confirmed: 'warn', ready: 'ok', reported: 'ok', cleared: 'muted' };
+  BS.markClass = { yes: 'ok', partial: 'warn', no: 'bad' };
+  BS.areaFilter = BS.areaFilter || 'all';
+  BS.tip = (box) => {
+    let t = box.querySelector('.bs-tip');
+    if (!t) { t = document.createElement('div'); t.className = 'bs-tip'; t.hidden = true; box.appendChild(t); }
+    return t;
+  };
+</script>
+
+<script>
+  // Header sentence and tiles: the latest run's row.
+  const runCell = (field, fmt) => (el) => {
+    const r = BS.latest();
+    if (!r) { el.textContent = '—'; return; }
+    el.replaceChildren(BS.mark('span', fmt(r[field]), 'runs', field, 'run_id=' + BS.enc(r.run_id)));
+  };
+  dash.draw('t-run', runCell('run_id', String));
+  dash.draw('t-official', runCell('official_pct', BS.pct));
+  dash.draw('t-adjusted', runCell('adjusted_pct', BS.pct));
+  dash.draw('official', runCell('official_pct', BS.pct));
+  dash.draw('adjusted', runCell('adjusted_pct', BS.pct));
+  dash.draw('adjusted-note', (el) => {
+    const r = BS.latest();
+    if (!r) { el.textContent = '—'; return; }
+    const w = 'run_id=' + BS.enc(r.run_id);
+    const d = r.adjust_delta == null ? NaN : +r.adjust_delta;
+    el.replaceChildren(BS.mark('span', isNaN(d) ? '—' : (d >= 0 ? '+' : '') + d.toFixed(1), 'runs', 'adjust_delta', w),
+      document.createTextNode(' points after correcting checked official answers'));
+  });
+  dash.draw('grades', (el) => {
+    const r = BS.latest();
+    if (!r) { el.textContent = '—'; return; }
+    const w = 'run_id=' + BS.enc(r.run_id);
+    el.replaceChildren(BS.mark('span', String(r.pass_n), 'runs', 'pass_n', w), document.createTextNode(' · '),
+      BS.mark('span', String(r.partial_n), 'runs', 'partial_n', w), document.createTextNode(' · '),
+      BS.mark('span', String(r.fail_n), 'runs', 'fail_n', w));
+  });
+  // When questions were withheld, every run row carries questions_total: say which scores are over N of M.
+  BS.scope = (r) => (r.questions_total != null ? `${r.questions} of ${r.questions_total} questions` : '');
+  dash.draw('grades-note', (el) => {
+    const r = BS.latest();
+    if (!r) { el.textContent = '—'; return; }
+    el.textContent = r.questions_total != null ? 'Over ' + BS.scope(r) : 'Out of ' + r.questions + ' questions';
+  });
+  dash.draw('scope', (el) => {
+    const r = BS.latest();
+    if (!r || r.questions_total == null) { el.textContent = ''; return; }
+    el.textContent = `Scores are over ${BS.scope(r)}; ${r.questions_total - r.questions} withheld (see the notice above).`;
+  });
+  dash.draw('asked', runCell('asked_back_n', String));
+  dash.draw('asked-note', (el) => {
+    const r = BS.latest();
+    if (!r) { el.textContent = '—'; return; }
+    el.replaceChildren(BS.mark('span', String(r.asked_back_justified_n), 'runs', 'asked_back_justified_n', 'run_id=' + BS.enc(r.run_id)),
+      document.createTextNode(' of them clearly justified'));
+  });
+  dash.draw('t-cause', (el) => {
+    const r = BS.latest(); const c = dash.data('causes');
+    if (!r || c.status !== 'ok') { el.textContent = '—'; return; }
+    const rows = c.data.filter((x) => x.run_id === r.run_id).sort((a, b) => b.count - a.count);
+    if (!rows.length) { el.textContent = 'none'; return; }
+    const top = rows.filter((x) => x.count === rows[0].count);
+    el.replaceChildren(...top.flatMap((x, i) => [i ? document.createTextNode(' / ') : document.createTextNode(''),
+      BS.mark('span', x.label.toLowerCase(), 'causes', 'label', 'run_id=' + BS.enc(r.run_id) + '&cause=' + BS.enc(x.cause))]));
+  });
+  dash.draw('sw0', (el) => { el.style.background = dash.colors[0]; });
+  dash.draw('sw1', (el) => { el.style.background = dash.colors[1]; });
+</script>
+
+<script>
+  // Grouped bars: official vs adjusted per question type (latest run).
+  dash.draw('cat-chart', (el) => {
+    const r = BS.latest(); const c = dash.data('categories');
+    if (!r || c.status !== 'ok') { el.replaceChildren(document.createTextNode(c.status === 'error' ? 'Failed to load' : '—')); return; }
+    const rows = c.data.filter((x) => x.run_id === r.run_id);
+    const W = Math.max(280, el.clientWidth), rowH = 34, top = 4, H = top + rows.length * rowH + 22;
+    const svg = d3.create('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img')
+      .attr('aria-label', 'Official and adjusted score by question type for run ' + r.run_id);
+    const labels = svg.append('g');
+    rows.forEach((d, i) => labels.append('text').attr('x', 0).attr('y', top + i * rowH + 15).text(d.label));
+    el.replaceChildren(svg.node());
+    const lw = Math.ceil(d3.max(labels.selectAll('text').nodes(), (n) => n.getComputedTextLength()) || 120) + 10;
+    const x = d3.scaleLinear([0, 100], [lw, W - 46]);
+    svg.append('g').selectAll('line').data([0, 50, 100]).join('line').attr('x1', x).attr('x2', x).attr('y1', top).attr('y2', H - 20)
+      .style('stroke', 'var(--cds-chart-grid)');
+    svg.append('g').selectAll('text').data([0, 50, 100]).join('text').attr('x', x).attr('y', H - 4).attr('text-anchor', 'middle').text((v) => v + '%');
+    const tip = BS.tip(el);
+    const show = (ev, d, k) => {
+      tip.hidden = false; tip.textContent = `${d.label}: ${k === 'official_pct' ? 'official' : 'adjusted'} ${BS.pct(d[k])} (${d.n} question${d.n > 1 ? 's' : ''})`;
+      const b = el.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - b.left + 8, b.width - 200) + 'px'; tip.style.top = (ev.clientY - b.top - 30) + 'px';
+    };
+    ['official_pct', 'adjusted_pct'].forEach((k, j) => {
+      const g = svg.append('g');
+      g.selectAll('rect').data(rows).join('rect').attr('x', lw).attr('y', (d, i) => top + i * rowH + 2 + j * 12)
+        .attr('height', 10).attr('width', (d) => x(d[k]) - lw).attr('rx', 2).style('fill', dash.colors[j])
+        .on('pointermove', (ev, d) => show(ev, d, k)).on('pointerleave', () => { tip.hidden = true; });
+      g.selectAll('text').data(rows).join('text').attr('x', (d) => x(d[k]) + 4).attr('y', (d, i) => top + i * rowH + 11 + j * 12)
+        .text((d) => Math.round(d[k]) + '%');
+    });
+    el.appendChild(tip);
+  });
+
+  // Horizontal bars: causes of lost points (latest run).
+  dash.draw('cause-chart', (el) => {
+    const r = BS.latest(); const c = dash.data('causes');
+    if (!r || c.status !== 'ok') { el.replaceChildren(document.createTextNode(c.status === 'error' ? 'Failed to load' : '—')); return; }
+    const rows = c.data.filter((x) => x.run_id === r.run_id).sort((a, b) => b.count - a.count);
+    const W = Math.max(280, el.clientWidth), rowH = 30, H = rows.length * rowH + 8;
+    const svg = d3.create('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img')
+      .attr('aria-label', 'Questions affected by each cause of lost points, run ' + r.run_id);
+    const labels = svg.append('g');
+    rows.forEach((d, i) => labels.append('text').attr('x', 0).attr('y', i * rowH + 18).text(d.label));
+    el.replaceChildren(svg.node());
+    const lw = Math.ceil(d3.max(labels.selectAll('text').nodes(), (n) => n.getComputedTextLength()) || 140) + 10;
+    const x = d3.scaleLinear([0, d3.max(rows, (d) => d.count) || 1], [lw, W - 28]);
+    const tip = BS.tip(el);
+    svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', lw).attr('y', (d, i) => i * rowH + 6).attr('height', 16)
+      .attr('width', (d) => x(d.count) - lw).attr('rx', 2).style('fill', dash.colors[0])
+      .on('pointermove', (ev, d) => {
+        tip.hidden = false; tip.textContent = `${d.label}: ${d.count} question${d.count > 1 ? 's' : ''}`;
+        const b = el.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - b.left + 8, b.width - 200) + 'px'; tip.style.top = (ev.clientY - b.top - 30) + 'px';
+      }).on('pointerleave', () => { tip.hidden = true; });
+    svg.append('g').selectAll('text').data(rows).join('text').attr('x', (d) => x(d.count) + 4).attr('y', (d, i) => i * rowH + 18).text((d) => d.count);
+    el.appendChild(tip);
+  });
+</script>
+
+<script>
+  // Runs table body: the type marks each cell from the table's data-source and row key.
+  dash.draw('runs-body', (el) => {
+    const r = dash.data('runs');
+    if (r.status !== 'ok') { el.replaceChildren(); return; }
+    el.replaceChildren(...r.data.map((d) => {
+      const tr = document.createElement('tr');
+      const over = d.questions_total != null ? ' (over ' + BS.scope(d) + ')' : '';
+      [d.run_id, d.conv, d.setup_hash, BS.pct(d.official_pct) + over, BS.pct(d.adjusted_pct) + over, d.pass_n, d.partial_n, d.fail_n, d.grader]
+        .forEach((v) => { const td = document.createElement('td'); td.textContent = String(v); tr.appendChild(td); });
+      return tr;
+    }));
+  });
+
+  // Findings: filter chips and an expandable list with every check.
+  dash.draw('finding-filters', (el) => {
+    const opts = [['all', 'All'], ['Official dataset', 'Official dataset'], ['Our student', 'Our student'], ['Our harness', 'Our harness']];
+    el.replaceChildren(...opts.map(([v, label]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'bs-btn'; b.textContent = label;
+      b.setAttribute('aria-pressed', String(BS.areaFilter === v));
+      b.onclick = () => { BS.areaFilter = v; dash.draw('finding-filters'); dash.draw('finding-list'); };
+      return b;
+    }));
+  });
+  dash.draw('finding-list', (el) => {
+    const f = dash.data('findings');
+    if (f.status !== 'ok') { el.replaceChildren(document.createTextNode(f.status === 'error' ? 'Failed to load' : '—')); return; }
+    const rows = f.data.filter((d) => BS.areaFilter === 'all' || d.area === BS.areaFilter);
+    el.replaceChildren(...rows.map((d) => {
+      const w = 'finding_id=' + BS.enc(d.finding_id);
+      const det = document.createElement('details'); det.className = 'bs-item'; det.id = 'f-' + d.finding_id;
+      const s = document.createElement('summary');
+      const pill = BS.mark('span', d.status_label, 'findings', 'status_label', w); pill.className = 'bs-pill ' + (BS.statusClass[d.status] || 'muted');
+      const area = BS.mark('span', d.area, 'findings', 'area', w); area.className = 'bs-k';
+      const q = document.createElement('span'); q.className = 'bs-q'; q.textContent = d.question_no ? 'Q' + d.question_no : 'All';
+      const claim = BS.mark('span', d.claim, 'findings', 'claim', w); claim.className = 'bs-claim';
+      s.append(pill, q, claim, area); det.appendChild(s);
+      const body = document.createElement('div'); body.className = 'bs-item-body';
+      const meta = document.createElement('div'); meta.className = 'bs-k';
+      meta.append(document.createTextNode(`${d.claim_type} · ${d.severity || 'no severity'} · opened ${d.opened_at.slice(0, 16).replace('T', ' ')} UTC · `),
+        BS.mark('span', String(d.checks), 'findings', 'checks', w), document.createTextNode(' check(s)'));
+      body.appendChild(meta);
+      let vs = []; try { vs = JSON.parse(d.verifications); } catch (e) { vs = []; }
+      vs.forEach((v) => {
+        const ev = document.createElement('div'); ev.className = 'bs-ev';
+        const h = document.createElement('div');
+        h.textContent = `${v.at.slice(0, 16).replace('T', ' ')} UTC · ${v.reader} · ${v.method.replace(/_/g, ' ')} · ${v.result}` +
+          (v.exchanges_read && v.exchanges_read.length ? ` · read exchanges ${v.exchanges_read.join(', ')} (${v.speakers_read.join(' and ')})` : '');
+        ev.appendChild(h);
+        (v.evidence || []).forEach((e) => { const p = document.createElement('div'); p.textContent = `Exchange ${e.exchange}, ${e.speaker}: “${e.quote}”`; ev.appendChild(p); });
+        if (v.notes) { const n = document.createElement('div'); n.className = 'bs-k'; n.textContent = v.notes; ev.appendChild(n); }
+        body.appendChild(ev);
+      });
+      if (d.notes) { const n = document.createElement('div'); n.textContent = 'Note: ' + d.notes; body.appendChild(n); }
+      if (d.report_line) { const n = document.createElement('div'); n.textContent = 'Draft line for the report: ' + d.report_line; body.appendChild(n); }
+      det.appendChild(body);
+      return det;
+    }));
+  });
+
+  // Questions: one expandable row each, with rubric marks and the student's full answer.
+  dash.draw('question-list', (el) => {
+    const r = BS.latest(); const a = dash.data('answers');
+    if (!r || a.status !== 'ok') { el.replaceChildren(document.createTextNode(a.status === 'error' ? 'Failed to load' : '—')); return; }
+    const rows = a.data.filter((d) => d.run_id === r.run_id).sort((x, y) => x.question_no - y.question_no);
+    el.replaceChildren(...rows.map((d) => {
+      const w = 'key=' + BS.enc(d.key);
+      const det = document.createElement('details'); det.className = 'bs-item'; det.id = 'q-' + d.question_no;
+      const s = document.createElement('summary');
+      const q = document.createElement('span'); q.className = 'bs-q'; q.textContent = 'Q' + d.question_no;
+      const g = BS.mark('span', d.grade, 'answers', 'grade', w); g.className = 'bs-pill ' + (BS.gradeClass[d.grade] || 'muted');
+      const qt = BS.mark('span', d.question, 'answers', 'question', w); qt.className = 'bs-claim';
+      const sc = document.createElement('span'); sc.className = 'bs-k';
+      sc.append(BS.mark('span', d.category.replace(/_/g, ' '), 'answers', 'category', w), document.createTextNode(' · official '),
+        BS.mark('span', BS.pct(d.official_score), 'answers', 'official_score', w));
+      if (d.adjusted_score !== d.official_score) sc.append(document.createTextNode(' · adjusted '), BS.mark('span', BS.pct(d.adjusted_score), 'answers', 'adjusted_score', w));
+      s.append(q, g, qt, sc); det.appendChild(s);
+      const body = document.createElement('div'); body.className = 'bs-item-body';
+      const ref = document.createElement('div'); ref.append(Object.assign(document.createElement('div'), { className: 'bs-k', textContent: 'Official answer' }), BS.mark('div', d.reference, 'answers', 'reference', w));
+      body.appendChild(ref);
+      const rub = document.createElement('div'); rub.className = 'bs-rub';
+      let lines = []; try { lines = JSON.parse(d.rubric); } catch (e) { lines = []; }
+      lines.forEach((l) => {
+        const m = document.createElement('span'); m.className = 'bs-pill ' + (BS.markClass[l.mark] || 'muted');
+        m.textContent = l.adjusted && l.adjusted !== l.mark ? `${l.mark} → ${l.adjusted}` : l.mark;
+        const t = document.createElement('span'); t.textContent = l.line;
+        rub.append(m, t);
+      });
+      body.appendChild(rub);
+      const facts = document.createElement('div'); facts.className = 'bs-k';
+      facts.textContent = [d.causes ? 'Cause: ' + d.causes : 'No points lost to a named cause',
+        'gate check: ' + d.gate_cell, d.asked_back === 'yes' ? 'asked the user back (justified: ' + d.ask_justified + ')' : 'did not ask back',
+        d.findings ? 'linked: ' + d.findings : ''].filter(Boolean).join(' · ');
+      body.appendChild(facts);
+      if (d.notes) { const n = document.createElement('div'); n.textContent = d.notes; body.appendChild(n); }
+      const lab = document.createElement('div'); lab.className = 'bs-k'; lab.textContent = 'Student answer (graded by ' + d.grader + ')';
+      body.append(lab, BS.mark('div', d.answer, 'answers', 'answer', w));
+      body.lastChild.className = 'bs-answer';
+      det.appendChild(body);
+      return det;
+    }));
+  });
+</script>
