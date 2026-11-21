@@ -397,6 +397,10 @@ body { margin:0; background:var(--color-bg); color:var(--color-fg); font-family:
 """
 
 
+FREE_TEXT_NOTICE = ("Free text on the questions that remain (notes, findings) is shown as written and is not "
+                    "checked for mentions of the withheld questions.")
+
+
 def banner_html(withheld, reason):
     by_conv = collections.defaultdict(list)
     for c, q in sorted(withheld):
@@ -409,7 +413,7 @@ def banner_html(withheld, reason):
     return (f'<div class="bs-card" id="withheld-notice" role="note"><b>{n} question{"s" if n != 1 else ""} '
             f"withheld</b> ({html.escape(listing)}). Reason: {html.escape(reason)} Their text, grades, notes and "
             f"linked findings are not in this file; scores below are recomputed over the questions that "
-            f"remain.</div>")
+            f"remain. {html.escape(FREE_TEXT_NOTICE)}</div>")
 
 
 def blob_json(datasets):

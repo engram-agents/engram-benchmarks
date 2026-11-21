@@ -178,6 +178,20 @@ def test_c3_banner_counts_numbers_and_reason(env):
     assert "reason-text" in html
 
 
+FREE_TEXT_CLAUSE = ("Free text on the questions that remain (notes, findings) is shown as written and is not "
+                    "checked for mentions of the withheld questions.")
+
+
+def test_c3_notice_says_free_text_on_kept_rows_is_not_checked(env):
+    _, html = withheld_build(env, {(1, 3)})
+    notice = re.search(r'<div class="bs-card" id="withheld-notice".*?</div>', html, re.S).group(0)
+    assert FREE_TEXT_CLAUSE in notice
+    env.write()
+    assert env.run()[0] == 0
+    assert "withheld-notice" not in env.html().split("<body>")[1].split("</header>")[0]  # no notice without --withhold
+    assert "not checked for mentions" not in env.html().split("<body>")[1].split("</header>")[0]
+
+
 def test_c3_reason_is_escaped_and_required(env):
     env.write()
     code, _, _ = env.run(*env.withhold([(1, 3)], reason="a <b>bold</b> & claim"))
