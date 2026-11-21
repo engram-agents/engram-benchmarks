@@ -844,10 +844,29 @@ def test_k2_a_session_whose_feeder_returned_while_the_box_still_runs_is_torn_dow
     assert argv_pids(f["bridge_sock"]) == []
 
 
+def launch_wrapper_dir(fields):
+    """The wrapper directory a launch prepared, from the launch's own record of the PATH it was given: the launch line's `pid` is
+    the wrapper's process, which has become bwrap, and bwrap's argv carries `--setenv PATH <built PATH>`, whose first entry is the
+    wrapper's directory (never a glob of /tmp: other runs own other directories)."""
+    argv = open("/proc/%s/cmdline" % fields["pid"], "rb").read().split(b"\0")
+    i = next(i for i, a in enumerate(argv) if a == b"PATH" and argv[i - 1] == b"--setenv")
+    d = argv[i + 1].decode().split(os.pathsep)[0]
+    assert os.path.basename(d).startswith("sandbox-launch-"), argv
+    return d
+
+
+def remove_callers_wrapper_dir(d):
+    """The killed caller never reached run_feeder's own removal, so the cell removes the directory its caller prepared, and only
+    that one, and only if it is a launch directory of this uid."""
+    if d and os.path.basename(d).startswith("sandbox-launch-") and os.path.isdir(d) and os.stat(d).st_uid == os.getuid():
+        shutil.rmtree(d, ignore_errors=True)
+
+
 @TSS.needs_box
 @needs_arrow
 def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_until_it_is_stopped(w, arrow_python):
     caller = real_caller(w, arrow_python, "sleep 120")
+    wdir = None
     try:
         log = None
         end = time.time() + 40
@@ -857,6 +876,7 @@ def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_u
             time.sleep(0.1)
         assert log, "the session never launched"
         f = wait_fields(log)
+        wdir = launch_wrapper_dir(f)                       # read from the launch's own record, while the wrapper still runs
         caller.kill(); caller.wait(timeout=30)           # the caller's SIGKILL: no teardown of its own can run
         unit = f["scope_unit"]
         assert unit_state(unit) == "active", "the premise: the box outlived its killed caller"
@@ -866,9 +886,13 @@ def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_u
         assert w.records() == []                           # nothing was started
         assert TSS._systemctl("stop", scope_of(unit)).returncode == 0
         assert w.launch().returncode == 0                  # after the stop it launches
+        remove_callers_wrapper_dir(wdir)
+        assert not os.path.exists(wdir), "the killed caller's wrapper directory is left behind"
     finally:
         if caller.poll() is None:
             caller.kill()
+        remove_callers_wrapper_dir(wdir)       # also when an assertion above failed
+        assert wdir is None or not os.path.exists(wdir)
 
 
 @needs_linux_wrapper
