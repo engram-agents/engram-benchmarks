@@ -362,6 +362,93 @@ def test_c5_without_withhold_every_row_passes_through(env):
     assert all("questions_total" not in r for r in rows(blob, "runs"))
 
 
+# ---- C6: under --withhold, runs / categories / causes rows carry only their allowed fields ----
+# An unknown field on an input row of these three datasets is a summary or a hand-grade column the tool cannot
+# vouch for; it is DROPPED silently (a refusal would invite building without --withhold).
+UNKNOWN = {"runs": "per_question_summary", "categories": "per_question_note", "causes": "per_question_detail"}
+
+
+def sentinel_forms(s):
+    return {s, json.dumps(s, ensure_ascii=False)[1:-1], json.dumps(s)[1:-1]}
+
+
+def poisoned(dataset):
+    """The fixture with a distinct sentinel (quote and non-ASCII, so its escaped forms differ) in an unknown
+    field of EVERY row of `dataset`. Returns (data, [sentinel per row])."""
+    data = fx.build_data()
+    sents = []
+    for i, row in enumerate(data[dataset]["rows"]):
+        s = f'SENT-{dataset}-{i}-zq "s" ü'
+        row[UNKNOWN[dataset]] = s
+        sents.append(s)
+    return data, sents
+
+
+def build_poisoned(env, dataset, pairs):
+    data, sents = poisoned(dataset)
+    env.write(data)
+    code, _, err = env.run(*env.withhold(sorted(pairs)), "--answers-file", env.answers)
+    assert code == 0, err
+    return env.html(), sents
+
+
+def allowed_fields(bp):
+    """SCHEMA plus the fields recompute() writes, generated: the keys recompute emits from rows that carry only
+    SCHEMA fields, joined with SCHEMA."""
+    data = fx.build_data()
+    got = bp.recompute(data["runs"]["rows"], data["categories"]["rows"], data["causes"]["rows"],
+                       data["answers"]["rows"], withheld={(1, 3)})
+    return {ds: set(bp.SCHEMA[ds]) | {k for r in got[ds] for k in r} for ds in ("runs", "categories", "causes")}
+
+
+def test_c6_run_row_unknown_field_is_dropped_under_withhold(env):
+    html, sents = build_poisoned(env, "runs", {(1, 3)})
+    assert not any(f in html for s in sents for f in sentinel_forms(s))
+    assert not any(UNKNOWN["runs"] in r for r in rows(env.blob(), "runs"))
+
+
+def test_c6_category_row_unknown_field_is_dropped_under_withhold(env):
+    # (1,1) and (1,3) are all of RA's alpha_topic questions: that row is derived from withheld rows only
+    html, sents = build_poisoned(env, "categories", {(1, 1), (1, 3)})
+    assert not any(f in html for s in sents for f in sentinel_forms(s))
+    cats = rows(env.blob(), "categories")
+    assert any(c["run_id"] == "RA" and c["category"] == "beta_topic" for c in cats)  # a kept row is there, clean
+    assert not any(UNKNOWN["categories"] in c for c in cats)
+
+
+def test_c6_cause_row_unknown_field_is_dropped_under_withhold(env):
+    # RA: not_stored is used by withheld Q2 and Q3 only; over_caution is also used by kept Q4
+    html, sents = build_poisoned(env, "causes", {(1, 1), (1, 2), (1, 3)})
+    assert not any(f in html for s in sents for f in sentinel_forms(s))
+    causes = {(c["run_id"], c["cause"]) for c in rows(env.blob(), "causes")}
+    assert ("RA", "over_caution") in causes and ("RA", "not_stored") not in causes
+    assert not any(UNKNOWN["causes"] in c for c in rows(env.blob(), "causes"))
+
+
+def test_c6_output_rows_carry_only_the_generated_allowed_fields(env, bp):
+    allowed = allowed_fields(bp)
+    assert "questions_total" in allowed["runs"]  # the generated set does include what recompute writes
+    data = fx.build_data()
+    for ds in UNKNOWN:
+        for row in data[ds]["rows"]:
+            row[UNKNOWN[ds]] = f"x-{ds}"
+    env.write(data)
+    code, _, err = env.run(*env.withhold([(1, 1), (1, 2), (1, 3)]), "--answers-file", env.answers)
+    assert code == 0, err
+    blob = env.blob()
+    for ds in UNKNOWN:
+        assert rows(blob, ds), ds
+        for r in rows(blob, ds):
+            assert set(r) <= allowed[ds], (ds, set(r) - allowed[ds])
+
+
+def test_c6_without_withhold_an_unknown_field_passes_through(env):
+    data, _ = poisoned("runs")
+    env.write(data)
+    assert env.run("--answers-file", env.answers)[0] == 0
+    assert all(UNKNOWN["runs"] in r for r in rows(env.blob(), "runs"))
+
+
 # ----------------------------------------------------------------------------------------------
 # The port: inputs
 @pytest.mark.parametrize("name", ["runs", "categories", "causes", "answers", "findings"])

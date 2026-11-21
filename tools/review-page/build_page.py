@@ -255,7 +255,8 @@ def recompute(runs, cats, causes, answers, withheld):
     Question score = mean of its rubric lines (yes 1, partial 0.5, no 0); the adjusted score uses a line's
     adjusted mark where it has one. Run score = mean over the kept questions. Nothing is read from the input's
     precomputed scores or counts; the input rows only supply the labels and the order. Each returned run row
-    carries `questions` (N, kept) and `questions_total` (M, all of that run's answer rows in the input).
+    carries `questions` (N, kept) and `questions_total` (M, all of that run's answer rows in the input), and
+    ONLY its SCHEMA fields plus the ones computed here: any other field of the input run row is dropped.
 
     Orders: runs keep the input's order; within a run the answers are taken in question_no order; categories are
     sorted by category name; causes are sorted by count, highest first, ties in first-seen order (question_no
@@ -294,11 +295,15 @@ def recompute(runs, cats, causes, answers, withheld):
                 asked += 1
                 justified += a["ask_justified"] == "yes"
         o_pct, a_pct = _pct(off), _pct(adj)
-        out_runs.append(dict(r, questions=len(rows), questions_total=total[r["run_id"]], official_pct=o_pct,
-                             adjusted_pct=a_pct,
-                             adjust_delta=None if o_pct is None else round(a_pct - o_pct, 1),
-                             pass_n=grades["pass"], partial_n=grades["partial"], fail_n=grades["fail"],
-                             asked_back_n=asked, asked_back_justified_n=justified))
+        computed = dict(questions=len(rows), questions_total=total[r["run_id"]], official_pct=o_pct,
+                        adjusted_pct=a_pct,
+                        adjust_delta=None if o_pct is None else round(a_pct - o_pct, 1),
+                        pass_n=grades["pass"], partial_n=grades["partial"], fail_n=grades["fail"],
+                        asked_back_n=asked, asked_back_justified_n=justified)
+        # Default-deny: the row is its SCHEMA fields from the input plus what is computed here; an unknown input
+        # field is dropped. The allowed set is generated from those two, never listed a second time. The
+        # categories and causes rows below are built from explicit keys, so they are already closed the same way.
+        out_runs.append({**{k: r[k] for k in SCHEMA["runs"] if k in r}, **computed})
         for cat in sorted(bycat):
             v = bycat[cat]
             out_cats.append(dict(run_id=r["run_id"], category=cat,
