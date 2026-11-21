@@ -243,6 +243,14 @@ minute count and guess goes into this log as plain lines without quotes.
 - Added 2026-11-20 (design owner, team crossing 33332): this run uses ONE letter seed for all items, so no single
   key file can be opened on its own before the pilot settles. That is a design weakness for any later study: a
   per-item seed derived from a sealed master seed would let one item's key open alone.
+- Added 2026-11-21 (design owner's ruling, team crossing 33894, on the key holder's count, team crossing 33892): a
+  limit of this pilot's phase 3. The project lead had seen the study lead's hand grade on all 12 phase-3 items before
+  ruling: the scorecard pages built 2026-11-16 show it per question for all 20 run A questions (the study lead
+  confirmed from the pages that the column is the hand-grade file). On Q1, Q8 and Q14 that hand grade differs in
+  level from the official grade phase 3 rules against (the question-seeing judge's). Whether the project lead opened
+  those rows is asked of him and recorded here when answered. This is not an arm unblinding: run A has one agent
+  answer per item, and phase 3 knows which answer is official by design (principles section 5). Until the project
+  lead rules on the 12, pages made for him, and the design owner's own copy, leave the 12 out.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
@@ -641,3 +649,15 @@ Each line is the study lead's own commit. Times are UTC.
     75686d8601 letters {"A": "973b19e5", "B": "9817a0e0"} key_sha256 c39aaea1f97122dcba613231a31f7a775410fcb7f591ba818506c5dd2363fe88
     838c9ebabe letters {"A": "5df41e18", "B": "cae8a8b9"} key_sha256 8ff7a6d5f75b875099b77699fd055efab8c147fdb331b5daf252f523b2bdfac3
   Controls in the same minute: `reveal` on b9cd2f4ff2 reproduced exactly the letters and key_sha256 logged by hand earlier today (860054385e3c...). `reveal` on ecbeaa3683 refused ('item ecbeaa3683 is pending; its letters are revealed only once it is control_settled or settled').
+- [key holder] 2026-11-21T13:38Z. LEVEL CHECK for the design owner's question (team crossing 33851), read off the key
+  holder's files, no packet opened and no key revealed. Inputs: grades.jsonl (the study lead's hand grades, sha256
+  abdcde2022c020cbae7aed7b3f08cefcee5a09a07e6f1a299e097523392e67ff, as in the import manifest above), the map's
+  grades file (the question-seeing judge's, 733a15d763925081...) and the map re-run's outcomes file (5dfa5dc8388ec65e...).
+  Each grade is mapped to a level by the principles' section-6 rule (full: every line at the scale's maximum; zero:
+  every line at its minimum; partial otherwise). Result: every item has one agent answer (one arm, 20 of 20 grade
+  rows); the outcomes' official levels equal the judge's levels on 20 of 20; the hand grades' levels differ on 4 items
+  (Q1, Q8, Q14, Q16), three of them among the 12 phase-3 items (Q1, Q8, Q14); line scores differ on 9 items. The
+  same script reporting 4 differences is its own check that it can find one. Script sha256
+  81325cc9eaac1352a1aad4f71ac1cc95b422e7117686f80f9e2bec41ca3e0eae, output sha256
+  951909b221fc887cf4daacc591e37e3c435f9d262549ff5c3e75948323bf6287; both stay with the key holder. The 12 phase-3
+  items (outcomes status pending): Q1, Q3, Q4, Q5, Q6, Q7, Q8, Q12, Q13, Q14, Q17, Q18.
