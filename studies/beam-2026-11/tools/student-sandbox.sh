@@ -250,6 +250,9 @@ if [ -n "$DAEMON" ]; then
     for v in SANDBOX_TEST_DAEMON_READY_S SANDBOX_TEST_DAEMON_TERM_S; do
       [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive count"; }
     done
+    # the term wait is formatted "%.3f" into daemon-fault's after_s, whose shape allows 6 integer digits: refuse a longer one here
+    [ -z "${SANDBOX_TEST_DAEMON_TERM_S:-}" ] || [ "${#SANDBOX_TEST_DAEMON_TERM_S}" -le 6 ] \
+      || refuse "SANDBOX_TEST_DAEMON_TERM_S has more than 6 digits: it must fit the 6-digit seconds field of the recall daemon's fault line"
     [ -z "${SANDBOX_TEST_DAEMON_READY_S:-}" ] || DAEMON_READY_S=$SANDBOX_TEST_DAEMON_READY_S
     [ -z "${SANDBOX_TEST_DAEMON_TERM_S:-}" ] || DAEMON_TERM_S=$SANDBOX_TEST_DAEMON_TERM_S
   fi

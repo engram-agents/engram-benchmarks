@@ -388,6 +388,19 @@ def test_the_readiness_timeout_is_a_test_knob_only(dcfg, fake_bwrap):
     TSS.assert_refused(dcfg, fake_bwrap, "SANDBOX_TEST_DAEMON_TERM_S", SANDBOX_DAEMON="engram", SANDBOX_TEST_DAEMON_TERM_S="x")
 
 
+@TSS.needs_box
+def test_the_term_wait_knob_is_bounded_to_the_secs_grammar_of_the_fault_line(dcfg, fake_bwrap):
+    # daemon-fault's after_s is "%.3f" of this wait and its shape allows at most 6 integer digits: a 7-digit wait is refused at
+    # launch (before any box), the largest 6-digit one is accepted (the fake bwrap is reached, and the launch line carries it).
+    TSS.assert_refused(dcfg, fake_bwrap, "SANDBOX_TEST_DAEMON_TERM_S", SANDBOX_DAEMON="engram", SANDBOX_TEST_DAEMON_TERM_S="1000000")
+    fdir, out = fake_bwrap
+    r = dcfg.run(exec_="true", PATH=fdir + ":/usr/bin:/bin", FAKE_BWRAP_OUT=out, SANDBOX_LOG=dcfg.log,
+                 SANDBOX_DAEMON="engram", SANDBOX_TEST_DAEMON_TERM_S="999999")
+    assert r.returncode == 99, (r.returncode, r.stderr)           # past the refusals: it reached the (fake) bwrap
+    assert os.path.exists(out)
+    assert "daemon_term_wait_s=999999" in open(dcfg.log).read()
+
+
 # ======================================================================================== D4: stop before the snapshot
 @TSS.needs_box
 def test_after_the_session_the_daemon_is_gone_with_its_files_and_the_clients_rc_is_the_sessions(dcfg):
