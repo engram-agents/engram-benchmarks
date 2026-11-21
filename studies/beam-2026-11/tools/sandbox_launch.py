@@ -400,7 +400,8 @@ def check_no_other_claude(wrapper_path, path, cwd):
     format), with no error, which would start a student unwrapped. So no directory of `path` other than the wrapper's own may hold
     an executable regular file named `claude` (the same file rules as resolve_on_path; an empty entry is `cwd`). This is safe
     because the wrapper starts the real binary from SANDBOX_BINARY, an absolute path, and never needs `claude` on the PATH. The
-    refusal names each such directory, so the caller knows what to drop."""
+    refusal names each such directory of the built PATH; the caller cannot edit that PATH, so it says the fixed directory list is
+    the design owner's to change."""
     others = []
     for d in path.split(os.pathsep):
         cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), "claude")   # as resolve_on_path
@@ -409,8 +410,9 @@ def check_no_other_claude(wrapper_path, path, cwd):
                 others.append(os.path.dirname(cand))
     if others:
         raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others)
-                            + ": if the wrapper could not be exec'd, the next `claude` would start unwrapped; drop "
-                            + ("that directory" if len(others) == 1 else "those directories") + " from the PATH")
+                            + ": if the wrapper could not be exec'd, the next `claude` would start unwrapped. The PATH the feeder sees is "
+                            + "built, not the caller's (the built PATH holds " + ("that directory" if len(others) == 1 else "those directories")
+                            + "); the fixed list of directories is the design owner's to change")
 
 
 def _prepare_dir():
@@ -794,6 +796,8 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
     P1_TEST_HOOKS=1): the stub is wrapped like a feeder, so every check still runs on it, and its argv obeys the allow-list
     of the feeder it stands in for (`stub_as`, feed4.py by default). `test_env_names` (refused without `test_stub`) names further
     caller-environment variables a STUB needs to receive, on top of FEEDER_ENV_ALLOW.
+    `py`, the interpreter that runs the feeder, is resolved against the CALLER's PATH, not the built one; only the feeder's
+    children see the built PATH.
     Extra keyword arguments go to subprocess.run (stdout=...)."""
     if os.path.basename(feeder) not in FEEDERS and not test_stub:
         raise LaunchRefused(f"{feeder} is not one of the feeders {FEEDERS}")

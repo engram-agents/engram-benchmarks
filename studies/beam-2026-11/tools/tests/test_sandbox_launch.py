@@ -1678,6 +1678,16 @@ def test_g_the_guard_refuses_a_second_executable_claude_naming_its_directory(w):
         SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:/usr/bin" % (wd, later), str(w.d))
 
 
+def test_g_the_refusal_says_the_fixed_directory_list_is_the_design_owners_to_change_and_advises_no_path_edit(w):
+    wd, later = second_claude(w.d / "wd"), second_claude(w.d / "later")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:/usr/bin" % (wd, later), str(w.d))
+    msg = str(e.value)
+    assert "built PATH" in msg and later in msg
+    assert "fixed list of directories is the design owner's to change" in msg
+    assert "drop" not in msg
+
+
 def test_g_every_such_directory_is_named_and_the_wrappers_own_is_not(w):
     wd, a, b = second_claude(w.d / "wd"), second_claude(w.d / "la"), second_claude(w.d / "lb")
     with pytest.raises(SL.LaunchRefused) as e:
