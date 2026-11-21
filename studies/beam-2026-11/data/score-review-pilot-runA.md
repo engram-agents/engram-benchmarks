@@ -257,6 +257,9 @@ minute count and guess goes into this log as plain lines without quotes.
   earlier statement that his hand grades equal the official levels on 20 of 20 held only under that old meaning, and
   he has withdrawn it. The 2026-11-16 pages stay as they are (design owner, team crossing 33895): hiding rows now
   would change a record and undo nothing already seen.
+- Added 2026-11-21, the bound on the two entries above (study lead, relayed by the design owner, team crossing
+  33899): the study lead read his local copy of the page and its data, not the published copy, and cannot read the
+  key holder's grade files, so the hand-versus-judge level differences are the key holder's measurement alone.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
