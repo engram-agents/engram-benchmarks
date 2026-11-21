@@ -1525,7 +1525,7 @@ def open_record(w, log, name="x.json"):
 def log_in(w, kind):
     p = w.logs / f"{kind}.log"
     if kind == "unreadable":
-        p.mkdir()
+        p.mkdir(exist_ok=True)
     elif kind == "noline":
         p.write_text("fwd-first-request\n")
     return p            # "absent": nothing created

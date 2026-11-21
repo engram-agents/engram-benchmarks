@@ -18,7 +18,7 @@ the record beside the path as given or beside its realpath); STATE is not an exi
 
 Who runs it: the study lead, per run, naming the state. Nothing calls it automatically. What the record buys: only
 `p1-session.py --continue-reading --pilot-pre-module-start` accepts such a state, and only while its knowledge.db store still
-hashes to `state_sha256` (the hash covers the store's tables only; memory files, .claude/ and hooks are not bound). The default reader, and so any scored launcher, refuses it. See README.md."""
+hashes to `state_sha256` (the hash covers the store's tables only; memory files, the home's other folders and hooks are not bound). The default reader, and so any scored launcher, refuses it. See README.md."""
 import argparse, datetime, importlib.util, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
