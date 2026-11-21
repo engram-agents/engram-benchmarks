@@ -918,6 +918,7 @@ def sandbox_info(c, res):
             f"sandbox launch-line wrapper_sha256: {res.wrapper_sha256 or 'none'}",
             f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}",
             f"sandbox launch-line test_mode: {res.test_mode}", f"sandbox launch-line test_exec: {res.test_exec}",
+            f"sandbox feeder PATH: {res.feeder_path}",
             *[f"sandbox launch-line {k}: {v}" for k, v in sorted(res.caps.items())]]
 
 

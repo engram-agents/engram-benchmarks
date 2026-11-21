@@ -107,6 +107,9 @@ def emulate_wrapper(a):
     if os.environ.get("STUB_SBX_LOG"):
         with open(os.environ["STUB_SBX_LOG"], "a") as f:
             f.write(json.dumps(pairs) + "\n")
+    if os.environ.get("STUB_PATH_LOG"):   # the PATH this feeder was actually handed
+        with open(os.environ["STUB_PATH_LOG"], "a") as f:
+            f.write(os.environ["PATH"] + "\n")
     log = pairs.get("SANDBOX_LOG")
     mode = os.environ.get("STUB_SANDBOX", "ok")
     if not log or mode == "nolaunch":
@@ -223,6 +226,7 @@ class World:
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
              "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
+             "STUB_PATH_LOG": str(self.root / "stub-path.txt"),
              "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
              "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres),
              # test mode and this run's own scope-name prefix: the before-launch scan sees only this run's units (hermetic)
@@ -1305,3 +1309,14 @@ def test_l1_the_caps_and_the_test_flags_of_the_launch_line_are_written_to_setup_
     for want in ("sandbox launch-line cap_tasks: 1024", "sandbox launch-line cap_memory: 4294967296",
                  "sandbox launch-line cap_tmp: 2147483648", "sandbox launch-line test_mode: 1", "sandbox launch-line test_exec: 0"):
         assert want in lines, want
+
+
+@needs_linux_wrapper
+def test_b_setup_txt_carries_the_built_path_on_one_line_equal_to_the_path_the_feeder_was_handed(w):
+    assert w.run().returncode == 0
+    handed = (w.root / "stub-path.txt").read_text().splitlines()
+    assert len(handed) == 1                                             # the student run only: the plan dumps are unwrapped
+    lines = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder PATH: ")]
+    assert lines == ["sandbox feeder PATH: " + handed[0]]
+    first, *rest = handed[0].split(":")
+    assert rest == list(P1S.SL.FEEDER_SYSTEM_DIRS)                  # wrapper directory first, then the fixed list

@@ -99,6 +99,7 @@ class LaunchResult:
         self.wrapper_sha256, self.forwarder_sha256 = wrapper_sha256, forwarder_sha256
         self.test_mode = self.test_exec = None   # from the launch line, after the session
         self.caps = {}                            # every cap_* value the launch line records (the caller writes them to its record)
+        self.feeder_path = None                   # the PATH the module built and passed to the feeder (the caller writes it to its record)
 
 
 def sha256_file(path):
@@ -295,6 +296,21 @@ def check_model_url(url, port):
         raise LaunchRefused(f"the model URL the student will use ({url}) has port {int(m.group(2))}, not SANDBOX_MODEL_PORT {port}")
 
 
+# The PATH the feeder (and so the student session) sees is BUILT by the module, never inherited from the caller: the directory of
+# the wrapper this launch prepared first, then this ONE fixed list of system directories. This list is a FLOOR for the wrapper's
+# children (the system tools they may reach), NOT the security line: the line is the assertion in run_feeder that `claude`
+# resolves, under the built path, to the wrapper this launch prepared (check_claude_first), together with the guard that no other
+# directory of the path holds an executable `claude` (check_no_other_claude). So widening this list moves what the children can
+# reach, and never what `claude` means. A directory outside it that a session turns out to need is added here, by name, on the
+# design owner's ruling, and nowhere else.
+FEEDER_SYSTEM_DIRS = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+
+
+def build_feeder_path(wrapper_dir):
+    """The built PATH: the wrapper's directory, then FEEDER_SYSTEM_DIRS. Nothing of the caller's environment is in it."""
+    return os.pathsep.join((wrapper_dir, *FEEDER_SYSTEM_DIRS))
+
+
 def resolve_on_path(name, path, cwd):
     """The file Popen([name], env={'PATH': path}, cwd=cwd) would start: the first executable regular file among the PATH
     entries in order (an empty entry is the child's working directory). The candidate is joined, never normalised: exec hands
@@ -307,8 +323,8 @@ def resolve_on_path(name, path, cwd):
     return None
 
 
-def check_claude_first(wrapper_path, argv, env, feeder):
-    """The `claude` the feeder's Popen will find must be the wrapper this launch prepared."""
+def _feeder_path(argv, env, feeder):
+    """(the PATH the feeder's Popen will see, the working directory it resolves an empty or relative entry against)."""
     path = None
     for k, v in env_pairs(argv):
         if k == "PATH":
@@ -317,10 +333,35 @@ def check_claude_first(wrapper_path, argv, env, feeder):
         path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
     home = argv_value(argv, "--arm-home")
     cwd = os.path.join(os.getcwd(), home, "work") if home else os.getcwd()   # as the child's chdir resolves it: no lexical abspath
+    return path, cwd
+
+
+def check_claude_first(wrapper_path, argv, env, feeder):
+    """The assertion that is the security line: under the PATH the feeder will see (the built one, with what the feeder appends),
+    `claude` resolves to the wrapper this launch prepared, or the launch is refused before anything starts."""
+    path, cwd = _feeder_path(argv, env, feeder)
     got = resolve_on_path("claude", path, cwd)
     if got is None or not os.path.samefile(got, wrapper_path):
         raise LaunchRefused(f"the `claude` first on the PATH the feeder will see is {got or 'not found'}, not the sandbox "
                             f"wrapper this launch prepared ({wrapper_path})")
+
+
+def check_no_other_claude(wrapper_path, path, cwd):
+    """Popen falls through to the NEXT `claude` on the PATH when the first cannot exec (a missing interpreter, an invalid
+    format), with no error, which would start a student unwrapped. So no directory of `path` other than the wrapper's own may hold
+    an executable regular file named `claude` (the same file rules as resolve_on_path; an empty entry is `cwd`). This is safe
+    because the wrapper starts the real binary from SANDBOX_BINARY, an absolute path, and never needs `claude` on the PATH. The
+    refusal names each such directory, so the caller knows what to drop."""
+    others = []
+    for d in path.split(os.pathsep):
+        cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), "claude")   # as resolve_on_path
+        if os.path.isfile(cand) and os.access(cand, os.X_OK) and not os.path.samefile(cand, wrapper_path):
+            if os.path.dirname(cand) not in others:
+                others.append(os.path.dirname(cand))
+    if others:
+        raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others)
+                            + ": if the wrapper could not be exec'd, the next `claude` would start unwrapped; drop "
+                            + ("that directory" if len(others) == 1 else "those directories") + " from the PATH")
 
 
 def _prepare_dir():
@@ -716,8 +757,6 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         raise LaunchRefused("a feeder call that starts a student needs the sandbox (only --dump-plan runs without it)")
     if not state_dir:
         raise LaunchRefused("a student session needs a state directory for its launch record (the module has no default)")
-    if not env.get("PATH"):
-        raise LaunchRefused("the caller's environment has no PATH: the wrapper directory must go first on the PATH the feeder gets")
     for k, _ in env_pairs(argv):
         if k.startswith("SANDBOX_"):
             raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
@@ -741,8 +780,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
             if got[k] != sandbox.expected[k]:
                 raise LaunchRefused(f"{k} of the file this launch would use is {got[k]}, expected {sandbox.expected[k]} "
                                     f"(from {os.path.basename(sandbox.expected_file)})")
-        env["PATH"] = wdir + os.pathsep + env["PATH"]
+        env["PATH"] = build_feeder_path(wdir)   # built, not inherited: the caller's PATH is not read
         check_claude_first(wrapper, argv, env, feeder)
+        check_no_other_claude(wrapper, *_feeder_path(argv, env, feeder))
         os.makedirs(os.path.join(out, "proctor"), exist_ok=True)
         tools = os.path.dirname(os.path.abspath(feeder))
         pairs = dict(sandbox.settings)
@@ -754,6 +794,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         rec = {"state": "open", "log": log_path, "feeder": os.path.basename(feeder)}
         _write_record(rec_path, rec)
         res = LaunchResult(None, log=log_path)
+        res.feeder_path = env["PATH"]
         try:
             res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=env, **run_kw).returncode
         except BaseException as exc:   # a feeder that could not run, or was interrupted: still torn down
