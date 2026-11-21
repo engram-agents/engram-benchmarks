@@ -395,24 +395,35 @@ def check_claude_first(wrapper_path, argv, env, feeder):
                             f"wrapper this launch prepared ({wrapper_path})")
 
 
-def check_no_other_claude(wrapper_path, path, cwd):
+def check_no_other_claude(wrapper_path, path, cwd, feeder_dir=None):
     """Popen falls through to the NEXT `claude` on the PATH when the first cannot exec (a missing interpreter, an invalid
     format), with no error, which would start a student unwrapped. So no directory of `path` other than the wrapper's own may hold
     an executable regular file named `claude` (the same file rules as resolve_on_path; an empty entry is `cwd`). This is safe
     because the wrapper starts the real binary from SANDBOX_BINARY, an absolute path, and never needs `claude` on the PATH. The
-    refusal names each such directory of the built PATH; the caller cannot edit that PATH, so it says the fixed directory list is
-    the design owner's to change."""
+    refusal names each such directory, with the remedy that fits it: the path is the built PATH PLUS the feeder's own directory
+    (`feeder_dir`), so a `claude` in the feeder's own directory is the caller's own file and is to be removed from there, while a
+    `claude` in a directory of the fixed list is not the caller's to edit: that list is the design owner's to change."""
     others = []
     for d in path.split(os.pathsep):
         cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), "claude")   # as resolve_on_path
         if os.path.isfile(cand) and os.access(cand, os.X_OK) and not os.path.samefile(cand, wrapper_path):
             if os.path.dirname(cand) not in others:
                 others.append(os.path.dirname(cand))
-    if others:
-        raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others)
-                            + ": if the wrapper could not be exec'd, the next `claude` would start unwrapped. The PATH the feeder sees is "
-                            + "built, not the caller's (the built PATH holds " + ("that directory" if len(others) == 1 else "those directories")
-                            + "); the fixed list of directories is the design owner's to change")
+    if not others:
+        return
+    own = [d for d in others if feeder_dir is not None and os.path.samefile(d, feeder_dir)]
+    fixed = [d for d in others if d not in own]
+    why = ": if the wrapper could not be exec'd, the next `claude` would start unwrapped. "
+    parts = []
+    if own:
+        parts.append(", ".join(own) + (" is" if len(own) == 1 else " are") + " the feeder's own (tools) directory, the caller's own: "
+                     "remove the `claude` from there")
+    if fixed:
+        parts.append("The PATH the feeder sees is built, not the caller's (the built PATH holds "
+                     + ("that directory" if len(fixed) == 1 else "those directories") + "): "
+                     + ", ".join(fixed) + "; the fixed list of directories is the design owner's to change")
+    raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others) + why
+                        + "; ".join(parts))
 
 
 def _prepare_dir():
@@ -836,7 +847,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
                                     f"(from {os.path.basename(sandbox.expected_file)})")
         fenv = build_feeder_env(env, wdir, test_env_names)   # built, not inherited: the caller's environment is read by name only
         check_claude_first(wrapper, argv, fenv, feeder)
-        check_no_other_claude(wrapper, *_feeder_path(argv, fenv, feeder))
+        check_no_other_claude(wrapper, *_feeder_path(argv, fenv, feeder), feeder_dir=os.path.dirname(os.path.abspath(feeder)))
         os.makedirs(os.path.join(out, "proctor"), exist_ok=True)
         tools = os.path.dirname(os.path.abspath(feeder))
         pairs = dict(sandbox.settings)

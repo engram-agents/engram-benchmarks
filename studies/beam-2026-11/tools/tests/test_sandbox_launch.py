@@ -1688,6 +1688,45 @@ def test_g_the_refusal_says_the_fixed_directory_list_is_the_design_owners_to_cha
     assert "drop" not in msg
 
 
+def test_g_a_claude_in_the_feeders_own_directory_is_refused_with_the_remove_it_remedy_not_the_design_owners(w):
+    wd, own = second_claude(w.d / "wd"), second_claude(w.d / "own")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:/usr/bin:%s" % (wd, own), str(w.d), feeder_dir=own)
+    msg = str(e.value)
+    assert own in msg and "feeder's own" in msg and "remove" in msg
+    assert "design owner" not in msg
+
+
+def test_g_a_claude_in_a_fixed_list_directory_still_says_the_design_owners_to_change_with_a_feeder_dir_given(w):
+    wd, fixed, own = second_claude(w.d / "wd"), second_claude(w.d / "fixed"), w.d / "own"
+    os.makedirs(own)
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:%s" % (wd, fixed, own), str(w.d), feeder_dir=str(own))
+    msg = str(e.value)
+    assert fixed in msg and "fixed list of directories is the design owner's to change" in msg
+    assert "feeder's own" not in msg
+
+
+def test_g_both_cases_in_one_refusal_each_name_gets_its_own_remedy(w):
+    wd, fixed, own = second_claude(w.d / "wd"), second_claude(w.d / "fixed"), second_claude(w.d / "own")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:%s" % (wd, fixed, own), str(w.d), feeder_dir=own)
+    msg = str(e.value)
+    assert fixed in msg and own in msg
+    assert "feeder's own" in msg and "design owner's to change" in msg
+    own_seg = next(x for x in msg.split("; ") if own + " is the feeder's own" in x)
+    fixed_seg = next(x for x in msg.split("; ") if "design owner" in x)
+    assert "remove" in own_seg and "design owner" not in own_seg and own not in fixed_seg.split(": ")[-1]
+
+
+def test_g_the_launch_names_the_feeders_directory_remedy_for_an_appended_claude(w):
+    second_claude(w.tools)
+    with pytest.raises(SL.LaunchRefused) as e:
+        w.launch()
+    assert "feeder's own" in str(e.value) and "design owner" not in str(e.value)
+    w.assert_nothing_started()
+
+
 def test_g_every_such_directory_is_named_and_the_wrappers_own_is_not(w):
     wd, a, b = second_claude(w.d / "wd"), second_claude(w.d / "la"), second_claude(w.d / "lb")
     with pytest.raises(SL.LaunchRefused) as e:
@@ -1959,3 +1998,11 @@ def test_a6_the_readme_states_the_rule():
     assert "FEEDER_ENV_PAIR_ALLOW" in text
     for name in ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL"):
         assert name in text
+
+
+def test_readme_states_the_three_launch_wording_sentences():
+    text = " ".join(open(os.path.join(TOOLS, "README.md")).read().split())
+    for phrase in ("fixed-list directory", "no caller remedy", "design owner rules a change of the fixed list",
+                   "sandbox-launch-", "the launching seat sweeps", "before a scored run",
+                   "feed4.py", "unload the model", "whether or not this run loaded it", "pay a reload"):
+        assert phrase in text, phrase
