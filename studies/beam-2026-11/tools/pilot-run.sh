@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
+echo "RETIRED: pilot-run.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
 # BEAM speed pilot P1 (turns per round), arm 2 only, conversation 9 exchanges 1-45, no forced compaction, no questions.
 # This file is the study's harness, not shipped product code. Parameters are logged on the tuning log before a run.
 # It runs the feed4.py / feed.py beside it, at the commit checked out; feed4 refuses unless the files it loaded hash

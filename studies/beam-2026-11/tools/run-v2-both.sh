@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
+echo "RETIRED: run-v2-both.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
 # Format v2 repeat: 3 exchanges per arm, forced /compact, 2 practice questions, same text in both arms.
 set -u
 # Required environment (no defaults that name a real path):

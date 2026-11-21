@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
+echo "RETIRED: run-engram-full.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
 # ENGRAM arm, full practice sequence: fresh install under $BEAM_WORK (which must be outside any git repo),
 # first session as its OWN session, then the exam in a NEW session: 3 exchanges, forced /compact, 2 questions.
 set -u
