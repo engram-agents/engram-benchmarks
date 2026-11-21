@@ -27,13 +27,25 @@ The fields below are the ones `page.html` reads, taken from its code. `str` = st
 
 | file | one row is | fields the page reads |
 |---|---|---|
-| `runs.json` | one scored run | `run_id` str, `conv` (any), `setup_hash` str, `grader` str, `official_pct` num, `adjusted_pct` num, `adjust_delta` num, `pass_n`, `partial_n`, `fail_n`, `asked_back_n`, `asked_back_justified_n` num. The page shows the LAST row as "the latest run". |
+| `runs.json` | one scored run | `run_id` str, `conv` (an integer, below), `setup_hash` str, `grader` str, `questions` num (how many questions the run scored), `official_pct` num, `adjusted_pct` num, `adjust_delta` num, `pass_n`, `partial_n`, `fail_n`, `asked_back_n`, `asked_back_justified_n` num. The page shows the LAST row as "the latest run". Under `--withhold` the tool also writes `questions_total` here, which the page reads (below). |
 | `categories.json` | one run x question type | `run_id`, `category`, `label` str, `n`, `official_pct`, `adjusted_pct` num |
 | `causes.json` | one run x cause of lost points | `run_id`, `cause` (key), `label` str, `count` num |
 | `answers.json` | one answered question | `run_id`, `key` (`run_id:question_no`), `category`, `question`, `reference` (the official answer), `grade` (`pass`, `partial` or `fail`), `grader`, `causes` (cause LABELS joined by `; `), `asked_back` (`yes`/`no`), `ask_justified`, `findings` (finding ids joined by `, `), `notes`, `rubric` str; `question_no` int; `official_score`, `adjusted_score` num; `gate_cell` (any); `answer` (the student's text, from the row or from `--answers-file`). `rubric` is a JSON string `[{"line": str, "mark": "yes"\|"partial"\|"no", "adjusted": mark or null}]`. |
 | `findings.json` | one possible problem | `finding_id`, `area`, `claim_type`, `claim`, `status`, `status_label`, `severity`, `opened_at` (ISO time), `report_line`, `notes` str; `question_no` int or null; `checks` num; `verifications` str, a JSON list of `{at, reader, method, result, exchanges_read, speakers_read, evidence: [{exchange, speaker, quote}], notes}`. `area` is one of `Official dataset`, `Our student`, `Our harness` (the page's filter chips). Optional: `conv`, used only by `--withhold` (below). |
 
-A conversation id lives on `runs.json` (`conv`); an answer row finds its conv through its `run_id`.
+A conversation id lives on `runs.json` (`conv`); an answer row finds its conv through its `run_id`. **`conv` is
+an integer everywhere it appears** (`runs.json`, the optional `conv` on a finding, and the `conv:question_no`
+keys of `--withhold` and `--answers-file`): a non-negative integer, or a string of ASCII digits, which is
+normalised to an integer. Anything else (text, a decimal, a negative number, a boolean) is refused, named.
+
+**Every build re-checks the scores against the input's own.** Before anything is withheld, the tool recomputes
+every question score from its rubric and every run score from all of that run's answer rows (formula under
+"Withhold contract", clause 2) and compares them with the `official_score` / `adjusted_score` the answer rows
+shipped and the `official_pct` / `adjusted_pct` the run rows shipped. A difference beyond 0.05 percentage points
+(half a unit of the one decimal the shipped values are rounded to, plus float noise) is refused, naming the run
+or question and both numbers, and nothing is written. What this cannot check: an input whose shipped scores
+were computed with the same wrong formula as the tool's. A run with no answer row in the input has nothing to
+recompute and is skipped.
 
 `--answers-file PATH`: a JSON object `{"<conv>:<question_no>": "<full answer text>"}`. When given, its text
 fills each answer row's `answer`, and wins over one already in the row. Every kept row must end up with an

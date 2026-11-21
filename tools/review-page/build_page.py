@@ -29,9 +29,11 @@ MARK = {"yes": 1.0, "partial": 0.5, "no": 0.0}
 GRADES = ("pass", "partial", "fail")
 
 # The fields the page code reads from each row, with the type it needs. 'any' = present, any value.
-# 'str?' / 'int?' = a string / an integer or null. Read off page.html, not from memory: see README.md.
+# 'str?' / 'int?' = a string / an integer or null. 'conv' = a conversation id: a non-negative integer or a
+# string of ASCII digits (normalised to int on load). Read off page.html, not from memory: see README.md.
 SCHEMA = {
-    "runs": {"run_id": "str", "conv": "any", "setup_hash": "str", "grader": "str", "official_pct": "num",
+    "runs": {"run_id": "str", "conv": "conv", "setup_hash": "str", "grader": "str", "questions": "num",
+             "official_pct": "num",
              "adjusted_pct": "num", "adjust_delta": "num", "pass_n": "num", "partial_n": "num", "fail_n": "num",
              "asked_back_n": "num", "asked_back_justified_n": "num"},
     "categories": {"run_id": "str", "category": "str", "label": "str", "n": "num", "official_pct": "num",
@@ -67,7 +69,20 @@ def _kind_ok(kind, v):
         return isinstance(v, int) and not isinstance(v, bool)
     if kind == "int?":
         return v is None or (isinstance(v, int) and not isinstance(v, bool))
+    if kind == "conv":
+        return _conv(v) is not None
     raise AssertionError(kind)
+
+
+def _conv(v):
+    """A conversation id as an int, or None when v is not one (bool, float, negative, non-digit text)."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v if v >= 0 else None
+    if isinstance(v, str) and re.fullmatch(r"[0-9]+", v):
+        return int(v)
+    return None
 
 
 def load_dataset(data_dir, name):
@@ -89,15 +104,12 @@ def load_dataset(data_dir, name):
                 raise InputError(f"{name}.json: row {i}: missing field {field!r}")
             if not _kind_ok(kind, row[field]):
                 raise InputError(f"{name}.json: row {i}: field {field!r} must be {kind}, got {row[field]!r}")
+        if row.get("conv") is not None:  # runs.conv (required) and findings.conv (optional), one rule
+            c = _conv(row["conv"])
+            if c is None:
+                raise InputError(f"{name}.json: row {i}: field 'conv' must be an integer or a string of digits, got {row['conv']!r}")
+            row["conv"] = c
     return d["rows"]
-
-
-def conv_key(v):
-    """A conversation id compares as an int when it is one, else as its text."""
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return str(v)
 
 
 def parse_rubric(row, where):
@@ -134,7 +146,7 @@ def parse_withhold(path):
         s = ln.strip()
         if not s or s.startswith("#"):
             continue
-        m = re.fullmatch(r"(\d+):(\d+)", s)
+        m = re.fullmatch(r"([0-9]+):([0-9]+)", s)
         if not m or int(m.group(2)) < 1:
             raise InputError(f"--withhold {path}: line {ln!r} is not conv:question_no (question_no >= 1)")
         pairs.add((int(m.group(1)), int(m.group(2))))
@@ -154,7 +166,7 @@ def answer_texts(path):
         raise InputError(f"--answers-file {path}: must be a JSON object of 'conv:question_no' -> text")
     out = {}
     for k, v in d.items():
-        m = re.fullmatch(r"(\d+):(\d+)", k)
+        m = re.fullmatch(r"([0-9]+):([0-9]+)", k)
         if not m:
             raise InputError(f"--answers-file {path}: key {k!r} is not conv:question_no")
         if not isinstance(v, str):
@@ -187,20 +199,62 @@ def _mean(marks):
     return sum(MARK[m] for m in marks) / len(marks)
 
 
+def is_withheld(withheld, question_no, conv=None):
+    """THE one place that decides whether a row is about a withheld (conv, question_no) pair. `conv` is the
+    row's conversation, or None when the row does not carry one (a finding without `conv`): then the
+    question number alone decides, in any conv. Fail-closed: it can over-match, never under-match."""
+    return question_no is not None and any(q == question_no and (conv is None or c == conv) for c, q in withheld)
+
+
+# A shipped percentage is rounded to one decimal, so it can sit up to 0.05 from the exact mean. Anything
+# further apart than that (plus float noise) is a different number, not a rounding.
+SHIPPED_TOLERANCE = 0.05 + 1e-9
+
+
+def check_shipped(data):
+    """Recompute every question and every run over ALL the input rows and compare with the scores the input
+    shipped (`official_score` / `adjusted_score` on answer rows; `official_pct` / `adjusted_pct` on run rows).
+    A difference beyond SHIPPED_TOLERANCE is InputError. This re-checks the formula against the input's own
+    numbers on every build. It cannot catch an input whose shipped scores were computed the same wrong way.
+    A run with no answer row in the input has nothing to recompute and is skipped."""
+    by_run = collections.defaultdict(list)
+    for a in data["answers"]:
+        om, am = parse_rubric(a, f"answers.json {a['key']}")
+        o, d = 100 * _mean(om), 100 * _mean(am)
+        for field, exact in (("official_score", o), ("adjusted_score", d)):
+            if abs(exact - a[field]) > SHIPPED_TOLERANCE:
+                raise InputError(f"answers.json {a['key']}: shipped {field} {a[field]} but its rubric recomputes "
+                                 f"to {exact:.2f}")
+        by_run[a["run_id"]].append((o, d))
+    for r in data["runs"]:
+        qs = by_run.get(r["run_id"])
+        if not qs:
+            continue
+        for field, exact in (("official_pct", sum(x for x, _ in qs) / len(qs)),
+                             ("adjusted_pct", sum(y for _, y in qs) / len(qs))):
+            if abs(exact - r[field]) > SHIPPED_TOLERANCE:
+                raise InputError(f"runs.json run {r['run_id']}: shipped {field} {r[field]} but its {len(qs)} answer "
+                                 f"rows recompute to {exact:.2f}")
+
+
 def recompute(runs, cats, causes, answers, withheld):
     """Run rows, category rows and cause rows computed from the answer rows that are NOT withheld.
 
     Question score = mean of its rubric lines (yes 1, partial 0.5, no 0); the adjusted score uses a line's
     adjusted mark where it has one. Run score = mean over the kept questions. Nothing is read from the input's
     precomputed scores or counts; the input rows only supply the labels and the order. Each returned run row
-    carries `questions` (N, kept) and `questions_total` (M, all of that run's answer rows in the input)."""
+    carries `questions` (N, kept) and `questions_total` (M, all of that run's answer rows in the input).
+
+    Orders: runs keep the input's order; within a run the answers are taken in question_no order; categories are
+    sorted by category name; causes are sorted by count, highest first, ties in first-seen order (question_no
+    order, then the order of a question's own `causes` text)."""
     conv_of = {r["run_id"]: r["conv"] for r in runs}
     cat_label = {(c["run_id"], c["category"]): c["label"] for c in cats}
     cause_key = {c["label"]: c["cause"] for c in causes}
     total = collections.Counter(a["run_id"] for a in answers)
     kept = collections.defaultdict(list)
     for a in sorted(answers, key=lambda r: r["question_no"]):
-        if (conv_key(conv_of[a["run_id"]]), a["question_no"]) not in withheld:
+        if not is_withheld(withheld, a["question_no"], conv_of[a["run_id"]]):
             kept[a["run_id"]].append(a)
     out_runs, out_cats, out_causes = [], [], []
     for r in runs:
@@ -244,7 +298,8 @@ def recompute(runs, cats, causes, answers, withheld):
 
 
 def _split_ids(s):
-    return {x.strip() for x in s.split(",") if x.strip()}
+    """The finding ids in an answer row's `findings` text, in order."""
+    return [x.strip() for x in s.split(",") if x.strip()]
 
 
 def apply_withhold(data, withheld):
@@ -256,27 +311,23 @@ def apply_withhold(data, withheld):
     for a in data["answers"]:
         if a["run_id"] not in conv_of:
             raise InputError(f"answers.json {a['key']}: run_id {a['run_id']!r} is not in runs.json")
-    present = {(conv_key(conv_of[a["run_id"]]), a["question_no"]) for a in data["answers"]}
     for c, q in sorted(withheld):
-        if (c, q) not in present:
+        if not any(is_withheld({(c, q)}, a["question_no"], conv_of[a["run_id"]]) for a in data["answers"]):
             raise InputError(f"--withhold: {c}:{q} matches no answer row in the data (a typo?)")
     keep, gone = [], []
     for a in data["answers"]:
-        (gone if (conv_key(conv_of[a["run_id"]]), a["question_no"]) in withheld else keep).append(a)
+        (gone if is_withheld(withheld, a["question_no"], conv_of[a["run_id"]]) else keep).append(a)
     linked = set()
     for a in gone:
-        linked |= _split_ids(a["findings"])
+        linked |= set(_split_ids(a["findings"]))
     dropped = set()
     for f in data["findings"]:
-        fq, fc = f["question_no"], f.get("conv")
-        own = fq is not None and any(q == fq and (fc is None or conv_key(fc) == c) for c, q in withheld)
-        if own or f["finding_id"] in linked:
+        if is_withheld(withheld, f["question_no"], f.get("conv")) or f["finding_id"] in linked:
             dropped.add(f["finding_id"])
     derived = recompute(data["runs"], data["categories"], data["causes"], data["answers"], withheld)
     answers = []
     for a in keep:
-        ids = [x.strip() for x in a["findings"].split(",") if x.strip()]
-        answers.append(dict(a, findings=", ".join(i for i in ids if i not in dropped)))
+        answers.append(dict(a, findings=", ".join(i for i in _split_ids(a["findings"]) if i not in dropped)))
     return {"runs": derived["runs"], "categories": derived["categories"], "causes": derived["causes"],
             "answers": answers, "findings": [f for f in data["findings"] if f["finding_id"] not in dropped]}
 
@@ -335,6 +386,9 @@ def banner_html(withheld, reason):
         by_conv[c].append(q)
     listing = "; ".join(f"conv {c}: " + ", ".join(f"Q{q}" for q in qs) for c, qs in sorted(by_conv.items()))
     n = len(withheld)
+    reason = reason.strip()
+    if reason and reason[-1] not in ".!?":
+        reason += "."
     return (f'<div class="bs-card" id="withheld-notice" role="note"><b>{n} question{"s" if n != 1 else ""} '
             f"withheld</b> ({html.escape(listing)}). Reason: {html.escape(reason)} Their text, grades, notes and "
             f"linked findings are not in this file; scores below are recomputed over the questions that "
@@ -375,21 +429,20 @@ def build(args):
     d3_text = load_d3(args.d3) if args.d3 else None
     withheld = parse_withhold(args.withhold) if args.withhold else None
     texts = answer_texts(args.answers_file) if args.answers_file else {}
-    conv_of = {r["run_id"]: conv_key(r["conv"]) for r in data["runs"]}
+    conv_of = {r["run_id"]: r["conv"] for r in data["runs"]}
     for a in data["answers"]:
         if a["run_id"] not in conv_of:
             raise InputError(f"answers.json {a['key']}: run_id {a['run_id']!r} is not in runs.json")
         t = texts.get((conv_of[a["run_id"]], a["question_no"]))
         if t is not None:
             a["answer"] = t
+    check_shipped(data)  # over ALL input rows, before anything is withheld; also rejects a bad rubric
     banner = ""
     if withheld:
         datasets = apply_withhold(data, withheld)
         banner = banner_html(withheld, args.withhold_reason)
     else:
         datasets = data
-        for a in datasets["answers"]:  # fail on a bad rubric even though nothing is recomputed
-            parse_rubric(a, f"answers.json {a['key']}")
     for a in datasets["answers"]:
         if not isinstance(a.get("answer"), str):
             raise InputError(f"answers.json {a['key']}: no 'answer' text (not in the row, not in --answers-file)")

@@ -60,10 +60,10 @@ def answers_file_texts():
             for run, spec in RUN_SPECS.items() for q in spec["questions"]}
 
 
-def build_data(omit=(), drop_findings=(), with_answer=True, poison_runs=False):
+def build_data(omit=(), drop_findings=(), with_answer=True, poison_runs=False, poison_answers=False):
     """The five datasets {name: {"rows": [...], "meta": [...]}}. `omit` is a set of (conv, n) pairs left out
     entirely and `drop_findings` a set of finding ids left out (both used to build the kept-only baseline).
-    `poison_runs` writes wrong precomputed run scores, so a test can tell recomputed from copied."""
+    `poison_runs` / `poison_answers` write a wrong shipped run score / question score (a build refuses these)."""
     runs, cats, causes, answers = [], [], [], []
     for run, spec in RUN_SPECS.items():
         qs = [q for q in spec["questions"] if (spec["conv"], q["n"]) not in omit]
@@ -90,7 +90,7 @@ def build_data(omit=(), drop_findings=(), with_answer=True, poison_runs=False):
             links = [f for f in q["findings"] if f not in drop_findings]
             row = dict(run_id=run, key=f"{run}:{q['n']}", question_no=q["n"], category=q["cat"],
                        question=f"QUESTIONTEXT-{t}-zq?", reference=f"REFERENCE-{t}-zq",
-                       official_score=round(100 * o, 1), adjusted_score=round(100 * d, 1), grade=q["grade"],
+                       official_score=99.9 if (poison_answers and not answers) else round(100 * o, 1), adjusted_score=round(100 * d, 1), grade=q["grade"],
                        grader=spec["grader"], causes="; ".join(LABEL[c] for c in q["causes"]),
                        asked_back="yes" if q["asked"] else "no", ask_justified=q["just"], gate_cell=f"gate-{t}",
                        findings=", ".join(links), notes=f"NOTES-{t}-zq \"n\"",

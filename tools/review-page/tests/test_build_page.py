@@ -86,7 +86,7 @@ CASES = {
 
 
 def withheld_build(env, pairs):
-    env.write(fx.build_data(poison_runs=True))
+    env.write(fx.build_data())
     code, out, err = env.run(*env.withhold(sorted(pairs)), "--answers-file", env.answers)
     assert code == 0, err
     return env.blob(), env.html()
@@ -134,7 +134,7 @@ def test_c1_answers_file_text_of_withheld_question_not_loaded(env):
 
 # ---- C2: run scores and counts recomputed from the kept rows, labelled over N of M ----
 def test_c2_run_scores_recomputed_not_copied(env):
-    blob, _ = withheld_build(env, {(1, 3)})  # the input's precomputed run scores are poisoned (99.9 / 11.1)
+    blob, _ = withheld_build(env, {(1, 3)})  # the shipped run scores are over all 4 questions: a copy would show them
     a = next(r for r in rows(blob, "runs") if r["run_id"] == "RA")
     # kept Q1 = 1.0, Q2 = 0.5 (adjusted 1.0), Q4 = 0.5: official (1+.5+.5)/3 = 66.7, adjusted (1+1+.5)/3 = 83.3
     assert a["official_pct"] == 66.7 and a["adjusted_pct"] == 83.3 and a["adjust_delta"] == 16.6
@@ -351,10 +351,10 @@ def test_c5_recompute_can_disagree(bp):
 
 
 def test_c5_without_withhold_every_row_passes_through(env):
-    env.write(fx.build_data(poison_runs=True))
+    env.write(fx.build_data())
     assert env.run("--answers-file", env.answers)[0] == 0
     blob, html = env.blob(), env.html()
-    want = fx.build_data(poison_runs=True)
+    want = fx.build_data()
     for name in ("runs", "categories", "causes", "answers", "findings"):
         assert rows(blob, name) == want[name]["rows"], name
     assert "withheld" not in html.split("<body>")[1].split("</header>")[0].lower()
@@ -558,3 +558,173 @@ def test_cli_smoke_end_to_end(tmp_path):
     r = subprocess.run([sys.executable, TOOL, "--data", str(d), "--out", str(out)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     assert out.stat().st_size > 1000
+
+
+# ----------------------------------------------------------------------------------------------
+# Round 2
+PAGE = os.path.join(os.path.dirname(HERE), "page.html")
+# Which row each variable names inside a draw block of page.html (the fields are then READ from the code).
+BLOCK_VARS = {
+    "t-run": {"r": "runs"}, "t-official": {"r": "runs"}, "t-adjusted": {"r": "runs"}, "official": {"r": "runs"},
+    "adjusted": {"r": "runs"}, "adjusted-note": {"r": "runs"}, "grades": {"r": "runs"},
+    "grades-note": {"r": "runs"}, "scope": {"r": "runs"}, "asked": {"r": "runs"}, "asked-note": {"r": "runs"},
+    "t-cause": {"r": "runs", "x": "causes"}, "sw0": {}, "sw1": {},
+    "cat-chart": {"r": "runs", "x": "categories", "d": "categories"},
+    "cause-chart": {"r": "runs", "x": "causes", "d": "causes"},
+    "runs-body": {"d": "runs"}, "finding-filters": {}, "finding-list": {"d": "findings"},
+    "question-list": {"r": "runs", "d": "answers"},
+}
+
+
+def page_reads():
+    """{dataset: {field}} read off page.html: VAR.field inside each draw block, string arguments to runCell,
+    BS.mark(..., 'dataset', 'field', ...) pairs, data-field attributes, and the field-name lists the charts loop over."""
+    src = open(PAGE, encoding="utf-8").read()
+    reads = {n: set() for n in ("runs", "categories", "causes", "answers", "findings")}
+    parts = re.split(r"(?=dash\.draw\(')", src)
+    seen = set()
+    for part in parts:
+        m = re.match(r"dash\.draw\('([\w-]+)',", part)
+        if not m:
+            continue
+        name = m.group(1)
+        seen.add(name)
+        assert name in BLOCK_VARS, f"draw block {name!r} is not mapped in BLOCK_VARS"
+        for var, ds in BLOCK_VARS[name].items():
+            reads[ds] |= set(re.findall(rf"(?<![\w.]){var}\.(\w+)", part))
+            reads[ds] |= set(re.findall(rf"(?<![\w.]){var}\[['\"](\w+)['\"]\]", part))
+        for f in re.findall(r"runCell\('(\w+)'", part):
+            reads["runs"].add(f)
+    for ds, f in re.findall(r"BS\.mark\([^;]*?'(runs|categories|causes|answers|findings)', '(\w+)'", src):
+        reads[ds].add(f)
+    for f in re.findall(r'<th data-field="(\w+)">', src):
+        reads["runs"].add(f)  # the only table carrying data-field is the runs table
+    reads["categories"] |= {"official_pct", "adjusted_pct"}  # the chart loops over ['official_pct', 'adjusted_pct']
+    assert re.search(r"\['official_pct', 'adjusted_pct'\]\.forEach", src)
+    assert seen == set(BLOCK_VARS), set(BLOCK_VARS) - seen
+    # names that belong to the dash.data() result objects or to arrays, not to rows
+    for ds in reads:
+        reads[ds] -= {"status", "data", "length", "columns"} if ds != "findings" else {"data", "length", "columns"}
+    return reads
+
+
+def test_s1_every_field_the_page_reads_is_in_the_schema(bp):
+    reads = page_reads()
+    assert reads["runs"] >= {"questions", "questions_total", "run_id", "official_pct"}  # the extraction sees them
+    for ds, fields in reads.items():
+        extra = fields - set(bp.SCHEMA[ds]) - ({"answer", "questions_total"} if ds in ("answers", "runs") else set())
+        assert not extra, (ds, sorted(extra))
+
+
+def test_s1_every_field_the_page_reads_is_in_the_readme_table():
+    readme = open(os.path.join(os.path.dirname(HERE), "README.md"), encoding="utf-8").read()
+    table = {ln.split("|")[1].strip(): ln for ln in readme.splitlines() if ln.startswith("| `")}
+    for ds, fields in page_reads().items():
+        row = table[f"`{ds}.json`"]
+        for f in fields:
+            assert f"`{f}`" in row, (ds, f)
+
+
+def test_s1_a_runs_row_without_questions_is_refused_and_named(env):
+    data = fx.build_data()
+    del data["runs"]["rows"][0]["questions"]
+    env.write(data)
+    code, _, err = env.run()
+    assert code == 2 and "runs" in err and "questions" in err
+    assert not os.path.exists(env.out)
+
+
+# ---- S2: the recompute is checked against the scores the input shipped with, on every build ----
+def test_s2_agreeing_input_builds(env):
+    env.write()
+    assert env.run()[0] == 0
+
+
+@pytest.mark.parametrize("field", ["official_pct", "adjusted_pct"])
+def test_s2_a_poisoned_shipped_run_score_is_refused(env, field):
+    data = fx.build_data()
+    data["runs"]["rows"][0][field] = 99.9
+    env.write(data)
+    code, _, err = env.run()
+    assert code == 2 and "RA" in err and field in err and "99.9" in err
+    assert not os.path.exists(env.out)
+
+
+def test_s2_a_poisoned_shipped_question_score_is_refused(env):
+    env.write(fx.build_data(poison_answers=True))
+    code, _, err = env.run()
+    assert code == 2 and "RA:1" in err and "official_score" in err
+    assert not os.path.exists(env.out)
+
+
+def test_s2_the_check_runs_before_withholding(env):
+    """Poison a score of the question that is about to be withheld: the check is over ALL input rows."""
+    data = fx.build_data()
+    data["answers"]["rows"][2]["official_score"] = 99.9  # RA:3
+    env.write(data)
+    code, _, err = env.run(*env.withhold([(1, 3)]))
+    assert code == 2 and "RA:3" in err
+
+
+def test_s2_tolerance_is_half_a_unit_of_the_shipped_decimal(env):
+    """RA's exact official mean is 54.1667; it ships as 54.2 (0.033 away). 0.05 away still passes, 0.1 away does not."""
+    for shipped, want in ((54.2, 0), (54.21, 0), (54.12, 0), (54.3, 2), (54.0, 2)):
+        data = fx.build_data()
+        data["runs"]["rows"][0]["official_pct"] = shipped
+        env.write(data)
+        assert env.run()[0] == want, shipped
+        if os.path.exists(env.out):
+            os.remove(env.out)
+
+
+# ---- S4: conv is an integer everywhere it appears ----
+@pytest.mark.parametrize("bad", ["x", "1.5", "", -1, 1.5, True, None, "-2", " 3"])
+def test_s4_bad_conv_in_runs_is_refused(env, bad):
+    data = fx.build_data()
+    data["runs"]["rows"][0]["conv"] = bad
+    env.write(data)
+    code, _, err = env.run()
+    assert code == 2 and "runs.json" in err and "conv" in err
+    assert not os.path.exists(env.out)
+
+
+def test_s4_bad_conv_in_findings_is_refused(env):
+    data = fx.build_data()
+    data["findings"]["rows"][0]["conv"] = "one"
+    env.write(data)
+    code, _, err = env.run()
+    assert code == 2 and "findings.json" in err and "conv" in err
+
+
+def test_s4_a_digit_string_conv_is_normalised_to_int(env):
+    data = fx.build_data()
+    data["runs"]["rows"][1]["conv"] = "2"
+    data["findings"]["rows"][4]["conv"] = "2"  # F5
+    env.write(data)
+    assert env.run(*env.withhold([(2, 3)]))[0] == 0
+    blob = env.blob()
+    assert {r["conv"] for r in rows(blob, "runs")} == {1, 2}
+    assert all(r["run_id"] != "RB" or r["questions"] == 3 for r in rows(blob, "runs"))
+    assert "F5" not in {f["finding_id"] for f in rows(blob, "findings")}
+
+
+@pytest.mark.parametrize("key", ["x:3", "1:y", "1.0:3", "+1:3", "1:3 "])
+def test_s4_bad_answers_file_key_is_refused(env, key):
+    env.write(fx.build_data(with_answer=False))
+    p = str(env.tmp / "a4.json")
+    json.dump({key: "t"}, open(p, "w"))
+    code, _, err = env.run("--answers-file", p)
+    assert code == 2 and "a4.json" in err
+
+
+# ---- S5 nit: banner punctuation ----
+@pytest.mark.parametrize("reason,want,notwant", [
+    ("a reason", "Reason: a reason. Their", "reason.."),
+    ("a reason.", "Reason: a reason. Their", "reason.."),
+    ("really?", "Reason: really? Their", "?."),
+])
+def test_s5_banner_punctuation(env, reason, want, notwant):
+    env.write()
+    assert env.run(*env.withhold([(1, 3)], reason=reason))[0] == 0
+    html = env.html()
+    assert want in html and notwant not in html
