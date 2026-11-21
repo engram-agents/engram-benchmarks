@@ -2,7 +2,7 @@
 """Build a human-review page for benchmark results: ONE html file from five row files.
 
     build_page.py --data DIR --out FILE.html [--answers-file PATH] [--withhold FILE --withhold-reason TEXT]
-                  [--d3 PATH] [--title TEXT]
+                  [--d3 PATH] [--title TEXT] [--official-note TEXT]
 
 The tool holds no data. It reads the result files it is given, checks them, and writes the page. Exit 0 on
 success; exit 2 on any bad input, with the reason on stderr and nothing written. The inputs, the withhold
@@ -416,17 +416,28 @@ def banner_html(withheld, reason):
             f"remain. {html.escape(FREE_TEXT_NOTICE)}</div>")
 
 
+def official_note_html(note):
+    """The note shown beside every place 'Official' labels a column or chart, or '' when no note was given.
+    Escaped like the withhold reason; the markup is the same in every section that carries it."""
+    if note is None:
+        return ""
+    return f'<p class="bs-k bs-official-note">{html.escape(note.strip())}</p>'
+
+
 def blob_json(datasets):
     blob = json.dumps({n: {"rows": datasets[n]} for n in NAMES}, ensure_ascii=False)
     # keep the data from closing or re-opening the script block it sits in
     return blob.replace("</", "<\\/").replace("<!--", "<\\u0021--")
 
 
-def render(datasets, title, banner, d3_text):
+def render(datasets, title, banner, d3_text, official_note=None):
     with open(os.path.join(HERE, "page.html"), encoding="utf-8") as fh:
         page = fh.read()
     t = html.escape(title)
-    page = page.replace("__TITLE__", t).replace("__BANNER__", banner)
+    # ONE pass over the template: a marker-shaped string inside a filled-in value (a title, the note) is text,
+    # never substituted again.
+    fill = {"TITLE": t, "BANNER": banner, "OFFICIAL_NOTE": official_note_html(official_note)}
+    page = re.sub(r"__(" + "|".join(fill) + r")__", lambda m: fill[m.group(1)], page)
     d3_tag = f"<script>{d3_text}</script>" if d3_text is not None else f'<script src="{D3_URL}"></script>'
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -450,6 +461,8 @@ def build(args):
     # `is not None`, never truthiness: an unset shell variable gives '' and must fail, not switch the option off
     if args.withhold_reason is not None and not args.withhold_reason.strip():
         raise InputError("--withhold-reason is empty: say why the questions are withheld")
+    if args.official_note is not None and not args.official_note.strip():
+        raise InputError("--official-note is empty: give the text to show beside the official columns and charts")
     d3_text = load_d3(args.d3) if args.d3 is not None else None
     withheld = parse_withhold(args.withhold) if args.withhold is not None else None
     texts = answer_texts(args.answers_file) if args.answers_file is not None else {}
@@ -470,7 +483,7 @@ def build(args):
     for a in datasets["answers"]:
         if not isinstance(a.get("answer"), str):
             raise InputError(f"answers.json {a['key']}: no 'answer' text (not in the row, not in --answers-file)")
-    return render(datasets, args.title, banner, d3_text), d3_text is not None
+    return render(datasets, args.title, banner, d3_text, args.official_note), d3_text is not None
 
 
 def main(argv=None):
@@ -482,6 +495,8 @@ def main(argv=None):
     ap.add_argument("--withhold-reason", help="why those questions are withheld (shown on the page; required with --withhold)")
     ap.add_argument("--d3", help="local d3 7.8.5 min.js (checked against a pinned sha256); makes the page offline")
     ap.add_argument("--title", default="BEAM Scorecard", help="page title")
+    ap.add_argument("--official-note", help="text shown beside every column and chart labelled Official (which grader "
+                    "produced it, and any caveat for this page); one text carries all of it")
     args = ap.parse_args(argv)
     try:
         page, offline = build(args)

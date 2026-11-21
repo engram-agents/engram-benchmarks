@@ -48,11 +48,11 @@
     <h1 class="bs-title">__TITLE__</h1>
     <p class="bs-lede" id="takeaway">Run <b data-draw="t-run">—</b> scored <b data-draw="t-official">—</b> on the official answers and <b data-draw="t-adjusted">—</b> after correcting official answers we have checked in the raw data. The most common reason for lost points: <b data-draw="t-cause">—</b>.</p>
     <p class="bs-sub">The ENGRAM student on the BEAM memory benchmark, tuning conversations only. Grades are by hand until a judge model runs.</p>
-    <p class="bs-sub" data-draw="scope"></p>
+    <p class="bs-sub" data-draw="scope"></p>__OFFICIAL_NOTE__
   </header>
 
   <section class="bs-tiles" id="tiles" aria-label="Latest run">
-    <div class="bs-card"><div class="bs-tile-label">Official score</div><div class="bs-big" data-draw="official">—</div><div class="bs-tile-note">Official answers as given, known issues included</div></div>
+    <div class="bs-card"><div class="bs-tile-label">Official score</div><div class="bs-big" data-draw="official">—</div><div class="bs-tile-note">Official answers as given, known issues included</div>__OFFICIAL_NOTE__</div>
     <div class="bs-card"><div class="bs-tile-label">Adjusted score</div><div class="bs-big" data-draw="adjusted">—</div><div class="bs-tile-note" data-draw="adjusted-note">—</div></div>
     <div class="bs-card"><div class="bs-tile-label">Pass · partial · fail</div><div class="bs-big" data-draw="grades">—</div><div class="bs-tile-note" data-draw="grades-note">—</div></div>
     <div class="bs-card"><div class="bs-tile-label">Asked the user back</div><div class="bs-big" data-draw="asked">—</div><div class="bs-tile-note" data-draw="asked-note">—</div></div>
@@ -61,7 +61,7 @@
   <section class="bs-two">
     <div class="bs-card" id="by-category">
       <h2>Score by question type</h2>
-      <div class="bs-legend"><span><span class="bs-sw" data-draw="sw0"></span>Official</span><span><span class="bs-sw" data-draw="sw1"></span>Adjusted</span></div>
+      <div class="bs-legend"><span><span class="bs-sw" data-draw="sw0"></span>Official</span><span><span class="bs-sw" data-draw="sw1"></span>Adjusted</span></div>__OFFICIAL_NOTE__
       <div class="bs-chart" data-draw="cat-chart" data-source="categories"></div>
     </div>
     <div class="bs-card" id="causes">
@@ -72,7 +72,7 @@
   </section>
 
   <section class="bs-card" id="runs">
-    <h2>All runs</h2>
+    <h2>All runs</h2>__OFFICIAL_NOTE__
     <div class="bs-scroll">
       <table class="bs-table" data-source="runs" data-row-key="run_id">
         <thead><tr><th data-field="run_id">Run</th><th data-field="conv">Conversation</th><th data-field="setup_hash">Setup</th><th data-field="official_pct">Official %</th><th data-field="adjusted_pct">Adjusted %</th><th data-field="pass_n">Pass</th><th data-field="partial_n">Partial</th><th data-field="fail_n">Fail</th><th data-field="grader">Graded by</th></tr></thead>
@@ -89,7 +89,7 @@
   </section>
 
   <section id="questions">
-    <h2>Every question in the latest run</h2>
+    <h2>Every question in the latest run</h2>__OFFICIAL_NOTE__
     <div class="bs-list" data-draw="question-list" data-source="answers"></div>
   </section>
 

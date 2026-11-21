@@ -949,3 +949,233 @@ def test_r3_the_dotted_read_scan_goes_red_on_a_read_through_an_unmapped_alias(bp
     mutated = text.replace("x.question_no - y.question_no", "x.question_no - y.newfield")
     assert mutated != text, "the sort comparator moved: update this control"
     assert unknown_dotted_reads(mutated, known) == {("y", "newfield")}
+
+
+# ----------------------------------------------------------------------------------------------
+# N1: --official-note. The page draws some labels at run time (d3), so a static check of the built html cannot
+# see them. The note therefore lives in the STATIC markup of each section that holds an official column or
+# chart, and the set of such sections is GENERATED from page.html here, never listed by hand.
+import collections  # noqa: E402
+import html as htmllib  # noqa: E402
+import itertools  # noqa: E402
+from html.parser import HTMLParser  # noqa: E402
+
+# 'Official dataset' / 'Official-dataset' is a findings AREA, not a score label, so it does not count.
+OFFICIAL_RE = re.compile(r"official_\w+|\bOfficial\b(?![- ]dataset)")
+ADJUSTED_RE = re.compile(r"adjusted_\w+|adjust_delta|\bAdjusted\b")
+NOTE_MARKUP = '<p class="bs-k bs-official-note">{}</p>'
+INDEP_MARKUP = '<p class="bs-k bs-independence">{}</p>'
+INDEP_MARKUP_RE = re.compile(r'<p class="bs-k bs-independence">[^<]*</p>')
+VOID = {"br", "hr", "img", "input", "meta", "link"}
+# sha256 of the build's output before --official-note existed (build_page.py and page.html at the commit that
+# merged the review page), for two builds of the synthetic fixtures. If the page changes on purpose, the new
+# output is the new pin; the cell exists so that a build WITHOUT the option can never change by accident.
+MAIN_OUTPUT_PINS = {
+    "default": "12f3afa8c04e9fb6745a48d38f1e22273a81ece97f5dafcb68df3e1ef3368a46",
+    "withhold_title": "98b1e7ab78c30fc973a0f9e19d701695ed58fd222bac9c2c5a537a5f8d68a3dd",
+}
+
+
+class _El:
+    def __init__(self, tag, attrs, start, open_text):
+        self.tag, self.attrs, self.start, self.open = tag, dict(attrs), start, open_text
+        self.end, self.kids = None, []
+
+    @property
+    def classes(self):
+        return (self.attrs.get("class") or "").split()
+
+
+class _Tree(HTMLParser):
+    def __init__(self, text):
+        super().__init__(convert_charrefs=False)
+        self.text = text
+        self.root = _El("#root", [], 0, "")
+        self.stack = [self.root]
+        self._lines = [0] + [m.end() for m in re.finditer("\n", text)]
+        self.feed(text)
+        self.close()
+
+    def _off(self):
+        line, col = self.getpos()
+        return self._lines[line - 1] + col
+
+    def handle_starttag(self, tag, attrs):
+        el = _El(tag, attrs, self._off(), self.get_starttag_text())
+        self.stack[-1].kids.append(el)
+        if tag not in VOID:
+            self.stack.append(el)
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, 0, -1):
+            if self.stack[i].tag == tag:
+                self.stack[i].end = self.text.index(">", self._off()) + 1
+                del self.stack[i:]
+                return
+
+
+def _walk(el):
+    for k in el.kids:
+        yield k
+        yield from _walk(k)
+
+
+def sections(text):
+    """The page's sections as [(key, markup)]: a card, or a top-level block of the page's `.bs` grid that holds
+    no card. A container of cards (the tiles row, the two-chart row) is not itself a section; its cards are.
+    The key is the section's opening tag text plus its place among the sections that open the same way."""
+    tree = _Tree(text)
+    root = next(e for e in _walk(tree.root) if e.tag == "div" and e.classes == ["bs"])
+
+    def pick(el):
+        if "bs-card" in el.classes:
+            return [el]
+        if any("bs-card" in d.classes for d in _walk(el)):
+            return [s for k in el.kids for s in pick(k)]
+        return [el]
+
+    seen = collections.Counter()
+    out = []
+    for kid in root.kids:
+        for el in pick(kid):
+            seen[el.open] += 1
+            out.append(((el.open, seen[el.open]), text[el.start:el.end]))
+    return out
+
+
+def draw_code(page_text):
+    """{draw name: its code} from the page's scripts: from one `dash.draw('<name>',` to the next. Whole-line
+    comments are dropped so a comment's wording cannot decide anything."""
+    js = "\n".join(re.findall(r"<script>(.*?)</script>", page_text, re.S))
+    js = re.sub(r"(?m)^\s*//.*$", "", js)
+    ms = list(re.finditer(r"dash\.draw\('([\w-]+)',", js))
+    return {m.group(1): js[m.start():(ms[i + 1].start() if i + 1 < len(ms) else len(js))] for i, m in enumerate(ms)}
+
+
+def generated_sections(page_text, rx):
+    """Keys of the sections of page.html whose markup, or the draw code of a `data-draw` in it, matches `rx`."""
+    code = draw_code(page_text)
+    hit = []
+    for key, markup in sections(page_text):
+        names = re.findall(r'data-draw="([\w-]+)"', markup)
+        if rx.search(markup + "\n" + "\n".join(code.get(n, "") for n in names)):
+            hit.append(key)
+    return hit
+
+
+def missing_from(built, keys, needle):
+    """Of the generated section keys, those whose markup in the built page lacks `needle`."""
+    have = dict(sections(built))
+    return [k for k in keys if k not in have or needle not in have[k]]
+
+
+def page_html_text():
+    with open(PAGE, encoding="utf-8") as fh:
+        return fh.read()
+
+
+NOTE = "Official column graded by the hand-grader; this page is a draft."
+
+
+def note_build(env, *extra, note=NOTE, pairs=None):
+    env.write()
+    argv = ["--answers-file", env.answers]
+    if note is not None:
+        argv += ["--official-note", note]
+    if pairs:
+        argv += env.withhold(pairs)
+    code, out, err = env.run(*argv, *extra)
+    assert code == 0, err
+    return env.html()
+
+
+def test_n1_the_generated_set_of_official_sections_is_the_expected_kind():
+    keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    ids = [k[0] for k in keys]
+    assert len(keys) >= 5, keys  # the header, the Official tile, by question type, all runs, every question
+    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"'):
+        assert any(want in i for i in ids), (want, ids)
+    for notwant in ('id="findings"', 'id="causes"', 'id="method"'):  # 'Official dataset' only, or no official column
+        assert not any(notwant in i for i in ids), (notwant, ids)
+
+
+def test_n1_the_set_is_generated_a_new_official_section_joins_it():
+    text = page_html_text()
+    before = generated_sections(text, OFFICIAL_RE)
+    extra = '<section id="added"><h2>Official score per cohort</h2></section>\n  '
+    mutated = text.replace('<section id="findings">', extra + '<section id="findings">', 1)
+    assert mutated != text
+    after = generated_sections(mutated, OFFICIAL_RE)
+    assert len(after) == len(before) + 1 and any('id="added"' in k[0] for k in after)
+    # a section whose DRAW CODE names an official field, with static markup that does not, joins too
+    m2 = text.replace('<section id="findings">', '<section id="added2"><div data-draw="added2"></div></section>\n  <section id="findings">', 1)
+    m2 = m2.replace("<script>\n  // Runs table body", "<script>\n  dash.draw('added2', (el) => { el.textContent = BS.latest().official_pct; });\n  // Runs table body", 1)
+    assert m2 != text and len(generated_sections(m2, OFFICIAL_RE)) == len(before) + 1
+
+
+def test_n1_the_note_is_in_every_generated_section_when_given(env):
+    keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    built = note_build(env)
+    one = NOTE_MARKUP.format(htmllib.escape(NOTE))
+    assert missing_from(built, keys, one) == []
+    assert built.count(one) == len(keys)  # once per section, nowhere else
+
+
+def test_n1_the_note_is_in_every_generated_section_under_withhold_and_title(env):
+    keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    built = note_build(env, "--title", "T <x>", pairs=[(1, 3)])
+    assert missing_from(built, keys, NOTE_MARKUP.format(htmllib.escape(NOTE))) == []
+
+
+def test_n1_the_coverage_check_goes_red_on_a_section_without_the_note(env):
+    keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    built = note_build(env)
+    one = NOTE_MARKUP.format(htmllib.escape(NOTE))
+    broken = built.replace(one, "", 1)  # drop it from the first section only
+    assert missing_from(broken, keys, one) == [keys[0]]
+
+
+@pytest.mark.parametrize("name,extra", [("default", []), ("withhold_title", ["--title", "T <x>"])])
+def test_n1_without_the_option_the_page_is_byte_identical_to_main(env, name, extra):
+    env.write()
+    pairs = env.withhold([(1, 3), (2, 1)]) if name == "withhold_title" else []
+    code, _, err = env.run("--answers-file", env.answers, *pairs, *extra)
+    assert code == 0, err
+    got = env.html()
+    assert "official-note" not in got
+    # the fixed independence sentence (N2) is the one thing a build adds on its own: take it out, compare
+    stripped = INDEP_MARKUP_RE.sub("", got)
+    assert hashlib.sha256(stripped.encode("utf-8")).hexdigest() == MAIN_OUTPUT_PINS[name]
+
+
+def test_n1_the_note_text_appears_nowhere_when_not_given(env):
+    built = note_build(env, note=None)
+    assert "bs-official-note" not in built and "draft" not in built
+
+
+def test_n1_the_note_is_escaped_like_the_withhold_reason(env):
+    nasty = '<b>& "q" \'x\' __TITLE__ __BANNER__ __OFFICIAL_NOTE__ __INDEPENDENCE__ </div>'
+    keys = generated_sections(page_html_text(), OFFICIAL_RE)
+    built = note_build(env, note=nasty)
+    one = NOTE_MARKUP.format(htmllib.escape(nasty))
+    assert missing_from(built, keys, one) == []
+    assert built.count(one) == len(keys)
+    assert "<b>&" not in built and "&lt;b&gt;&amp;" in built
+
+
+def test_n1_markers_in_the_note_are_text_not_substituted(env):
+    built = note_build(env, note="see __TITLE__ and __BANNER__ here")
+    assert built.count("see __TITLE__ and __BANNER__ here") == len(generated_sections(page_html_text(), OFFICIAL_RE))
+
+
+def test_n1_the_note_is_stripped_of_surrounding_space_like_the_withhold_reason(env):
+    built = note_build(env, note="  spaced note \n")
+    assert NOTE_MARKUP.format("spaced note") in built
+
+
+@pytest.mark.parametrize("value", ["", "   ", "\t\n"])
+def test_n1_an_empty_or_blank_note_is_refused_named_and_writes_nothing(env, value):
+    env.write()
+    code, out, err = env.run("--answers-file", env.answers, "--official-note", value)
+    assert code == 2 and err.startswith("build_page:") and "--official-note" in err and "empty" in err  # the tool's own refusal, not argparse's
+    assert not os.path.exists(env.out)
