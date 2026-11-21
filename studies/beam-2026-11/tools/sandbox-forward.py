@@ -25,6 +25,10 @@ socket, and nothing else crosses:
   inner  (inside the box)  127.0.0.1:<port>  ->  the UNIX socket bind-mounted from outside. A raw relay: it checks
          nothing, because everything it carries passes the outer forwarder's list.
          Forks into the background, then execs the command it was given, so the student is the main process.
+         With --daemon-line (the wrapper's SANDBOX_DAEMON=engram) it does NOT exec: it is the box's supervisor. It runs the
+         launcher's own line, waits for the daemon's socket to answer (--daemon-ready-s), starts the command, and after the command
+         exits sends the daemon SIGTERM, waits (--daemon-term-s), and SIGKILLs it with a named fault if it must. Its exit code is the
+         command's (128+signal if killed), or 4 if the daemon never became ready (the command is then never started).
 
   latency / latency-compare   measurement helper (S8): median and max round trip through the bridge vs direct.
   log-verdict --log FILE   run-script helper: the ONE harness-fault flag rule, read from the outer forwarder's log
@@ -40,11 +44,12 @@ socket, and nothing else crosses:
 
 Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | --learn) [--log FILE]
                         --max-request N --max-total N --max-conns N --read-idle-s S [--scope-unit NAME]
-                  inner --sock S --port P [--unset NAME]... -- CMD [ARG...]
+                  inner --sock S --port P [--unset NAME]... [--daemon-line L --daemon-sock S --daemon-pidfile F
+                        --daemon-ready-s N --daemon-term-s N [--report-fd FD]] -- CMD [ARG...]
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
 """
-import argparse, os, re, select, shlex, socket, statistics, subprocess, sys, threading, time, urllib.parse
+import argparse, os, re, select, shlex, signal, socket, statistics, subprocess, sys, threading, time, urllib.parse
 
 LOCK = threading.Lock()
 COUNTER = [0]
@@ -919,6 +924,8 @@ def run_inner(a):
             s.connect(a.sock)
             return s
 
+        if a.report_fd is not None:
+            os.close(a.report_fd)      # the report channel belongs to the supervisor alone
         os.write(w, b"1")
         os.close(w)
         serve(listener, lambda client: handle(client, connect, None))
@@ -929,11 +936,161 @@ def run_inner(a):
         return 3
     os.close(r)
     listener.close()
+    if a.daemon_line:
+        return run_supervised(a, env)
     try:
         os.execve(a.cmd[0], a.cmd, env)
     except OSError as e:
         sys.stderr.write("student-sandbox: cannot exec %s: %s\n" % (a.cmd[0], e.strerror))
         return 127
+
+
+# ---- the recall daemon (SANDBOX_DAEMON=engram): start, gate, run the command, stop ----------------------------------------------------
+DAEMON_POLL_S = 0.05
+EXIT_DAEMON_NOT_READY = 4      # the command was never started (3 is the bridge listener, 127 an exec failure)
+EXIT_REPORT_CHANNEL = 5        # the report descriptor could not be made private: nothing was started
+
+
+def report(fd, line):
+    """One line on the report descriptor (SANDBOX_LOG, opened by the wrapper); a single write, so lines never interleave."""
+    if fd is None:
+        return
+    try:
+        os.write(fd, (line + "\n").encode())
+    except OSError:
+        pass
+
+
+def make_undumpable():
+    """prctl(PR_SET_DUMPABLE, 0): /proc/<this pid>/fd is then not reachable from any other process of the box, so the student
+    cannot open the report descriptor (a write into SANDBOX_LOG, outside the box) through /proc. Returns True when it took."""
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(4, 0, 0, 0, 0) == 0 and libc.prctl(3, 0, 0, 0, 0) == 0   # PR_SET_DUMPABLE=4, PR_GET_DUMPABLE=3
+    except (OSError, AttributeError, ImportError):
+        return False
+
+
+def start_daemon(a, env):
+    """Run the launcher's own line through /bin/sh (it ends in `&`) and return the daemon's pid, or None."""
+    try:
+        r = subprocess.run(["/bin/sh", "-c", a.daemon_line + "\necho $!"], env=env, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, timeout=30)
+        pid = int(r.stdout.decode().split()[-1])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+    return pid if pid > 1 else None
+
+
+def is_daemon(pid, a):
+    """The pid is still the process the line started: its argv holds the daemon's own directory (never signal a reused pid)."""
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            return os.path.dirname(a.daemon_sock).encode() in f.read()
+    except OSError:
+        return False
+
+
+def daemon_up(pid, a):
+    return alive(pid) and is_daemon(pid, a)
+
+
+def wait_daemon_ready(a, pid):
+    """('ready' | 'timeout' | 'exited-early', seconds waited): ready when a connect to the daemon's socket succeeds."""
+    t0 = time.monotonic()
+    while True:
+        if not daemon_up(pid, a):
+            return "exited-early", time.monotonic() - t0
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        try:
+            s.connect(a.daemon_sock)
+            return "ready", time.monotonic() - t0
+        except OSError:
+            pass
+        finally:
+            s.close()
+        if time.monotonic() - t0 >= a.daemon_ready_s:
+            return "timeout", time.monotonic() - t0
+        time.sleep(DAEMON_POLL_S)
+
+
+def wait_daemon_gone(pid, a, secs):
+    end = time.monotonic() + secs
+    while daemon_up(pid, a) and time.monotonic() < end:
+        time.sleep(DAEMON_POLL_S)
+    return not daemon_up(pid, a)
+
+
+def stop_daemon(a, pid, rfd):
+    """SIGTERM, a bounded wait, then SIGKILL and a NAMED fault. One `daemon-stop` line always; a `daemon-fault` line for a kill, and
+    for a daemon that exited on SIGTERM yet left its pid file or socket (the slot is about to be saved)."""
+    t0 = time.monotonic()
+    if not daemon_up(pid, a):
+        outcome = "already-gone"
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        if wait_daemon_gone(pid, a, a.daemon_term_s):
+            outcome = "term"
+        else:
+            outcome = "killed"
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+            wait_daemon_gone(pid, a, 5.0)
+    waited = time.monotonic() - t0
+    now = time.time()
+    report(rfd, "daemon-stop time=%.3f pid=%d outcome=%s waited_s=%.3f" % (now, pid, outcome, waited))
+    if outcome == "killed":
+        sys.stderr.write("student-sandbox: the recall daemon ignored SIGTERM for %ss and was killed with SIGKILL (a fault: its "
+                         "state may not have been written)\n" % a.daemon_term_s)
+        report(rfd, "daemon-fault time=%.3f kind=sigkill pid=%d after_s=%s" % (now, pid, a.daemon_term_s))
+    elif outcome == "term":
+        left = [n for n in (a.daemon_pidfile, a.daemon_sock) if os.path.lexists(n)]
+        if left:
+            sys.stderr.write("student-sandbox: the recall daemon exited on SIGTERM but left %s in the slot\n" % ", ".join(left))
+            report(rfd, "daemon-fault time=%.3f kind=files-left pid=%d files=%s" % (now, pid, ",".join(os.path.basename(n) for n in left)))
+    return outcome
+
+
+
+
+def run_supervised(a, env):
+    rfd = a.report_fd
+    if rfd is not None and not make_undumpable():
+        sys.stderr.write("student-sandbox: refused: the report descriptor could not be made private (prctl PR_SET_DUMPABLE)\n")
+        return EXIT_REPORT_CHANNEL
+    pid = start_daemon(a, env)
+    if pid is None:
+        state, waited = "spawn-failed", 0.0
+    else:
+        state, waited = wait_daemon_ready(a, pid)
+    if state != "ready":
+        report(rfd, "daemon-not-ready time=%.3f reason=%s waited_s=%.3f" % (time.time(), state, waited))
+        sys.stderr.write("student-sandbox: the recall daemon did not become ready (%s after %.1fs; limit %ss): the client was "
+                         "not started\n" % (state, waited, a.daemon_ready_s))
+        if pid is not None:
+            stop_daemon(a, pid, rfd)
+        return EXIT_DAEMON_NOT_READY
+    report(rfd, "daemon-ready time=%.3f pid=%d time_to_ready_s=%.3f" % (time.time(), pid, waited))
+    try:
+        child = subprocess.Popen(a.cmd, env=env, close_fds=True)    # close_fds: the child holds nothing but 0, 1, 2
+    except OSError as e:
+        sys.stderr.write("student-sandbox: cannot exec %s: %s\n" % (a.cmd[0], e.strerror))
+        stop_daemon(a, pid, rfd)
+        return 127
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):    # a signal to the box reaches the client; the stop below still runs
+        signal.signal(sig, lambda n, f: child.send_signal(n))
+    rc = child.wait()
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, signal.SIG_IGN)
+    stop_daemon(a, pid, rfd)
+    return 128 - rc if rc < 0 else rc
 
 
 def run_check_allow(a):
@@ -1128,6 +1285,9 @@ def main(argv):
     i = sub.add_parser("inner")
     i.add_argument("--sock", required=True); i.add_argument("--port", type=int, required=True)
     i.add_argument("--unset", action="append", default=[])
+    i.add_argument("--daemon-line"); i.add_argument("--daemon-sock"); i.add_argument("--daemon-pidfile")
+    i.add_argument("--daemon-ready-s", type=float); i.add_argument("--daemon-term-s", type=float)
+    i.add_argument("--report-fd", type=int)
     i.add_argument("cmd", nargs="*")
     ca = sub.add_parser("check-allow")
     ca.add_argument("--text", required=True)

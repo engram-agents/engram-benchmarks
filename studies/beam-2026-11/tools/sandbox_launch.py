@@ -71,12 +71,26 @@ FORWARDER_SRC = os.path.join(HERE, "sandbox-forward.py")
 REQUIRED_SANDBOX = ("SANDBOX_SLOT", "SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST",
                     "SANDBOX_MODEL_PORT", "SANDBOX_PROTECT", "SANDBOX_MODEL_ALLOW")
 # Names the module itself sets for each launch; a caller may not supply them.
-MODULE_OWNED = ("SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT")
+MODULE_OWNED = ("SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT", "SANDBOX_DAEMON")
 # feed.py's OLLAMA_URL: BEAM_OLLAMA_URL, else Ollama's documented default (a cell reads feed.py and requires this).
 OLLAMA_DEFAULT = "http://localhost:11434"  # privacy-scan: allow (Ollama's documented default endpoint, as in feed.py)
 VERDICT_NOT_FLAGGED = "not-flagged"
 VERDICT_FLAGGED_PREFIX = "flagged:"
 HEX64 = re.compile(r"[0-9a-f]{64}")
+
+# ---- the recall daemon (pilot round 3, route (c)). SANDBOX_DAEMON=engram is set by THIS module, in ONE place (run_feeder, from
+# daemon_setting), and only when the slot holds the arm's own install: the venv python, the daemon script and the .engram directory.
+# The wrapper then starts that daemon inside the box before the client, gates the client on its socket, and stops it after the
+# client. What the wrapper reports (daemon-ready, daemon-not-ready, daemon-stop, daemon-fault lines in the launch's log) is read
+# here after the session, and a failure is a LaunchStop, never a normal session.
+DAEMON_VALUE = "engram"
+DAEMON_PYTHON = os.path.join(".engram", "venv", "bin", "python3")
+DAEMON_SCRIPT = os.path.join(".engram", "marketplace", "plugins", "engram", "hooks", "engram-surface-daemon.py")
+DAEMON_HOME = ".engram"
+DAEMON_SOCKET = os.path.join(".engram", "recall-daemon.sock")
+DAEMON_SOCKET_MAX = 107   # an AF_UNIX socket path is limited to 107 bytes (108 with the terminating NUL)
+DAEMON_BOX_LABEL = "the box with the recall daemon"   # the caps and peaks of such a run are those of this box (D7)
+DAEMON_EVENTS = ("daemon-ready", "daemon-not-ready", "daemon-stop", "daemon-fault")
 _SEQ = itertools.count(1)
 
 
@@ -102,6 +116,9 @@ class LaunchResult:
         self.caps = {}                            # every cap_* value the launch line records (the caller writes them to its record)
         self.feeder_path = None                   # the PATH the module built and passed to the feeder (the caller writes it to its record)
         self.feeder_env_names = None              # the NAMES (never the values) of the environment the module built for the feeder
+        self.daemon = None                        # `engram` when the launch ran in the box with the recall daemon
+        self.daemon_time_to_ready_s = None        # the daemon's measured time to ready (from the log's daemon-ready line)
+        self.box_label = None                     # the words the caps and peaks of this run are labelled with (D7)
 
 
 def sha256_file(path):
@@ -188,6 +205,76 @@ def unit_prefix(settings):
 def unit_name_re(prefix):
     """The wrapper's scope naming (SCOPE_UNIT in student-sandbox.sh): <prefix><wrapper pid>-<8 hex>, with `.scope` optional."""
     return re.compile(re.escape(prefix) + r"[0-9]+-[0-9a-f]+(\.scope)?")
+
+
+def daemon_setting(slot, _isfile=os.path.isfile, _isdir=os.path.isdir):
+    """`engram` if and only if the slot holds all three fixed paths of the arm's install (the venv python3, the daemon script, the
+    .engram directory), else None. A path counts when it is a file / directory after following links: a dangling link is absent.
+    The only function that decides it (the `_is*` arguments are a test seam)."""
+    ok = (_isfile(os.path.join(slot, DAEMON_PYTHON)) and _isfile(os.path.join(slot, DAEMON_SCRIPT))
+          and _isdir(os.path.join(slot, DAEMON_HOME)))
+    return DAEMON_VALUE if ok else None
+
+
+def check_daemon_socket(slot):
+    """D6: refuse (LaunchRefused, named) a slot whose <slot>/.engram/recall-daemon.sock would exceed 107 BYTES. The wrapper makes the
+    same check on the resolved slot; this one runs before anything starts."""
+    path = os.path.join(os.path.realpath(slot), DAEMON_SOCKET)
+    n = len(os.fsencode(path))
+    if n > DAEMON_SOCKET_MAX:
+        raise LaunchRefused(f"the recall daemon's socket path {path} is {n} bytes: an AF_UNIX path may not exceed "
+                            f"{DAEMON_SOCKET_MAX} bytes; use a shorter slot path")
+
+
+def read_daemon_events(log):
+    """The daemon lines the wrapper's in-box supervisor wrote to the log, in order: [(kind, {key: value})]. A log that cannot be
+    read is LaunchLogUnreadable (as read_launch_fields): nothing is known about the daemon then."""
+    try:
+        text = open(log, "rb").read().decode("utf-8", "replace")
+    except OSError as e:
+        raise LaunchLogUnreadable(f"the launch log {log} cannot be read ({type(e).__name__}): what the recall daemon did is not known")
+    out = []
+    for line in text.splitlines():
+        kind, _, rest = line.partition(" ")
+        if kind in DAEMON_EVENTS:
+            out.append((kind, dict(tok.partition("=")[::2] for tok in rest.split() if "=" in tok)))
+    return out
+
+
+def daemon_verdict(expected, launch_fields, events, res):
+    """After the session: None when the daemon part of the launch is as it should be, else the reason (a LaunchStop). Fills
+    res.daemon, res.box_label and res.daemon_time_to_ready_s. `expected` is what this module asked the wrapper for."""
+    said = launch_fields.get("daemon")
+    if not expected:
+        return None if said is None else f"the launch line says daemon={said} but this launch did not ask for a daemon: what ran is not what was asked for"
+    if said != expected:
+        return f"the launch line says daemon={said!r}, the launch asked for {expected!r}: the student was not in the box with the recall daemon"
+    res.daemon, res.box_label = expected, DAEMON_BOX_LABEL
+    ready = [f for k, f in events if k == "daemon-ready"]
+    notready = [f for k, f in events if k == "daemon-not-ready"]
+    if ready:
+        try:
+            res.daemon_time_to_ready_s = float(ready[0].get("time_to_ready_s", ""))
+        except ValueError:
+            res.daemon_time_to_ready_s = None
+    if notready:
+        f = notready[0]
+        return (f"the recall daemon did not become ready ({f.get('reason')}, waited {f.get('waited_s')} s): the client was not started")
+    if not ready:
+        return ("the launch was to have the recall daemon (SANDBOX_DAEMON=engram) but its log has neither a `daemon-ready` nor a "
+                "`daemon-not-ready` line: whether the daemon ran is not known")
+    faults = [f for k, f in events if k == "daemon-fault"]
+    if faults:
+        why = []
+        for f in faults:
+            if f.get("kind") == "sigkill":
+                why.append(f"the recall daemon ignored SIGTERM for {f.get('after_s')} s and was killed with SIGKILL (pid {f.get('pid')}): "
+                           "its state may not have been written")
+            else:
+                why.append(f"the recall daemon fault {f.get('kind')} (pid {f.get('pid')}): it exited on SIGTERM but left "
+                           f"{f.get('files')} in the slot")
+        return "; ".join(why)
+    return None
 
 
 class Sandbox:
@@ -835,6 +922,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         raise LaunchRefused(f"SANDBOX_LOG {log_path} already exists (one log per launch)")
     log_path = os.path.abspath(log_path)
     check_model_url(model_url(argv, env), sandbox.settings["SANDBOX_MODEL_PORT"])
+    daemon = daemon_setting(sandbox.settings["SANDBOX_SLOT"])   # D1: the module alone decides; D6 is checked before anything starts
+    if daemon:
+        check_daemon_socket(sandbox.settings["SANDBOX_SLOT"])
     os.makedirs(state_dir, mode=0o700, exist_ok=True)
     check_before_launch(state_dir, sandbox.prefix)   # B: nothing of an earlier launch may be alive
     wdir = _prepare_dir()
@@ -853,6 +943,8 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         pairs = dict(sandbox.settings)
         pairs.update(SANDBOX_LOG=log_path, SANDBOX_RO_BINDS=tools, SANDBOX_RO_ROOT=os.path.dirname(tools),
                      SANDBOX_RW_BINDS=os.path.join(out, "proctor"), SANDBOX_RW_ROOT=out)
+        if daemon:
+            pairs["SANDBOX_DAEMON"] = daemon
         extra = [x for k, v in pairs.items() for x in ("--env", f"{k}={v}")]
         # the record is written BEFORE the session starts, so a caller that is killed leaves it open for the next launch
         rec_path = os.path.join(state_dir, os.path.basename(log_path)[:-len(".log")] + ".json")
@@ -888,6 +980,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
                 if res.__dict__[k] != sandbox.expected[k]:
                     raise LaunchStop(f"the launch line's {k} is {res.__dict__[k]}, expected {sandbox.expected[k]}: what ran "
                                      "is not what was registered; no answer of this session is read", res)
+            why = daemon_verdict(daemon, lf, read_daemon_events(log_path), res)   # D3/D4: a daemon that failed is a stop, never a session
+            if why:
+                raise LaunchStop(f"{why}; no answer of this session is read", res)
         except LaunchStop as e:
             vs = e
         except LaunchLogUnreadable as e:

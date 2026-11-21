@@ -25,6 +25,13 @@
 #   `box-cgroup` line's memory_peak and pids_peak, run peaks because the scope is fresh; test-mode overrides only):
 #                         the bridge's trusted side (per request, total buffered, concurrent connections) and the box's own
 #                         systemd user scope (tasks, memory). Every effective value is on the launch line.
+#   SANDBOX_DAEMON       optional, MODULE-OWNED (the launch module sets it; a caller never does). Absent: no daemon. The only
+#                         accepted value is `engram`: the box starts the arm's own recall daemon BEFORE the client, with the
+#                         command the arm's shipped launcher uses, and starts the client only once <slot>/.engram/recall-daemon.sock
+#                         answers (60 s, else the client is never started: exit 4). After the client exits the daemon is sent
+#                         SIGTERM and waited for (20 s, then SIGKILL and a named fault), so it is gone before anything is saved.
+#                         Anything else is a refusal, never a default. The caps and peaks of such a run are those of "the box
+#                         with the recall daemon", and the launch line says so.
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
 set -u
@@ -41,6 +48,12 @@ for n in SANDBOX_SLOT SANDBOX_BINARY SANDBOX_BINARY_SHA256 SANDBOX_MODEL_HOST SA
   [ -n "${!n:-}" ] || refuse "$n is not set or is empty"
 done
 [[ $SANDBOX_BINARY_SHA256 =~ ^[0-9a-fA-F]{64}$ ]] || refuse "SANDBOX_BINARY_SHA256 is not 64 hex characters"
+# D1: ONE enumerated setting. Set (even empty) it must be exactly `engram`; any other value is refused by name, never defaulted.
+DAEMON=""
+if [ -n "${SANDBOX_DAEMON+x}" ]; then
+  [ "$SANDBOX_DAEMON" = engram ] || refuse "SANDBOX_DAEMON must be exactly 'engram' (the only daemon the wrapper pre-starts) or unset; it is not defaulted"
+  DAEMON=engram
+fi
 # The scope unit's name prefix: `student-sandbox-` in a real run, which is the only value there. A test run may give its own
 # (SANDBOX_TEST_UNIT_PREFIX, test mode only, so that two test runs on one host never see each other's units); set outside
 # test mode, or set but malformed, it is a refusal. The launch module's before-launch scan and its unit-name check use the same prefix.
@@ -222,6 +235,41 @@ while IFS= read -r -d '' kv; do case $kv in HOME=*) CALLER_HOME=${kv#HOME=} ;; e
 [ -n "$CALLER_HOME" ] || refuse "HOME is not set or is empty: it must be the slot (SANDBOX_SLOT)"
 HOME_REAL=$(realpath -e -- "$CALLER_HOME" 2>/dev/null) && [ "$HOME_REAL" = "$SLOT" ] \
   || refuse "HOME is not the slot: realpath of HOME differs from realpath of SANDBOX_SLOT"
+
+# ---- D: the recall daemon (SANDBOX_DAEMON=engram). Everything it needs is already inside the slot, which is bound read-write: this
+# block adds NO bind. The command is the arm's shipped launcher's own launch line (start-engram-daemon.sh, today
+#   env ENGRAM_HOME="$ENGRAM_HOME" $HOME/.engram/venv/bin/python3 "$DAEMON_SCRIPT" "$ENGRAM_HOME" >> "$LOG_PATH" 2>&1 < /dev/null &
+# with ENGRAM_HOME=<slot>/.engram, HOME=<slot>, DAEMON_SCRIPT=<the launcher's directory>/engram-surface-daemon.py and
+# LOG_PATH=$ENGRAM_HOME/surface-daemon.log), built here ONCE as text: that text is what is logged (`daemon-command`) and what the box
+# runs, so the line a cell compares with the launcher's is the line that ran. A cell reads a launcher file and fails if they differ.
+# DAEMON_READY_S / DAEMON_TERM_S are the one named constant each: the measured unwrapped time to ready is about 3.4 s.
+DAEMON_READY_S=60; DAEMON_TERM_S=20
+DAEMON_LINE=""; DAEMON_FIELDS=""; DAEMON_ARGS=()
+if [ -n "$DAEMON" ]; then
+  if [ "${SANDBOX_TEST:-}" = 1 ]; then
+    for v in SANDBOX_TEST_DAEMON_READY_S SANDBOX_TEST_DAEMON_TERM_S; do
+      [ -z "${!v:-}" ] || { [[ ${!v} =~ ^[1-9][0-9]{0,15}$ ]] || refuse "$v is not a positive count"; }
+    done
+    [ -z "${SANDBOX_TEST_DAEMON_READY_S:-}" ] || DAEMON_READY_S=$SANDBOX_TEST_DAEMON_READY_S
+    [ -z "${SANDBOX_TEST_DAEMON_TERM_S:-}" ] || DAEMON_TERM_S=$SANDBOX_TEST_DAEMON_TERM_S
+  fi
+  # the line is shell text: a slot name with a quote, space or metacharacter would change what it means
+  [[ $SLOT =~ ^[A-Za-z0-9._/+-]+$ ]] || refuse "SANDBOX_SLOT has a character outside A-Z a-z 0-9 . _ / + - : the recall daemon's launch line is shell text and is not quoted for it"
+  D_HOME=$SLOT/.engram
+  D_HOOKS=$D_HOME/marketplace/plugins/engram/hooks
+  D_SCRIPT=$D_HOOKS/engram-surface-daemon.py
+  D_LAUNCHER=$D_HOOKS/start-engram-daemon.sh
+  D_PY=$D_HOME/venv/bin/python3
+  D_SOCK=$D_HOME/recall-daemon.sock
+  { [ -d "$D_HOME" ] && [ -f "$D_PY" ] && [ -f "$D_SCRIPT" ]; } || refuse "SANDBOX_DAEMON=engram needs $D_HOME, $D_PY and $D_SCRIPT inside the slot"
+  # D6: an AF_UNIX path may not exceed 107 bytes (the slot is ASCII here, so characters are bytes)
+  [ "${#D_SOCK}" -le 107 ] || refuse "the recall daemon's socket path $D_SOCK is ${#D_SOCK} bytes: an AF_UNIX path may not exceed 107"
+  DAEMON_LINE="env ENGRAM_HOME=\"$D_HOME\" $SLOT/.engram/venv/bin/python3 \"$D_SCRIPT\" \"$D_HOME\" >> \"$D_HOME/surface-daemon.log\" 2>&1 < /dev/null &"
+  D_SUM=$(sha_of_file "$D_SCRIPT") && [ -n "$D_SUM" ] || refuse "cannot read the recall daemon script to hash it"
+  L_SUM=absent
+  if [ -f "$D_LAUNCHER" ]; then L_SUM=$(sha_of_file "$D_LAUNCHER") && [ -n "$L_SUM" ] || refuse "cannot read the recall daemon launcher to hash it"; fi
+  DAEMON_FIELDS=" daemon=engram daemon_script_sha256=$D_SUM daemon_launcher_sha256=$L_SUM daemon_ready_timeout_s=$DAEMON_READY_S daemon_term_wait_s=$DAEMON_TERM_S | caps and peaks are those of the box with the recall daemon"
+fi
 
 # ---- F2: extra binds, validated here (same refuse-before-anything rule) ------------------------------------
 # SANDBOX_RO_BINDS / SANDBOX_RW_BINDS: colon-separated absolute directories, bound at their own (resolved) paths,
@@ -460,7 +508,20 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)$DAEMON_FIELDS"
+[ -z "$DAEMON" ] || log "daemon-command $DAEMON_LINE"
+# The daemon's report channel (time to ready, the stop, a named fault) is ONE descriptor on SANDBOX_LOG, held by the in-box
+# supervisor alone: it is made non-dumpable before the descriptor is used, so no process of the box can open it through /proc. A run
+# with no SANDBOX_LOG has no channel and reports on stderr only.
+if [ -n "$DAEMON" ]; then
+  DAEMON_ARGS=(--daemon-line "$DAEMON_LINE" --daemon-sock "$D_SOCK" --daemon-pidfile "$D_HOME/recall-daemon.pid"
+               --daemon-ready-s "$DAEMON_READY_S" --daemon-term-s "$DAEMON_TERM_S")
+  if [ -n "${SANDBOX_LOG:-}" ]; then
+    exec {RPTFD}>> "$SANDBOX_LOG" || refuse "cannot open SANDBOX_LOG for the daemon's report"
+    BOX_FDS+=("$RPTFD")
+    DAEMON_ARGS+=(--report-fd "$RPTFD")
+  fi
+fi
 
 # ---- the box. /home, /tmp, /var/tmp and /run are fresh tmpfs; only the allow-listed system directories are bound
 # (read-only), then the slot (read-write), the binary FILE (read-only) and the validated extra binds at their own
@@ -482,4 +543,4 @@ BW=("$BWRAP" --die-with-parent --new-session --unshare-pid --unshare-net --unsha
     --ro-bind "$SOCK" /run/sandbox-bridge.sock
     --ro-bind "$FWD" /run/sandbox-forward.py
     --ro-bind-fd "$BINFD" "$BIN_REAL")   # LAST, so nothing mounted before it can shadow the pinned binary
-XDG_RUNTIME_DIR=$SCOPE_RT exec "${SCOPE[@]}" -- "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" -- "${CMD[@]}"
+XDG_RUNTIME_DIR=$SCOPE_RT exec "${SCOPE[@]}" -- "${BW[@]}" -- "$PY" -I /run/sandbox-forward.py inner --sock /run/sandbox-bridge.sock --port "$PORT" "${INNER_UNSET[@]}" "${DAEMON_ARGS[@]}" -- "${CMD[@]}"
