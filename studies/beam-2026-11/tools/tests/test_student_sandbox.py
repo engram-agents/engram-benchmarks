@@ -12,6 +12,10 @@ WRAPPER = os.path.join(TOOLS, "student-sandbox.sh")
 FWD = os.path.join(TOOLS, "sandbox-forward.py")
 FEED4 = os.path.join(TOOLS, "feed4.py")
 PY = "/usr/bin/python3"
+# Every test RUN names its box scopes with a prefix of its own (the wrapper's SANDBOX_TEST_UNIT_PREFIX, test mode only), so a
+# cell's before-launch scan and unit listing see only this run's units: another seat's student-sandbox-* unit on the host
+# cannot redden a cell, and this run never lists, stops or counts anyone else's.
+RUN_UNIT_PREFIX = "ssbxt%s-" % os.urandom(3).hex()
 # The only names the wrapper itself puts under /run inside the box.
 OWN_RUN_NAMES = {"sandbox-bridge.sock", "sandbox-forward.py"}
 
@@ -46,8 +50,7 @@ def _box_usable():
 
 
 # The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
-NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
-                    "manager that can start a capped scope: the sandbox is Linux-only")
+from conftest import NEEDS_BOX_REASON   # the one reason string (conftest.py)
 BOX_OK = _box_usable()
 needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
 
@@ -162,6 +165,7 @@ class Cfg:
              "SANDBOX_PROTECT": self.prot_file + ":" + self.prot_keys}
         if test:
             e["SANDBOX_TEST"] = "1"
+            e["SANDBOX_TEST_UNIT_PREFIX"] = RUN_UNIT_PREFIX   # this test RUN's own scope-name prefix (F3: hermetic cells)
         if exec_ is not None:
             e["SANDBOX_TEST_EXEC"] = exec_
         e.update(extra)
@@ -174,9 +178,82 @@ class Cfg:
                               capture_output=True, text=True, timeout=timeout)
 
 
+# ---- X: every cell that starts a real box stops that box's scope at teardown, and asserts nothing of it remains.
+# WHICH units a run created: the scratch tree of a cell is unique (pytest's tmp_path), and the box's own argv carries it
+# (`--bind <slot> <slot>`, the bridge socket under the cell's TMPDIR), so a unit counts as this cell's exactly when a process
+# in its cgroup has the cell's root in its argv. A unit is never picked by name, so another run's box is never touched.
+# Every unit so attributed is recorded in CREATED_UNITS; the last cell of this file asserts none of them is still active.
+CREATED_UNITS = []
+
+
+def _systemctl(*args, timeout=60):
+    env = dict(os.environ, XDG_RUNTIME_DIR=os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid())
+    return subprocess.run(["systemctl", "--user", *args], env=env, capture_output=True, text=True, timeout=timeout)
+
+
+def active_scope_units():
+    try:
+        r = _systemctl("list-units", "--type=scope", "--state=active", "--no-legend", "--plain", RUN_UNIT_PREFIX + "*")
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [l.split()[0] for l in r.stdout.splitlines() if l.strip()]
+
+
+def _argv_of(pid):
+    try:
+        return open("/proc/%d/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def scope_procs(unit):
+    unit = unit if unit.endswith(".scope") else unit + ".scope"   # systemctl reads a bare name as a .service
+    r = _systemctl("show", "-p", "ControlGroup", "--value", unit)
+    cg = r.stdout.strip()
+    try:
+        return [int(x) for x in open("/sys/fs/cgroup%s/cgroup.procs" % cg).read().split()] if cg else []
+    except (OSError, ValueError):
+        return []
+
+
+def pids_mentioning(root):
+    me, out = os.getpid(), []
+    for d in os.listdir("/proc"):
+        if d.isdigit() and int(d) != me and root in _argv_of(int(d)):
+            out.append(int(d))
+    return out
+
+
+def stop_boxes_of(root):
+    """Stop every scope whose processes carry `root` in their argv; then give what is left a moment, and end (TERM, then
+    KILL) the processes that still carry it. Returns (the units stopped, the pids that had to be ended)."""
+    if not BOX_OK:
+        return [], []
+    units = [u for u in active_scope_units() if any(root in _argv_of(p) for p in scope_procs(u))]
+    for u in units:
+        _systemctl("stop", u)
+    end = time.time() + 8
+    while pids_mentioning(root) and time.time() < end:
+        time.sleep(0.1)
+    left = pids_mentioning(root)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for p in left:
+            try:
+                os.kill(p, sig)
+            except OSError:
+                pass
+        time.sleep(0.5)
+    return units, left
+
+
 @pytest.fixture
 def cfg(tmp_path):
-    return Cfg(tmp_path)
+    c = Cfg(tmp_path)
+    yield c
+    units, ended = stop_boxes_of(c.root)
+    CREATED_UNITS.extend(units)
+    assert not [u for u in units if u in active_scope_units()], "a box scope of this cell is still active"
+    assert not ended, "processes of this cell outlived it and had to be ended: %s" % ended
 
 
 def procs_with(marker):
@@ -3526,7 +3603,18 @@ CG_BOMB = ("import os, time\n"
 
 def test_r7_2_the_launch_line_names_the_scope_unit(cfg, fake_bwrap):
     f, _ = _launch_fields(cfg, fake_bwrap)
-    assert re.fullmatch(r"student-sandbox-[0-9]+-[0-9a-f]{4,}", f.get("scope_unit", "")), f
+    # a real run names it student-sandbox-<pid>-<hex>; a test-mode run under its own prefix (F3) names it <prefix><pid>-<hex>
+    assert re.fullmatch(re.escape(RUN_UNIT_PREFIX) + r"[0-9]+-[0-9a-f]{4,}", f.get("scope_unit", "")), f
+
+
+def test_f3_the_wrapper_refuses_the_test_unit_prefix_without_sandbox_test(cfg, fake_bwrap):
+    """A real run has no prefix but student-sandbox-: the override is refused, named, outside test mode."""
+    assert_refused(cfg, fake_bwrap, "SANDBOX_TEST_UNIT_PREFIX", test=False, SANDBOX_TEST_UNIT_PREFIX="mine-")
+
+
+@pytest.mark.parametrize("bad", ["", "no-dash", "-lead-", "has space-", "a/b-"])
+def test_f3_a_malformed_test_unit_prefix_is_refused_named(cfg, fake_bwrap, bad):
+    assert_refused(cfg, fake_bwrap, "SANDBOX_TEST_UNIT_PREFIX", SANDBOX_TEST_UNIT_PREFIX=bad)
 
 
 @needs_box
@@ -5019,3 +5107,9 @@ def test_followup_the_readme_states_one_log_per_launch_and_the_two_reset_limits(
     for needle in ("one log per launch", "exactly one line starting `wrapper-launch `", "harness setup error",
                    "a half-closing client hides a real mid-response reset", "the marker write is swallowed", "the disk fills, then frees"):
         assert needle in text, needle
+
+
+def test_x_no_unit_created_by_this_file_is_still_active():
+    """Last cell of the file: every scope the cells above were attributed (by their own scratch root, see the cfg fixture)
+    is gone. Which units this run created is known from that attribution, never from a name pattern."""
+    assert not [u for u in CREATED_UNITS if u in active_scope_units()]

@@ -100,3 +100,32 @@ def arm_home(arm_home_template, tmp_path):
 
 def memory_dir(h):
     return h / ".claude" / "projects" / "-synthetic-work" / "memory"
+
+
+# A stand-in `systemctl` for hosts that have no systemd (a Mac): the launch module asks `systemctl --user` to stop a scope, to
+# show its cgroup and to list units, and this answers as an EMPTY user manager (no units, nothing to stop). The cells that
+# need a real user manager (real scopes, real boxes) are marked needs_box and skip there; the others run against this.
+STUB_SYSTEMCTL = """#!/bin/sh
+case "$*" in
+  *is-active*) echo inactive; exit 3 ;;
+esac
+exit 0
+"""
+
+
+def install_stub_systemctl(dirpath):
+    os.makedirs(dirpath, exist_ok=True)
+    path = os.path.join(str(dirpath), "systemctl")
+    with open(path, "w") as f:
+        f.write(STUB_SYSTEMCTL)
+    os.chmod(path, 0o755)
+    return str(dirpath)
+
+
+# Cells that run a student session through the launch module start the real student-sandbox.sh's own machinery or its stand-in
+# on the host: they read /proc (start times, argv scans) and need bash 4, which a Mac does not have. One named marker, the SAME
+# reason string as test_student_sandbox.py's: on such a host they skip BY NAME instead of failing.
+LINUX_PROC = sys.platform.startswith("linux") and os.path.isdir("/proc/self")
+NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
+                    "manager that can start a capped scope: the sandbox is Linux-only")
+needs_linux_wrapper = pytest.mark.skipif(not LINUX_PROC, reason=NEEDS_BOX_REASON)
