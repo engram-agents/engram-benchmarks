@@ -283,8 +283,10 @@ Two judges, named by the one thing that differs between them (the project lead's
 - What the paper's number rewards, stated in the report: an answer that is only the ordered list of events. Every
   line that is not an event counts against it, empty lines included (identical lines share one rank but each counts
   as unmatched). A missing event costs according to its place: of five events in order, the last one missing scores
-  1.0, a middle one 0.8, the first 0.6. On run A's two answer shapes (one tuning conversation), a perfect
-  recollection written in the student's usual format would score at most about 0.6.
+  1.0, a middle one 0.8, the first 0.6. On run A's two answer shapes (one tuning conversation; five reference
+  events each; 17 and 22 items after the cut), a perfect recollection written in the student's usual format would
+  score at most 0.65 and 0.57, assuming each event matches exactly one of the answer's list lines, in order, and
+  nothing else matches.
 - Absolute scores are not comparable with the paper's table (a different judge model, and the code that
   produced that table is not known). The comparison is between our arms.
 
