@@ -1045,11 +1045,21 @@ def sections(text):
     return out
 
 
-def draw_code(page_text):
-    """{draw name: its code} from the page's scripts: from one `dash.draw('<name>',` to the next. Whole-line
-    comments are dropped so a comment's wording cannot decide anything."""
+def _page_js(page_text):
+    """The page's scripts as one text; whole-line comments are dropped so a comment's wording decides nothing."""
     js = "\n".join(re.findall(r"<script>(.*?)</script>", page_text, re.S))
-    js = re.sub(r"(?m)^\s*//.*$", "", js)
+    return re.sub(r"(?m)^\s*//.*$", "", js)
+
+
+def helper_code(page_text):
+    """The page's shared helper code: every script line before the first draw (the BS.* block, runCell, ...)."""
+    js = _page_js(page_text)
+    return js[:re.search(r"dash\.draw\('([\w-]+)',", js).start()]
+
+
+def draw_code(page_text):
+    """{draw name: its code} from the page's scripts: from one `dash.draw('<name>',` to the next."""
+    js = _page_js(page_text)
     ms = list(re.finditer(r"dash\.draw\('([\w-]+)',", js))
     return {m.group(1): js[m.start():(ms[i + 1].start() if i + 1 < len(ms) else len(js))] for i, m in enumerate(ms)}
 
@@ -1144,6 +1154,31 @@ def test_n1_the_builds_own_markers_are_not_labels():
     before = generated_sections(text, OFFICIAL_RE)
     mutated = text.replace('<section id="findings">', '<section id="added-mk"><h2>x</h2>__OFFICIAL_NOTE__</section>\n  <section id="findings">', 1)
     assert mutated != text and generated_sections(mutated, OFFICIAL_RE) == before
+
+
+# The shared helper code (the BS.* block and the small helpers before the first draw) belongs to no draw's
+# code slice, so a label created there would be invisible to the section generators. Its own cell:
+def _helper_hits(page_text):
+    return [m.group(0) for rx in (OFFICIAL_RE, ADJUSTED_RE) for m in rx.finditer(MARKER_RE.sub("", helper_code(page_text)))]
+
+
+def test_n1_the_helper_block_holds_no_official_or_adjusted_label():
+    text = page_html_text()
+    assert len(helper_code(text)) > 500 and "BS.mark" in helper_code(text)  # the block that was meant was read
+    assert _helper_hits(text) == []
+
+
+@pytest.mark.parametrize("label", ["Official", "official 71%", "Adjusted", "adjusted 71%", "official_pct", "adjusted_pct"])
+def test_n1_a_label_planted_in_the_helper_block_is_seen(label):
+    text = page_html_text()
+    mutated = text.replace("  BS.enc = ", f"  BS.planted = '{label}';\n  BS.enc = ", 1)
+    assert mutated != text and _helper_hits(mutated) != []
+
+
+def test_n1_the_official_dataset_area_in_the_helper_block_is_not_a_label():
+    text = page_html_text()
+    mutated = text.replace("  BS.enc = ", "  BS.planted = 'official dataset';\n  BS.enc = ", 1)
+    assert mutated != text and _helper_hits(mutated) == []
 
 
 def test_n1_the_note_is_in_every_generated_section_when_given(env):
