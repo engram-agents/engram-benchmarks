@@ -10,7 +10,8 @@ invented fixtures only.
 
 ```
 python3 tools/review-page/build_page.py --data DIR --out FILE.html \
-    [--answers-file PATH] [--withhold FILE --withhold-reason TEXT] [--d3 PATH] [--title TEXT]
+    [--answers-file PATH] [--withhold FILE --withhold-reason TEXT] [--d3 PATH] [--title TEXT] \
+    [--official-note TEXT]
 ```
 
 Exit 0 on success. Exit 2 on any bad input (named on stderr), with nothing written. Python 3, standard
@@ -103,6 +104,29 @@ question. Under `--withhold`, only the runs, categories and causes rows are redu
 fields listed above plus the ones the tool computes, `questions_total` today; any other field on those rows is
 dropped without a message), because they are recomputed summaries over kept and withheld questions alike.
 
+## What a page says about its own scores
+
+**`--official-note TEXT` (optional).** One text that tells the reader which grader produced the Official
+column, and any caveat that applies to this page. It is shown beside every place the page labels a column or
+chart "Official": the headline sentence, the Official score tile, the by-question-type chart, the all-runs
+table and the question list. Pass everything the page should say as ONE text; there is no second option for
+a second sentence. The text is HTML-escaped exactly like `--withhold-reason`, and surrounding space is
+trimmed. An empty or blank value is refused (exit 2, named), so an unset shell variable cannot silently drop
+the note. Without the option the note appears nowhere and the page is byte-identical to the page built
+before the option existed, apart from the fixed sentence below.
+
+**The independence sentence is fixed text, not an option.** Wherever the page labels a column or chart
+"Adjusted" (the same five places), it carries the sentence that SCORE-REVIEW-PRINCIPLES.md, section 7, asks
+for, quoted exactly with its first letter capitalised: "All reviewers belong to the team that builds the
+agent under test. These principles reduce our bias; they do not make the adjusted score independent." No
+option, alone or combined with another, removes it. Pages built before this change lack the independence
+sentence.
+
+The tests generate the list of sections that need each text from `page.html` itself (every section whose
+markup, or whose draw code, names an `official_*` / `adjusted_*` field or the word Official / Adjusted),
+because the page draws some labels at run time and a check of the built html alone cannot see them. A
+finding area called "Official dataset" is not a score label and does not count.
+
 ## Offline mode (`--d3 PATH`)
 
 Without `--d3`, the page loads d3 from a CDN tag and the tool prints one line saying the page needs
@@ -130,7 +154,8 @@ been confirmed. The page's own "How the scores and statuses work" note says the 
 
 - `build_page.py`: the CLI (the checks, the withhold logic, the recomputation, the page assembly).
 - `page.html`: the page body (markup, styles, scripts). It reads data through a small `dash` shim that
-  `build_page.py` inlines; `__TITLE__` and `__BANNER__` are filled by the build.
+  `build_page.py` inlines; `__TITLE__`, `__BANNER__`, `__OFFICIAL_NOTE__` and `__INDEPENDENCE__` are filled
+  by the build, in one pass (a marker-shaped string inside a title or note stays text).
 - `tests/`: the field list the page reads is derived from `page.html` by two cells. One reads each `r.` / `d.` /
   `x.` row variable inside each draw block (a hand-written table says which dataset each variable names, and the
   cell fails if a draw block is missing from it). The other scans EVERY `<identifier>.<member>` in the page's

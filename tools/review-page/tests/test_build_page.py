@@ -1304,3 +1304,12 @@ def test_n2_no_option_name_mentions_the_sentence():
     # the sentence is not switched by anything: nothing in the CLI is named for it
     code_src = open(TOOL, encoding="utf-8").read()
     assert not re.search(r"add_argument\([^)]*(independen|sentence)", code_src, re.I)
+
+
+def test_n3_the_readme_states_the_note_option_and_the_fixed_sentence_with_its_source():
+    with open(os.path.join(os.path.dirname(HERE), "README.md"), encoding="utf-8") as fh:
+        readme = re.sub(r"\s+", " ", fh.read())
+    assert "--official-note TEXT" in readme
+    assert displayed_sentence() in readme  # the sentence itself, as the page shows it
+    assert "SCORE-REVIEW-PRINCIPLES.md" in readme and "section 7" in readme
+    assert "Pages built before this change lack the independence sentence." in readme
