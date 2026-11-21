@@ -1331,20 +1331,54 @@ def test_n2_the_page_text_is_the_principles_text_exactly(env):
     assert displayed_sentence()[1:] == principles_sentence()[1:]  # only the first letter differs
 
 
-def cli_option_groups(env):
-    """Every option the CLI offers, read off its --help, grouped as the CLI needs them together. A new option
-    that is in no group fails here, so an added option cannot slip past the all-combinations cell below."""
-    code, out, err = env.run("-h", base=False)
-    assert code == 0, err
-    offered = set(re.findall(r"(?m)^\s{1,4}(?:-\w,\s*)?(--[a-z0-9-]+)", out)) - {"--help"}
+class _Captured(Exception):
+    pass
+
+
+def cli_parser(bp, monkeypatch):
+    """The CLI's own argparse parser object. main() builds it locally, so take it at the moment main() hands
+    it the argument list: record it, stop before any build."""
+    got = []
+
+    def grab(self, *a, **k):
+        got.append(self)
+        raise _Captured
+
+    with monkeypatch.context() as m:  # undone on exit: the real builds that follow must parse for real
+        m.setattr(bp.argparse.ArgumentParser, "parse_args", grab)
+        with pytest.raises(_Captured):
+            bp.main(["--data", "x", "--out", "y"])
+    assert len(got) == 1
+    return got[0]
+
+
+def cli_option_groups(parser):
+    """Every option the CLI offers, short AND long, read off the parser's own actions (not its help text),
+    grouped as the CLI needs them together. A new option, of either kind, that is in no group fails here, so an
+    added option cannot slip past the all-combinations cell below."""
+    offered = {o for act in parser._actions for o in act.option_strings} - {"-h", "--help"}
     groups = [("--answers-file",), ("--withhold", "--withhold-reason"), ("--d3",), ("--title",), ("--official-note",)]
     known = {"--data", "--out"} | {o for g in groups for o in g}
     assert offered == known, f"options not in the all-combinations cell: {sorted(offered ^ known)}"
     return groups
 
 
+def test_n2_the_option_enumeration_reads_the_parser_object_and_sees_every_option(bp, monkeypatch):
+    parser = cli_parser(bp, monkeypatch)
+    assert {"-h", "--help", "--data", "--out", "--answers-file", "--official-note"} <= {o for a in parser._actions for o in a.option_strings}
+    assert len(cli_option_groups(parser)) == 5
+
+
+@pytest.mark.parametrize("added", [("-z",), ("--zz",), ("-z", "--zz")])
+def test_n2_an_option_added_to_the_parser_and_in_no_group_fails_the_enumeration(bp, monkeypatch, added):
+    parser = cli_parser(bp, monkeypatch)
+    parser.add_argument(*added)  # the cell's own copy of the parser: a short-only option must be caught too
+    with pytest.raises(AssertionError, match="options not in the all-combinations cell"):
+        cli_option_groups(parser)
+
+
 def test_n2_every_option_combination_the_cli_offers_still_carries_the_sentence(env, bp, monkeypatch):
-    groups = cli_option_groups(env)
+    groups = cli_option_groups(cli_parser(bp, monkeypatch))
     d3 = str(env.tmp / "d3.min.js")
     with open(d3, "wb") as fh:
         fh.write(FAKE_D3)
@@ -1368,10 +1402,11 @@ def test_n2_every_option_combination_the_cli_offers_still_carries_the_sentence(e
     assert n == 2 ** len(groups)  # every subset of the option groups, none skipped
 
 
-def test_n2_no_option_name_mentions_the_sentence():
-    # the sentence is not switched by anything: nothing in the CLI is named for it
-    code_src = open(TOOL, encoding="utf-8").read()
-    assert not re.search(r"add_argument\([^)]*(independen|sentence)", code_src, re.I)
+def test_n2_no_option_name_mentions_the_sentence(bp, monkeypatch):
+    # the sentence is not switched by anything: no option string of the parser is named for it
+    names = [o for a in cli_parser(bp, monkeypatch)._actions for o in a.option_strings]
+    assert "--official-note" in names  # the enumeration did read the options
+    assert not [o for o in names if re.search(r"independen|sentence", o, re.I)]
 
 
 def test_n3_the_readme_states_the_note_option_and_the_fixed_sentence_with_its_source():
