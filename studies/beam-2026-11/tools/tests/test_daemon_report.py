@@ -298,13 +298,17 @@ def start_sup(tmp_path, wfd, **kw):
 
 
 def fill(wfd):
-    os.set_blocking(wfd, False)
+    """Fill the pipe through a SEPARATE open file description of its write end: O_NONBLOCK is a property of the description, so setting
+    it on `wfd` itself would make the supervisor's end non-blocking from here and hide a supervisor that forgot to (mutant M4)."""
+    side = os.open("/proc/self/fd/%d" % wfd, os.O_WRONLY | os.O_NONBLOCK)
     n = 0
     try:
         while True:
-            n += os.write(wfd, b"f" * 1023 + b"\n")
+            n += os.write(side, b"f" * 1023 + b"\n")
     except BlockingIOError:
         return n
+    finally:
+        os.close(side)
 
 
 def drain(rfd):
