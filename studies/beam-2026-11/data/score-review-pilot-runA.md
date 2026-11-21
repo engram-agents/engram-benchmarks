@@ -251,6 +251,12 @@ minute count and guess goes into this log as plain lines without quotes.
   those rows is asked of him and recorded here when answered. This is not an arm unblinding: run A has one agent
   answer per item, and phase 3 knows which answer is official by design (principles section 5). Until the project
   lead rules on the 12, pages made for him, and the design owner's own copy, leave the 12 out.
+- Added 2026-11-21, to the entry above (study lead, team crossing 33897): on the 2026-11-16 pages the hand grade sits
+  in a field named official_score, the meaning 'official' had before 2026-11-18. So on Q1, Q8 and Q14 the project
+  lead saw, labelled official, a level that differs from the official grade phase 3 now uses. The study lead's
+  earlier statement that his hand grades equal the official levels on 20 of 20 held only under that old meaning, and
+  he has withdrawn it. The 2026-11-16 pages stay as they are (design owner, team crossing 33895): hiding rows now
+  would change a record and undo nothing already seen.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
