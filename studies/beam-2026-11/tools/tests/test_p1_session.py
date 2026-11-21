@@ -107,6 +107,12 @@ def emulate_wrapper(a):
     if os.environ.get("STUB_SBX_LOG"):
         with open(os.environ["STUB_SBX_LOG"], "a") as f:
             f.write(json.dumps(pairs) + "\n")
+    if os.environ.get("STUB_PATH_LOG"):   # the PATH this feeder was actually handed
+        with open(os.environ["STUB_PATH_LOG"], "a") as f:
+            f.write(os.environ["PATH"] + "\n")
+    if os.environ.get("STUB_ENV_LOG"):    # the NAMES of the environment it was handed (the initial block)
+        with open(os.environ["STUB_ENV_LOG"], "a") as f:
+            f.write(json.dumps(sorted(kv.split("=", 1)[0] for kv in open("/proc/self/environ", "rb").read().decode().split("\0") if "=" in kv)) + "\n")
     log = pairs.get("SANDBOX_LOG")
     mode = os.environ.get("STUB_SANDBOX", "ok")
     if not log or mode == "nolaunch":
@@ -223,6 +229,7 @@ class World:
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
              "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
              "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
+             "STUB_PATH_LOG": str(self.root / "stub-path.txt"), "STUB_ENV_LOG": str(self.root / "stub-env.json"),
              "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
              "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres),
              # test mode and this run's own scope-name prefix: the before-launch scan sees only this run's units (hermetic)
@@ -498,6 +505,7 @@ def test_a_write_into_the_slot_only_is_exit_0(w):
     c.close()
 
 
+@needs_linux_wrapper
 def test_a_change_to_a_protected_memory_file_is_exit_5(w):
     """The memory-folder hashes are part of the compare, not only the store."""
     victim = os.path.join(w.pres, ".claude", "projects", "-p", "memory", "a.md")
@@ -534,6 +542,7 @@ def test_a_plan_that_is_not_compact_then_the_questions_in_order_is_exit_3(w, mod
     assert not w.mark.exists()
 
 
+@needs_linux_wrapper
 def test_feed4_nonzero_is_exit_3(w):
     r = w.run(STUB_RC="1")
     assert r.returncode == 3 and w.mark.exists()
@@ -751,6 +760,7 @@ def test_an_interruption_alone_still_writes_the_after_artifacts_and_does_not_exi
     assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     """setup.txt is made a directory by the hook, so writing it raises; the protected change still decides the code."""
     blocker = w.runs / "p1-t1" / "setup.txt"
@@ -760,6 +770,7 @@ def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     assert "PROTECTED CHANGED" in r.stdout and "setup.txt" in r.stderr
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_alone_is_reported_on_stderr(w):
     blocker = w.runs / "p1-t1" / "setup.txt"
     hook = w.root / "block-setup.py"; hook.write_text(f"import os\nos.makedirs({str(blocker)!r})\n")
@@ -827,6 +838,7 @@ def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine
 
 
 # ------------------------------------------------------------------ round 4: the after-hash pass itself failing
+@needs_linux_wrapper
 def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w):
     """No protected home changed, but the proof could not be written (after-hashes.txt is made a directory), so the
     launcher must not claim the homes are fine."""
@@ -934,7 +946,7 @@ GOLDEN_PLAN = os.path.join(TOOLS, "tests", "golden_three_channel_plan.json")
 RECORDER = r'''
 import json, os, runpy, sys
 label, stub = {LABEL!r}, {STUB!r}
-with open(os.environ["REC_LOG"], "a") as f:
+with open(os.environ["STUB_REC_LOG"], "a") as f:
     argv = sys.argv[1:]
     for i in range(len(argv) - 2, -1, -1):   # the module's own `--env SANDBOX_*` pairs are not the caller's arguments
         if argv[i] == "--env" and argv[i + 1].startswith("SANDBOX_"):
@@ -966,7 +978,7 @@ def record_three_channel_run(w):
     for name, label, stub in (("rec-plant.py", "plant-control", w.plant), ("rec-feed4.py", "feed4", w.stub)):
         (w.root / name).write_text(RECORDER.format(LABEL=label, STUB=str(stub)))
     r = w.run(*PLANT, "--plant-question", "What is it?", P1_PLANT_CONTROL=str(w.root / "rec-plant.py"),
-              P1_FEED4=str(w.root / "rec-feed4.py"), REC_LOG=str(log))
+              P1_FEED4=str(w.root / "rec-feed4.py"), STUB_REC_LOG=str(log))
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     return normalized_plan_record(w, log)
 
@@ -1227,6 +1239,7 @@ def test_sb_flagged_is_recorded_verbatim_not_a_stop(w):
     assert (w.runs / "p1-t1" / "delivery.txt").exists()
 
 
+@needs_linux_wrapper
 def test_sb_a_log_verdict_refusal_is_exit_3_with_a_stop_line_and_no_answer_is_read(w):
     r = w.run(STUB_SANDBOX="nolaunch")
     assert r.returncode == 3, (r.stdout, r.stderr)
@@ -1299,3 +1312,28 @@ def test_l1_the_caps_and_the_test_flags_of_the_launch_line_are_written_to_setup_
     for want in ("sandbox launch-line cap_tasks: 1024", "sandbox launch-line cap_memory: 4294967296",
                  "sandbox launch-line cap_tmp: 2147483648", "sandbox launch-line test_mode: 1", "sandbox launch-line test_exec: 0"):
         assert want in lines, want
+
+
+@needs_linux_wrapper
+def test_b_setup_txt_carries_the_built_path_on_one_line_equal_to_the_path_the_feeder_was_handed(w):
+    assert w.run().returncode == 0
+    handed = (w.root / "stub-path.txt").read_text().splitlines()
+    assert len(handed) == 1                                             # the student run only: the plan dumps are unwrapped
+    lines = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder PATH: ")]
+    assert lines == ["sandbox feeder PATH: " + handed[0]]
+    first, *rest = handed[0].split(":")
+    assert rest == list(P1S.SL.FEEDER_SYSTEM_DIRS)                  # wrapper directory first, then the fixed list
+
+
+@needs_linux_wrapper
+def test_e3_the_environment_the_feeder_got_is_built_and_its_names_are_in_setup_txt(w):
+    """A5, the positive cell at the launcher: a real run's launch SUCCEEDS under the built environment; the names recorded in
+    setup.txt are the names the feeder was actually handed; they are the pinned literal's names that the caller set (here only
+    BEAM_PARQUET), PATH, and the stub's own STUB_* steering names, and a variable of the caller's that is not listed is absent."""
+    r = w.run(NODE_OPTIONS="--no-warnings", BASH_ENV="/nonexistent/rc")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    (names,) = [json.loads(l) for l in (w.root / "stub-env.json").read_text().splitlines()]
+    assert "NODE_OPTIONS" not in names and "BASH_ENV" not in names
+    assert [n for n in names if not n.startswith("STUB_")] == ["BEAM_PARQUET", "PATH"]
+    (line,) = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder environment names: ")]
+    assert line == "sandbox feeder environment names: " + ", ".join(names)

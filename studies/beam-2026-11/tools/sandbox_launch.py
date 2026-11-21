@@ -33,7 +33,8 @@ refusal or a launch-line hash mismatch after the session raises LaunchStop (a ha
 any answer of that session; its `.result` holds the feeder's own exit code. `flagged` is a verdict, never a stop.
 
 What the module can and cannot see: it reads the feeder's argv (`--out`, `--env`), the feeder's environment
-(BEAM_OLLAMA_URL) and the PATH the feeder's Popen will use. It cannot see a student started by anything else.
+(BEAM_OLLAMA_URL) and the PATH the feeder's Popen will use. (A student session's feeder gets an environment the module BUILDS:
+FEEDER_ENV_ALLOW from the caller's environment, plus the built PATH; see there.) It cannot see a student started by anything else.
 """
 import hashlib, ipaddress, itertools, json, os, re, secrets, shutil, signal, subprocess, sys, tempfile, time
 import urllib.parse
@@ -99,6 +100,8 @@ class LaunchResult:
         self.wrapper_sha256, self.forwarder_sha256 = wrapper_sha256, forwarder_sha256
         self.test_mode = self.test_exec = None   # from the launch line, after the session
         self.caps = {}                            # every cap_* value the launch line records (the caller writes them to its record)
+        self.feeder_path = None                   # the PATH the module built and passed to the feeder (the caller writes it to its record)
+        self.feeder_env_names = None              # the NAMES (never the values) of the environment the module built for the feeder
 
 
 def sha256_file(path):
@@ -257,6 +260,34 @@ def env_pairs(argv):
     return out
 
 
+# The caller's `--env KEY=VALUE` pairs are an ALLOWLIST too. feed4.py / feed2.py Student.__init__ put every pair into the STUDENT's
+# environment, which is the environment the shell-script wrapper runs in, so an unlisted key (BASH_ENV, LD_PRELOAD, NODE_OPTIONS,
+# PATH, ...) would be a door past the built feeder environment. Only these keys may be passed by a caller; any other is refused BY
+# NAME before anything starts (never silently dropped), PATH included (the PATH is built, build_feeder_path). The module's own
+# SANDBOX_* pairs are added after this check and a caller's SANDBOX_* pair is refused. Derived from the callers, not guessed:
+#   CLAUDE_CODE_MAX_CONTEXT_TOKENS   p1-session.py feed4_args() passes it (WINDOW); the value is digits only (check_env_pairs)
+#   ANTHROPIC_BASE_URL               read by model_url() below and matched against MODEL_URL_RE before launch
+# A key added here is a name a caller can steer the student with: add one only on the design owner's ruling, by name, here and in the
+# pinned literal of tests/test_sandbox_launch.py.
+CONTEXT_TOKENS_KEY = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+FEEDER_ENV_PAIR_ALLOW = (CONTEXT_TOKENS_KEY, "ANTHROPIC_BASE_URL")
+_DIGITS_RE = re.compile(r"[0-9]+")   # ASCII digits only (not \d: no other script's digits), matched whole (fullmatch: no trailing newline)
+
+
+def check_env_pairs(argv):
+    """Refuse, before anything starts and naming the key, any caller `--env` pair that is not allowed: a SANDBOX_* key (the module
+    passes its own), a key outside FEEDER_ENV_PAIR_ALLOW, a CLAUDE_CODE_MAX_CONTEXT_TOKENS value that is not a positive integer
+    written in digits. (An ANTHROPIC_BASE_URL value is checked by check_model_url.)"""
+    for k, v in env_pairs(argv):
+        if k.startswith("SANDBOX_"):
+            raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
+        if k not in FEEDER_ENV_PAIR_ALLOW:
+            raise LaunchRefused(f"--env {k!r} is refused: a caller may pass only {list(FEEDER_ENV_PAIR_ALLOW)} to the student's "
+                                "environment (the PATH is built by the module, never passed)")
+        if k == CONTEXT_TOKENS_KEY and not (_DIGITS_RE.fullmatch(v) and int(v) > 0):
+            raise LaunchRefused(f"--env {k} value {v!r} is refused: digits only, a positive integer (no sign, no space)")
+
+
 def argv_value(argv, flag):
     for i in range(len(argv) - 2, -1, -1):
         if argv[i] == flag:
@@ -295,31 +326,93 @@ def check_model_url(url, port):
         raise LaunchRefused(f"the model URL the student will use ({url}) has port {int(m.group(2))}, not SANDBOX_MODEL_PORT {port}")
 
 
+# The PATH the feeder (and so the student session) sees is BUILT by the module, never inherited from the caller: the directory of
+# the wrapper this launch prepared first, then this ONE fixed list of system directories. This list is a FLOOR for the wrapper's
+# children (the system tools they may reach), NOT the security line: the line is the assertion in run_feeder that `claude`
+# resolves, under the built path, to the wrapper this launch prepared (check_claude_first), together with the guard that no other
+# directory of the path holds an executable `claude` (check_no_other_claude). So widening this list moves what the children can
+# reach, and never what `claude` means. A directory outside it that a session turns out to need is added here, by name, on the
+# design owner's ruling, and nowhere else.
+FEEDER_SYSTEM_DIRS = ("/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin")
+
+
+# The feeder's ENVIRONMENT is built too: only the names below reach it, from the caller's environment, and nothing else is
+# inherited (so LD_PRELOAD, LD_LIBRARY_PATH, BASH_ENV, NODE_OPTIONS and every other name are simply absent; this is an allowlist,
+# never a deny-list). Derived from what the code reads, not guessed:
+#   BEAM_OLLAMA_URL   feed.py `OLLAMA_URL = os.environ.get("BEAM_OLLAMA_URL", ...)` (imported by feed2.py and feed4.py), and this
+#                     module's own model_url() check of the URL the student will use
+#   BEAM_PARQUET      feed.py data_path() `os.environ.get("BEAM_PARQUET")`, the dataset the feeders read
+# PATH is not a name to pass: it is built (build_feeder_path). Nothing else in the feeders, the wrapper or the forwarder reads the
+# FEEDER's environment: feed.py/feed2.py/feed4.py Student.__init__ build the student's environment from scratch (PATH, HOME,
+# TERM, LANG, ... and the `--env` pairs), and the wrapper and the forwarder run inside THAT environment. A name added here is a
+# name a caller's shell can steer the feeder with: add one only on the design owner's ruling, by name, here and in the pinned
+# literal of tests/test_sandbox_launch.py.
+FEEDER_ENV_ALLOW = ("BEAM_OLLAMA_URL", "BEAM_PARQUET")
+
+
+def build_feeder_env(caller_env, wrapper_dir, extra_names=()):
+    """The feeder's whole environment: the allowlisted names present in `caller_env` (plus `extra_names`, a test seam that
+    run_feeder accepts only for a test stub), and the built PATH. Nothing else of `caller_env` is in it."""
+    out = {k: caller_env[k] for k in (*FEEDER_ENV_ALLOW, *extra_names) if k in caller_env}
+    out["PATH"] = build_feeder_path(wrapper_dir)
+    return out
+
+
+def build_feeder_path(wrapper_dir):
+    """The built PATH: the wrapper's directory, then FEEDER_SYSTEM_DIRS. Nothing of the caller's environment is in it."""
+    return os.pathsep.join((wrapper_dir, *FEEDER_SYSTEM_DIRS))
+
+
 def resolve_on_path(name, path, cwd):
     """The file Popen([name], env={'PATH': path}, cwd=cwd) would start: the first executable regular file among the PATH
-    entries in order (an empty entry is the child's working directory)."""
+    entries in order (an empty entry is the child's working directory). The candidate is joined, never normalised: exec hands
+    the path to the kernel, which follows a symlink and THEN applies `..`, so a lexical normpath would name a different file
+    from the one that runs (`<d>/L/../wd` with L a symlink is not `<d>/wd`)."""
     for d in path.split(os.pathsep):
-        d = d if d else "."
-        cand = os.path.normpath(os.path.join(d if os.path.isabs(d) else os.path.join(cwd, d), name))
+        cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), name)   # empty entry: the cwd itself
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     return None
 
 
-def check_claude_first(wrapper_path, argv, env, feeder):
-    """The `claude` the feeder's Popen will find must be the wrapper this launch prepared."""
-    path = None
-    for k, v in env_pairs(argv):
-        if k == "PATH":
-            path = v   # an --env PATH replaces the feeder's own (last wins)
-    if path is None:
-        path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
+def _feeder_path(argv, env, feeder):
+    """(the PATH the feeder's Popen will see, the working directory it resolves an empty or relative entry against). The feeder
+    builds it as its own PATH (the built one) + `:` + its directory; a caller's `--env PATH=` never gets here (refused by
+    the key check, run_feeder)."""
+    path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
     home = argv_value(argv, "--arm-home")
-    cwd = os.path.join(os.path.abspath(home), "work") if home else os.getcwd()
+    cwd = os.path.join(os.getcwd(), home, "work") if home else os.getcwd()   # as the child's chdir resolves it: no lexical abspath
+    return path, cwd
+
+
+def check_claude_first(wrapper_path, argv, env, feeder):
+    """The assertion that is the security line: under the PATH the feeder will see (the built one, with what the feeder appends),
+    `claude` resolves to the wrapper this launch prepared, or the launch is refused before anything starts."""
+    path, cwd = _feeder_path(argv, env, feeder)
     got = resolve_on_path("claude", path, cwd)
     if got is None or not os.path.samefile(got, wrapper_path):
         raise LaunchRefused(f"the `claude` first on the PATH the feeder will see is {got or 'not found'}, not the sandbox "
                             f"wrapper this launch prepared ({wrapper_path})")
+
+
+def check_no_other_claude(wrapper_path, path, cwd):
+    """Popen falls through to the NEXT `claude` on the PATH when the first cannot exec (a missing interpreter, an invalid
+    format), with no error, which would start a student unwrapped. So no directory of `path` other than the wrapper's own may hold
+    an executable regular file named `claude` (the same file rules as resolve_on_path; an empty entry is `cwd`). This is safe
+    because the wrapper starts the real binary from SANDBOX_BINARY, an absolute path, and never needs `claude` on the PATH. The
+    refusal names each such directory of the built PATH; the caller cannot edit that PATH, so it says the fixed directory list is
+    the design owner's to change."""
+    others = []
+    for d in path.split(os.pathsep):
+        cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), "claude")   # as resolve_on_path
+        if os.path.isfile(cand) and os.access(cand, os.X_OK) and not os.path.samefile(cand, wrapper_path):
+            if os.path.dirname(cand) not in others:
+                others.append(os.path.dirname(cand))
+    if others:
+        raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others)
+                            + ": if the wrapper could not be exec'd, the next `claude` would start unwrapped. The PATH the feeder sees is "
+                            + "built, not the caller's (the built PATH holds " + ("that directory" if len(others) == 1 else "those directories")
+                            + "); the fixed list of directories is the design owner's to change")
 
 
 def _prepare_dir():
@@ -380,6 +473,11 @@ class LaunchMarkerError(Exception):
     pass
 
 
+class LaunchLogUnreadable(Exception):
+    """A launch log that EXISTS but cannot be read: nothing is known about whether its wrapper launched, so it is never
+    read as 'the wrapper never launched' (read_launch_fields raises it; both callers turn it into a named refusal or stop)."""
+
+
 def scope_name(unit):
     """systemctl takes a bare name as a .service; the wrapper's units are scopes (`systemd-run --scope --unit NAME`)."""
     return unit if unit.endswith(".scope") else unit + ".scope"
@@ -394,11 +492,21 @@ def _systemctl(*args, timeout=150):
 
 
 def read_launch_fields(log):
-    """The key=value fields of the log's `wrapper-launch` line, or None when there is no log or no such line."""
+    """The key=value fields of the log's `wrapper-launch` line. THREE cases, told apart: the log is ABSENT (the wrapper refused
+    before it made one: None); the log has NO launch line (a log the forwarder wrote alone: None); the log is PRESENT BUT
+    UNREADABLE (permission, a directory, an I/O error: LaunchLogUnreadable, because nothing is known and it must never be
+    closed as 'never launched'). Absent and no-line both answer None because the callers treat them the same (nothing to stop);
+    only an unreadable log is a different answer."""
     try:
         text = open(log, "rb").read().decode("utf-8", "replace")
-    except OSError:
-        return None
+    except FileNotFoundError as e:
+        if not os.path.lexists(log):   # absence is decided by lexists: a link that cannot be followed is PRESENT, not absent
+            return None
+        raise LaunchLogUnreadable(f"the launch log {log} exists but cannot be read ({type(e).__name__}): whether its wrapper "
+                                  "launched is not known")
+    except OSError as e:
+        raise LaunchLogUnreadable(f"the launch log {log} exists but cannot be read ({type(e).__name__}): whether its wrapper "
+                                  "launched is not known")
     for line in text.splitlines():
         if line.startswith("wrapper-launch "):
             return dict(tok.partition("=")[::2] for tok in line.split()[1:] if "=" in tok)
@@ -588,7 +696,12 @@ def check_before_launch(state_dir, prefix=UNIT_PREFIX):
                 continue
             if rec.get("state") == "done":
                 continue
-            fields = read_launch_fields(rec.get("log", ""))
+            try:
+                fields = read_launch_fields(rec.get("log", ""))
+            except LaunchLogUnreadable as e:
+                problems.append(f"the earlier launch {name}: {e}; its record is left open, and nothing can be said about what it started")
+                count += 1
+                continue
             if fields is None:
                 rec.update(state="done", note="no launch line in the log: the wrapper never launched, nothing to stop")
                 _write_record(path, rec)
@@ -630,7 +743,10 @@ def _close_launch(rec_path, rec, log, res, prefix=UNIT_PREFIX):
     launching) is told apart by exactly that: there is nothing to stop. Whenever a launch line names a scope_unit that is a
     unit this wrapper makes, that scope is stopped FIRST, whatever the other markers say and whether or not the record can be
     written; the three checks then run with what the line has, and a check that could not run is reported, never read as clean."""
-    fields = read_launch_fields(log)
+    try:
+        fields = read_launch_fields(log)
+    except LaunchLogUnreadable as e:
+        return LaunchStop(f"teardown: {e}; the launch record is left open and nothing of this launch was stopped or checked", res)
     if fields is None:
         try:
             rec.update(state="done", note="no launch line in the log: the wrapper refused before it launched, nothing to stop")
@@ -672,16 +788,21 @@ def _close_launch(rec_path, rec, log, res, prefix=UNIT_PREFIX):
 
 
 def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, state_dir=None, env=None, test_stub=False,
-               stub_as="feed4.py", **run_kw):
+               stub_as="feed4.py", test_env_names=(), **run_kw):
     """Run `py -I feeder *argv`. See the module docstring. `sandbox` is a Sandbox for a student session; None only for a
     call that starts no student (`--dump-plan`). `log_dir` is where this session's SANDBOX_LOG is chosen (or `log_path`
     names it; it must not exist). `state_dir` (required for a student session, no default) holds one record per launch.
     `test_stub=True` lets a test substitute a stub script for a feeder (the P1_FEED4 hook, refused outside
     P1_TEST_HOOKS=1): the stub is wrapped like a feeder, so every check still runs on it, and its argv obeys the allow-list
-    of the feeder it stands in for (`stub_as`, feed4.py by default).
+    of the feeder it stands in for (`stub_as`, feed4.py by default). `test_env_names` (refused without `test_stub`) names further
+    caller-environment variables a STUB needs to receive, on top of FEEDER_ENV_ALLOW.
+    `py`, the interpreter that runs the feeder, is resolved against the CALLER's PATH, not the built one; only the feeder's
+    children see the built PATH.
     Extra keyword arguments go to subprocess.run (stdout=...)."""
     if os.path.basename(feeder) not in FEEDERS and not test_stub:
         raise LaunchRefused(f"{feeder} is not one of the feeders {FEEDERS}")
+    if test_env_names and not test_stub:
+        raise LaunchRefused("test_env_names is a seam for a test stub only; a real feeder gets FEEDER_ENV_ALLOW and nothing else")
     env = dict(os.environ if env is None else env)
     argv = list(argv)
     check_argv_options(argv, FEEDER_OPTIONS[os.path.basename(feeder) if os.path.basename(feeder) in FEEDER_OPTIONS else stub_as],
@@ -692,11 +813,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         raise LaunchRefused("a feeder call that starts a student needs the sandbox (only --dump-plan runs without it)")
     if not state_dir:
         raise LaunchRefused("a student session needs a state directory for its launch record (the module has no default)")
-    if not env.get("PATH"):
-        raise LaunchRefused("the caller's environment has no PATH: the wrapper directory must go first on the PATH the feeder gets")
-    for k, _ in env_pairs(argv):
-        if k.startswith("SANDBOX_"):
-            raise LaunchRefused(f"{k} is passed to the feeder by the launch module only, not by the caller")
+    check_env_pairs(argv)
     out = argv_value(argv, "--out")
     if not out:
         raise LaunchRefused("the feeder's --out directory is not in its argv (the proctor binds are made from it)")
@@ -717,8 +834,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
             if got[k] != sandbox.expected[k]:
                 raise LaunchRefused(f"{k} of the file this launch would use is {got[k]}, expected {sandbox.expected[k]} "
                                     f"(from {os.path.basename(sandbox.expected_file)})")
-        env["PATH"] = wdir + os.pathsep + env["PATH"]
-        check_claude_first(wrapper, argv, env, feeder)
+        fenv = build_feeder_env(env, wdir, test_env_names)   # built, not inherited: the caller's environment is read by name only
+        check_claude_first(wrapper, argv, fenv, feeder)
+        check_no_other_claude(wrapper, *_feeder_path(argv, fenv, feeder))
         os.makedirs(os.path.join(out, "proctor"), exist_ok=True)
         tools = os.path.dirname(os.path.abspath(feeder))
         pairs = dict(sandbox.settings)
@@ -730,8 +848,9 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
         rec = {"state": "open", "log": log_path, "feeder": os.path.basename(feeder)}
         _write_record(rec_path, rec)
         res = LaunchResult(None, log=log_path)
+        res.feeder_path, res.feeder_env_names = fenv["PATH"], sorted(fenv)
         try:
-            res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=env, **run_kw).returncode
+            res.returncode = subprocess.run([py, "-I", feeder, *argv, *extra], env=fenv, **run_kw).returncode
         except BaseException as exc:   # a feeder that could not run, or was interrupted: still torn down
             td = _close_launch(rec_path, rec, log_path, res, sandbox.prefix)
             if td is not None and hasattr(exc, "add_note"):
@@ -760,6 +879,8 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
                                      "is not what was registered; no answer of this session is read", res)
         except LaunchStop as e:
             vs = e
+        except LaunchLogUnreadable as e:
+            vs = LaunchStop(f"{e}; no answer of this session is read", res)
         if td is not None:
             raise LaunchStop(str(td) + (f"; also: {vs}" if vs else ""), res) from None
         if vs is not None:

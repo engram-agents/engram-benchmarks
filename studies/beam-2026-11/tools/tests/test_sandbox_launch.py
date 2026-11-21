@@ -37,9 +37,13 @@ first = os.environ["PATH"].split(":")[0]
 claude, fwd = os.path.join(first, "claude"), os.path.join(first, "sandbox-forward.py")
 sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest() if os.path.isfile(p) else None
 log = pairs.get("SANDBOX_LOG")
+try:
+    handed = dict(kv.split("=", 1) for kv in open("/proc/self/environ", "rb").read().decode().split("\0") if "=" in kv)
+except OSError:
+    handed = dict(os.environ)
 with open(os.environ["REC"], "a") as f:
     f.write(json.dumps({"argv": a, "pairs": pairs, "path": os.environ["PATH"], "path0": first,
-                        "claude_is_link": os.path.islink(claude), "claude_sha": sha(claude), "fwd_sha": sha(fwd),
+                        "claude_is_link": os.path.islink(claude), "claude_sha": sha(claude), "fwd_sha": sha(fwd), "env": handed,
                         "log_existed": bool(log) and os.path.exists(log)}) + "\n")
 if "--dump-plan" in a:
     print("[]"); sys.exit(0)
@@ -117,6 +121,10 @@ sys.exit(st.p.wait(timeout=90))
 ''' % TOOLS
 
 
+# What the cells' own stub reads from its environment: it receives these by name through run_feeder's test seam, never by inheritance.
+STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH")
+
+
 class World:
     def __init__(self, root):
         self.root = root
@@ -160,6 +168,7 @@ class World:
         kw.setdefault("log_dir", str(self.logs))
         kw.setdefault("state_dir", str(self.state))
         kw.setdefault("stub_as", "feed2.py")    # the module cells' stub stands in for feed2 (its option set is the broader one)
+        kw.setdefault("test_env_names", STUB_ENV)
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -254,18 +263,22 @@ def test_m3_a_log_path_that_already_exists_is_refused(w):
     assert not w.rec.exists() and p.read_text() == "wrapper-launch earlier\n"
 
 
-def test_m3_a_claude_first_on_the_path_that_is_not_the_wrapper_is_refused(w):
+def test_m3_a_claude_first_on_the_path_that_is_not_the_wrapper_is_refused(w, monkeypatch):
+    """(A6: a caller can no longer reach this by `--env PATH=`, which is refused by name; the seam is the built path itself.)"""
     other = w.d / "other"; other.mkdir()
     TSS.make_exe(str(other / "claude"), "#!/bin/sh\nexit 0\n")
+    monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((str(other), wdir, *SL.FEEDER_SYSTEM_DIRS)))
     with pytest.raises(SL.LaunchRefused, match="not the sandbox wrapper"):
-        w.launch(argv=w.argv(extra=("--env", "PATH=%s:/usr/bin" % other)))
+        w.launch()
     w.assert_nothing_started()
 
 
 @needs_linux_wrapper
-def test_m3_a_path_override_that_keeps_the_wrapper_first_is_fine_and_no_claude_at_all_is_refused(w):
-    with pytest.raises(SL.LaunchRefused, match="not found"):
-        w.launch(argv=w.argv(extra=("--env", "PATH=/nonexistent-dir")))
+def test_m3_a_built_path_with_no_claude_at_all_is_refused_and_the_modules_own_path_passes(w, monkeypatch):
+    with monkeypatch.context() as m:   # (A6: the seam is the built path; a caller's `--env PATH=` is refused by name)
+        m.setattr(SL, "build_feeder_path", lambda wdir: "/nonexistent-dir")
+        with pytest.raises(SL.LaunchRefused, match="not found"):
+            w.launch()
     w.assert_nothing_started()
     assert w.launch().returncode == 0    # the positive control: the module's own PATH passes the same check
 
@@ -351,7 +364,7 @@ def test_m1_a_session_without_a_sandbox_is_refused_and_so_is_a_name_that_is_not_
 def test_m2_the_wrapper_directory_holds_a_copy_of_the_wrapper_and_the_forwarder_first_on_the_path(w):
     r = w.launch()
     (rec,) = w.records()
-    assert rec["path"].split(":")[0] == rec["path0"] and rec["path"].endswith(os.environ["PATH"])
+    assert rec["path"].split(":")[0] == rec["path0"] and rec["path"] == rec["path0"] + ":" + ":".join(SL.FEEDER_SYSTEM_DIRS)
     assert rec["claude_is_link"] is False                          # a copy, not a symlink (the wrapper looks beside itself)
     assert rec["claude_sha"] == TSS.sha256_of(TSS.WRAPPER) and rec["fwd_sha"] == TSS.sha256_of(TSS.FWD)
     assert r.returncode == 0 and not os.path.exists(rec["path0"]), "the wrapper directory is removed after the launch"
@@ -760,7 +773,8 @@ def real_caller(w, arrow_python, exec_, detach=False):
                       'SL = importlib.util.module_from_spec(spec); spec.loader.exec_module(SL)\n'
                       'c = json.load(open(sys.argv[2]))\n'
                       'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"], allow_test=True),\n'
-                      '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True)\n')
+                      '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True,\n'
+                      '              test_env_names=("DRIVER_DETACH",))\n')
     cj = w.d / "caller.json"
     cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
                               "expected": str(w.expected), "log_dir": str(w.logs), "state_dir": str(w.state),
@@ -770,7 +784,8 @@ def real_caller(w, arrow_python, exec_, detach=False):
 
 def real_launch(w, arrow_python, exec_, detach=False):
     return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_), log_dir=str(w.logs),
-                         state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True)
+                         state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True,
+                         test_env_names=("DRIVER_DETACH",))
 
 
 # ---------------------------------------------------------------------------------------------------- W: the launch line
@@ -925,6 +940,7 @@ def test_t_runs_in_a_finally_a_feeder_that_raised_is_still_torn_down_and_the_rec
     assert rec["state"] == "done" and "no launch line" in rec["note"]
 
 
+@needs_linux_wrapper
 def test_t_a_session_with_no_launch_line_has_nothing_to_stop_and_is_told_apart_by_the_missing_line(w):
     with pytest.raises(SL.LaunchStop, match="log-verdict refused"):
         w.launch("nolaunch")
@@ -1150,14 +1166,19 @@ def test_f4_the_unit_scan_includes_every_unit_under_the_prefix_that_is_not_inact
 
 
 @pytest.mark.parametrize("unit", ["dbus.service", "user.slice", "student-sandbox-1-aa.scope", "x-1-ZZ", "{prefix}1-aa;rm"])
-@needs_linux_wrapper
 def test_f4_a_scope_unit_that_is_not_a_name_this_wrapper_makes_is_a_named_stop_and_is_never_stopped(w, monkeypatch, unit):
+    """A pure judgement (no launch, so no /proc, no systemd, no box): the close step is handed a log whose launch line names
+    the unit, and refuses it by name before anything is stopped."""
     unit = unit.replace("{prefix}", TSS.RUN_UNIT_PREFIX)
-    calls, real = [], SL._systemctl
-    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
-    with pytest.raises(SL.LaunchStop, match="not a unit this wrapper makes"):
-        w.launch(env={"STUB_UNIT": unit})
-    assert not [c for c in calls if c[0] == "stop"], calls
+    assert not SL.unit_name_re(TSS.RUN_UNIT_PREFIX).fullmatch(unit)
+    calls = []
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: calls.append(a))
+    log = w.d / "unit.log"
+    log.write_text(f"wrapper-launch time=1 pid=2 scope_unit={unit} forwarder_pid=1 forwarder_start=1 bridge_sock=/x/y.sock\n")
+    rec = w.d / "unit.json"; rec.write_text(json.dumps({"state": "open", "log": str(log)}))
+    stop = SL._close_launch(str(rec), json.load(open(rec)), str(log), SL.LaunchResult(None), TSS.RUN_UNIT_PREFIX)
+    assert isinstance(stop, SL.LaunchStop) and "not a unit this wrapper makes" in str(stop)
+    assert calls == [], calls
 
 
 def test_f4_a_recorded_scope_unit_that_is_not_a_wrapper_name_is_refused_not_acted_on(w, monkeypatch):
@@ -1173,13 +1194,6 @@ def test_f4_a_recorded_scope_unit_that_is_not_a_wrapper_name_is_refused_not_acte
 
 
 # ---------------------------------------------------------------------------------------------------- F6
-def test_f6_a_caller_environment_with_no_path_is_a_named_refusal_not_a_keyerror(w):
-    with pytest.raises(SL.LaunchRefused, match="no PATH"):
-        SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
-                      state_dir=str(w.state), env={"HOME": str(w.d)}, test_stub=True)
-    w.assert_nothing_started()
-
-
 # ---------------------------------------------------------------------------------------------------- F7: default-deny argv
 # argparse accepts `--opt=value` and any unambiguous prefix (`--en`, `--ou`, `--arm-hom`) for the same option, but the module's
 # guards read only the exact `--flag VALUE` spelling. FEEDER_OPTIONS names what a launcher may pass; anything else is refused.
@@ -1248,14 +1262,14 @@ def test_f7_a_token_that_is_not_an_allowed_option_or_its_value_is_refused_naming
     w.assert_nothing_started()
 
 
-@needs_linux_wrapper
 def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_refused(w):
+    """The pure function judges (no launch, so it runs on any OS): the same argvs the launch refuses."""
+    opts, feeder = SL.FEEDER_OPTIONS["feed2.py"], str(w.tools / "feed2.py")
     with pytest.raises(SL.LaunchRefused, match="looks like an option"):
-        w.launch(argv=w.argv(extra=("--env", "--env=PATH=/x")))
+        SL.check_argv_options(w.argv(extra=("--env", "--env=PATH=/x")), opts, feeder)
     with pytest.raises(SL.LaunchRefused, match="has no value"):
-        w.launch(argv=w.argv() + ["--env"])
-    w.assert_nothing_started()
-    assert w.launch(argv=w.argv(extra=("--turns", "-1"))).returncode == 0       # a plain negative number is a value
+        SL.check_argv_options(w.argv() + ["--env"], opts, feeder)
+    SL.check_argv_options(w.argv(extra=("--turns", "-1")), opts, feeder)       # a plain negative number is a value
 
 
 @needs_linux_wrapper
@@ -1507,3 +1521,441 @@ def test_s2_a_real_feeder_option_that_is_not_in_the_dict_is_refused(w, stub_as):
     with pytest.raises(SL.LaunchRefused, match="'--model'"):
         w.launch(argv=w.argv(extra=("--model", "some-model")), stub_as=stub_as)
     w.assert_nothing_started()
+
+
+# ================================================================ the launch log's THREE states (design owner's finding)
+# `read_launch_fields` used to answer None both when the log could not be opened and when it had no launch line, and both
+# callers then closed the record as "the wrapper never launched". Three cases, told apart: ABSENT (the wrapper refused before
+# it made a log: legitimate), PRESENT BUT UNREADABLE (not known to be anything: a named refusal / stop, the record stays
+# open), PRESENT WITH NO LAUNCH LINE (a log the forwarder wrote alone: nothing to stop). The unreadable log is a DIRECTORY at
+# the log path: unreadable whoever runs the cell (a chmod would not stop root).
+def open_record(w, log, name="x.json"):
+    w.state.mkdir(exist_ok=True)
+    p = w.state / name
+    p.write_text(json.dumps({"state": "open", "log": str(log), "feeder": "stub"}))
+    return p
+
+
+def log_in(w, kind):
+    p = w.logs / f"{kind}.log"
+    if kind == "unreadable":
+        p.mkdir(exist_ok=True)
+    elif kind == "noline":
+        p.write_text("fwd-first-request\n")
+    return p            # "absent": nothing created
+
+
+def test_l_the_helper_tells_the_three_apart(w):
+    assert SL.read_launch_fields(str(log_in(w, "absent"))) is None
+    assert SL.read_launch_fields(str(log_in(w, "noline"))) is None
+    with pytest.raises(SL.LaunchLogUnreadable, match="cannot be read"):
+        SL.read_launch_fields(str(log_in(w, "unreadable")))
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_before_launch_closes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    SL.check_before_launch(str(w.state))
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_before_launch_refuses_on_an_unreadable_log_by_name_and_leaves_the_record_open(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    with pytest.raises(SL.LaunchRefused, match=r"cannot be read.*not known") as e:
+        SL.check_before_launch(str(w.state))
+    assert "x.json" in str(e.value)
+    assert json.load(open(rec))["state"] == "open"
+
+
+@pytest.mark.parametrize("kind", ["absent", "noline"])
+def test_l_close_finishes_a_record_whose_log_is_absent_or_has_no_launch_line(w, kind):
+    rec = open_record(w, log_in(w, kind))
+    r = json.load(open(rec))
+    assert SL._close_launch(str(rec), r, str(log_in(w, kind)), SL.LaunchResult(None)) is None
+    assert json.load(open(rec))["state"] == "done"
+
+
+def test_l_close_is_a_named_stop_on_an_unreadable_log_and_never_done(w):
+    rec = open_record(w, log_in(w, "unreadable"))
+    r = json.load(open(rec))
+    stop = SL._close_launch(str(rec), r, str(log_in(w, "unreadable")), SL.LaunchResult(None))
+    assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
+    assert json.load(open(rec))["state"] == "open"
+
+
+def dangling_log(w):
+    """A symlink at the log path whose target does not exist: open() raises FileNotFoundError, yet the path IS there."""
+    p = w.logs / "dangling.log"
+    os.symlink(str(w.logs / "no-such-target"), str(p))
+    assert os.path.lexists(p) and not os.path.exists(p)
+    return p
+
+
+def test_l_a_dangling_symlink_at_the_log_path_is_present_and_unreadable_never_absent(w):
+    """Absence is decided by os.path.lexists, not by the open error: a link that cannot be followed is present-and-unreadable
+    at the helper, at the before-launch scan (a named refusal, record left open) and at the close (a named stop, record
+    left open), never 'the wrapper never launched'."""
+    log = dangling_log(w)
+    with pytest.raises(SL.LaunchLogUnreadable, match="cannot be read"):
+        SL.read_launch_fields(str(log))
+    rec = open_record(w, log)
+    with pytest.raises(SL.LaunchRefused, match=r"cannot be read.*not known") as e:
+        SL.check_before_launch(str(w.state))
+    assert "x.json" in str(e.value)
+    assert json.load(open(rec))["state"] == "open"
+    stop = SL._close_launch(str(rec), json.load(open(rec)), str(log), SL.LaunchResult(None))
+    assert isinstance(stop, SL.LaunchStop) and "cannot be read" in str(stop)
+    assert json.load(open(rec))["state"] == "open"
+
+
+@needs_linux_wrapper
+def test_l_a_log_that_becomes_unreadable_between_the_close_and_the_verdict_read_is_a_named_stop(w, monkeypatch):
+    """The close has run and the launch line was read once; the log then becomes unreadable at the verdict read (the hash read
+    is made to raise exactly what an unreadable log raises). run_feeder must raise a named LaunchStop, never return a
+    result. (The record was closed by the close step, which saw a readable log: this cell pins the stop, not the record.)"""
+    def boom(log):
+        raise SL.LaunchLogUnreadable(f"the launch log {log} exists but cannot be read (PermissionError): whether its wrapper launched is not known")
+    monkeypatch.setattr(SL, "read_launch_hashes", boom)
+    with pytest.raises(SL.LaunchStop, match=r"cannot be read.*no answer of this session is read"):
+        w.launch()
+
+
+# ============================================================ round 5b: the module BUILDS the feeder's PATH (default-deny)
+# The feeder's PATH is the wrapper directory first, then ONE fixed list of system directories (SL.FEEDER_SYSTEM_DIRS); nothing of
+# the caller's PATH is inherited. The fixed list is a FLOOR for the wrapper's children (what they may reach), not the security
+# line: the line is the assertion that `claude` resolves, under the built path, to the wrapper this launch prepared
+# (check_claude_first), plus the guard that no other directory of the path holds an executable `claude`.
+def second_claude(where, kind="exe"):
+    """Put a `claude` of `kind` in the directory `where` (exe: executable regular file; plain: not executable; dir: a directory)."""
+    os.makedirs(where, exist_ok=True)
+    c = os.path.join(str(where), "claude")
+    if kind == "dir":
+        os.mkdir(c)
+    elif kind == "plain":
+        open(c, "w").write("#!/bin/sh\n"); os.chmod(c, 0o644)
+    else:
+        TSS.make_exe(c, "#!/bin/sh\nexit 0\n")
+    return str(where)
+
+
+@needs_linux_wrapper
+def test_g_the_built_path_is_the_wrapper_directory_then_the_fixed_list_and_nothing_of_the_callers(w, tmp_path):
+    marker = second_claude(tmp_path / "caller-marker-dir", "plain")      # a directory only the caller's PATH names
+    r = w.launch(env={"PATH": "%s:%s" % (marker, os.environ["PATH"])})
+    (rec,) = w.records()
+    built = rec["path"]
+    assert built.split(":")[0] == rec["path0"]                       # the wrapper directory first
+    assert built == rec["path0"] + ":" + ":".join(SL.FEEDER_SYSTEM_DIRS)    # then the constant, compared as built, not listed by hand
+    assert marker not in built.split(":")
+    assert r.returncode == 0
+
+
+def test_g_the_fixed_list_is_one_named_constant_of_absolute_directories():
+    assert isinstance(SL.FEEDER_SYSTEM_DIRS, tuple) and SL.FEEDER_SYSTEM_DIRS
+    assert all(os.path.isabs(d) for d in SL.FEEDER_SYSTEM_DIRS)
+    src = open(MOD).read()
+    assert src.count("FEEDER_SYSTEM_DIRS") >= 2 and src.count('"/usr/local/sbin"') == 1   # defined once, used by name
+
+
+@needs_linux_wrapper
+def test_g_a_caller_environment_with_no_path_launches_since_nothing_of_it_is_used(w):
+    r = SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
+                      env={k: v for k, v in w.env().items() if k != "PATH"}, test_stub=True, stub_as="feed2.py",
+                      test_env_names=STUB_ENV)
+    assert r.returncode == 0
+
+
+@needs_linux_wrapper
+def test_g_the_result_carries_the_built_path_equal_to_the_one_the_feeder_got(w):
+    r = w.launch()
+    (rec,) = w.records()
+    assert r.feeder_path == rec["path"]
+
+
+def test_g_the_guard_refuses_a_second_executable_claude_naming_its_directory(w):
+    wd, later = second_claude(w.d / "wd"), second_claude(w.d / "later")
+    with pytest.raises(SL.LaunchRefused, match=r"second .*" + re.escape(later)):
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:/usr/bin" % (wd, later), str(w.d))
+
+
+def test_g_the_refusal_says_the_fixed_directory_list_is_the_design_owners_to_change_and_advises_no_path_edit(w):
+    wd, later = second_claude(w.d / "wd"), second_claude(w.d / "later")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:/usr/bin" % (wd, later), str(w.d))
+    msg = str(e.value)
+    assert "built PATH" in msg and later in msg
+    assert "fixed list of directories is the design owner's to change" in msg
+    assert "drop" not in msg
+
+
+def test_g_every_such_directory_is_named_and_the_wrappers_own_is_not(w):
+    wd, a, b = second_claude(w.d / "wd"), second_claude(w.d / "la"), second_claude(w.d / "lb")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:%s" % (wd, a, b), str(w.d))
+    assert a in str(e.value) and b in str(e.value) and wd not in str(e.value)
+
+
+def test_g_an_empty_path_entry_is_the_working_directory_and_a_claude_there_is_refused(w):
+    wd, cwd = second_claude(w.d / "wd"), second_claude(w.d / "cwd")
+    with pytest.raises(SL.LaunchRefused, match=re.escape(cwd)):
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s::/usr/bin" % wd, cwd)
+
+
+@pytest.mark.parametrize("kind", ["plain", "dir"])
+def test_g_a_claude_that_is_not_an_executable_regular_file_is_not_refused(w, kind):
+    wd, later = second_claude(w.d / "wd"), second_claude(w.d / "later", kind)
+    SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s" % (wd, later), str(w.d))
+
+
+def test_g_the_wrapper_as_the_only_claude_is_not_refused(w):
+    wd = second_claude(w.d / "wd")
+    SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:/usr/bin" % wd, str(w.d))
+
+
+def test_g_the_launch_runs_the_guard_on_the_path_the_feeder_will_see_including_the_directory_it_appends(w):
+    appended = second_claude(w.tools)                                  # Student.__init__ appends the feeder's own directory
+    with pytest.raises(SL.LaunchRefused, match=re.escape(appended)):
+        w.launch()
+    w.assert_nothing_started()
+
+
+# ------------------------------------------------------------ round 5b: the decoy cells
+# A DECOY `claude` that writes a sentinel when run, on a PATH. The contract: a launch whose wrapper cannot be executed ends in
+# LaunchStop with no answer read, and nothing else named `claude` is ever run; and a built path that would resolve `claude` to
+# anything but the wrapper is refused before launch.
+def decoy_claude(where, sentinel):
+    os.makedirs(where, exist_ok=True)
+    TSS.make_exe(os.path.join(str(where), "claude"), "#!/bin/sh\n: > %s\nexit 0\n" % sentinel)
+    return str(where)
+
+
+BROKEN_WRAPPERS = {
+    "missing-interpreter": b"#!/nonexistent/interpreter-for-this-cell\nexit 0\n",     # exec fails: no such interpreter
+    "invalid-format": b"\x7fNOT-AN-EXECUTABLE-FORMAT\x00\x01\x02 no shebang, no ELF magic\n",   # exec fails: exec format error
+}
+
+
+@pytest.mark.parametrize("kind", sorted(BROKEN_WRAPPERS))
+@needs_linux_wrapper
+@needs_arrow
+def test_d_a_wrapper_that_cannot_exec_is_a_launch_stop_and_the_decoy_on_the_callers_path_never_runs(w, arrow_python, monkeypatch, tmp_path, kind):
+    """The real feed4.Student does the exec (the only seam that reaches it): the module's copy of the wrapper is broken in one of
+    the two ways exec can fail, the expected-hashes file matches the broken copy (so the pre-launch hash check passes and the
+    launch reaches the exec), and a decoy `claude` sits on the CALLER's PATH. Popen used to fall through to the next `claude`
+    on a failed exec; the built path no longer contains the caller's directories, so nothing is started. No real binary and no
+    model is involved: the only `claude` that can run is the decoy, and it must not."""
+    broken = tmp_path / "broken-wrapper"; broken.write_bytes(BROKEN_WRAPPERS[kind]); os.chmod(broken, 0o500)
+    monkeypatch.setattr(SL, "WRAPPER_SRC", str(broken))
+    w.write_expected(wrapper=TSS.sha256_of(str(broken)))
+    sentinel = tmp_path / "decoy-ran"
+    decoy = decoy_claude(tmp_path / "decoy-bin", sentinel)
+    env = w.env(PATH="%s:%s" % (decoy, os.environ["PATH"]))
+    with pytest.raises(SL.LaunchStop, match="log-verdict refused") as e:     # no log at all: the wrapper never ran
+        SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
+                      env=env, test_stub=True, stub_as="feed2.py")
+    r = e.value.result
+    assert r.verdict is None and r.wrapper_sha256 is None                # no answer of this session is read
+    assert not sentinel.exists(), "the decoy `claude` on the caller's PATH was run"
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done"
+
+
+@pytest.mark.parametrize("how", ["decoy-ahead-of-the-wrapper", "decoy-instead-of-the-wrapper"])
+def test_a2_a_built_path_that_resolves_claude_to_anything_but_the_wrapper_is_refused_before_launch(w, monkeypatch, tmp_path, how):
+    """The assertion is the security line, not the list: with a seam that puts a directory holding a decoy `claude` into the BUILT
+    path itself (ahead of the wrapper's directory, or in its place), the launch is refused by the equality assertion, named, with
+    nothing started and the decoy never run."""
+    sentinel = tmp_path / "decoy-ran"
+    decoy = decoy_claude(tmp_path / "decoy-in-built", sentinel)
+    if how == "decoy-ahead-of-the-wrapper":
+        monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((decoy, wdir, *SL.FEEDER_SYSTEM_DIRS)))
+    else:
+        monkeypatch.setattr(SL, "build_feeder_path", lambda wdir: os.pathsep.join((decoy, *SL.FEEDER_SYSTEM_DIRS)))
+    with pytest.raises(SL.LaunchRefused, match="not the sandbox wrapper") as e:
+        w.launch()
+    assert decoy in str(e.value)
+    w.assert_nothing_started()
+    assert not sentinel.exists()
+
+
+# ====================================================================================== the PATH resolution is exec's, not lexical
+def test_p_a_path_entry_with_a_symlink_then_dotdot_resolves_to_the_file_a_real_exec_runs(w):
+    """<d>/L is a symlink to <d>/real/x, so `<d>/L/../wd` is <d>/real/wd for exec (the kernel follows L, then goes up), while a
+    LEXICAL normpath would say <d>/wd. Two different `claude` files: the module's choice must be the one a real exec runs."""
+    d = w.d / "pl"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "wd").mkdir(); (d / "wd").mkdir()
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    TSS.make_exe(str(d / "real" / "wd" / "claude"), "#!/bin/sh\necho real\n")
+    TSS.make_exe(str(d / "wd" / "claude"), "#!/bin/sh\necho lexical\n")
+    path = "%s/L/../wd" % d
+    ran = _sp.run(["claude"], env={"PATH": path}, cwd=str(w.d), capture_output=True, text=True).stdout.strip()
+    assert ran == "real"                                         # what exec really starts
+    got = SL.resolve_on_path("claude", path, str(w.d))
+    assert os.path.samefile(got, str(d / "real" / "wd" / "claude")) and not os.path.samefile(got, str(d / "wd" / "claude")), got
+    assert _sp.run([got], capture_output=True, text=True).stdout.strip() == ran
+
+
+def test_p_the_childs_working_directory_is_not_normalised_lexically_either(w):
+    """--arm-home `<d>/L/../h` is <d>/real/h to the child (cwd `<arm-home>/work`), and an empty PATH entry is that directory."""
+    d = w.d / "pc"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "h" / "work").mkdir(parents=True)
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    wrapper = d / "real" / "h" / "work" / "claude"
+    TSS.make_exe(str(wrapper), "#!/bin/sh\n")
+    argv = ["--arm-home", "%s/L/../h" % d]
+    SL.check_claude_first(str(wrapper), argv, {"PATH": ":"}, str(w.tools / "feed2.py"))   # found, and is the wrapper
+
+
+# ============================================================ round 5b (A3, A5): the feeder's ENVIRONMENT is built from an allowlist
+# The names are PINNED HERE AS A LITERAL, not read from the module, so a widening shows as a diff in the constant AND in this test.
+def test_e3_the_allowlist_is_pinned_as_a_literal():
+    assert tuple(SL.FEEDER_ENV_ALLOW) == ("BEAM_OLLAMA_URL", "BEAM_PARQUET")
+
+
+CALLER_ONLY = {"LD_PRELOAD": "/nonexistent/cell.so", "LD_LIBRARY_PATH": "/nonexistent/lib", "BASH_ENV": "/nonexistent/rc",
+               "NODE_OPTIONS": "--require=/nonexistent/cell.js", "BEAM_NOT_LISTED_PROBE": "1"}
+
+
+@pytest.mark.parametrize("name", sorted(CALLER_ONLY))
+@needs_linux_wrapper
+def test_e3_a_variable_set_in_the_callers_environment_and_not_listed_is_absent_in_the_feeder(w, name):
+    r = w.launch(env={name: CALLER_ONLY[name]})
+    (rec,) = w.records()
+    assert name not in rec["env"], name
+    assert r.returncode == 0
+
+
+@needs_linux_wrapper
+def test_e3_a_listed_variable_arrives_with_its_value(w):
+    w.launch(env={"BEAM_PARQUET": "/some/where.parquet"})
+    (rec,) = w.records()
+    assert rec["env"]["BEAM_PARQUET"] == "/some/where.parquet"
+    assert rec["env"]["BEAM_OLLAMA_URL"] == "http://localhost:%d" % w.cfg.model_port
+
+
+@needs_linux_wrapper
+def test_e3_a_launch_under_the_built_environment_succeeds_and_the_names_are_exactly_the_built_ones(w):
+    """The positive cell (stub feeder, the stub's launch line as in every success cell): the launch SUCCEEDS with nothing but the
+    built environment, and the names the feeder got (and that the result reports for the setup record) are the pinned
+    literal's names, PATH, and the stub's own steering names."""
+    r = w.launch(env={"BEAM_PARQUET": "/some/where.parquet", **CALLER_ONLY})
+    assert r.returncode == 0 and r.verdict == NOT_FLAGGED
+    (rec,) = w.records()
+    got = set(rec["env"])
+    assert got - set(STUB_ENV) == {"BEAM_OLLAMA_URL", "BEAM_PARQUET", "PATH"}
+    assert r.feeder_env_names == sorted(got)
+
+
+def test_e3_a_real_feeder_never_gets_extra_names(w):
+    with pytest.raises(SL.LaunchRefused, match="test_env_names"):
+        SL.run_feeder(sys.executable, os.path.join(TOOLS, "feed4.py"), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
+                      state_dir=str(w.state), env=w.env(), test_env_names=("REC",))
+    w.assert_nothing_started()
+
+
+def test_e3_every_allowlisted_name_is_one_the_feeders_actually_read():
+    """The generated companion of the pinned literal: each name of the allowlist is read by feed.py (the module the other feeders
+    import), so no name is listed that nothing reads."""
+    src = open(os.path.join(TOOLS, "feed.py")).read()
+    for name in SL.FEEDER_ENV_ALLOW:
+        assert re.search(r'os\.environ\.get\("%s"' % re.escape(name), src), name
+
+
+@needs_linux_wrapper
+def test_b_a_launch_whose_wrapper_never_ran_is_a_launch_stop_and_no_answer_is_read(w):
+    """Seam: the stub feeder's `nowrapper` mode, a log the forwarder wrote alone with NO launch line. It stands in for a session
+    that ran without the wrapper, because a stub starts no student and the real exec path is reached only through the decoy cells
+    above (test_d_*). The result must be a LaunchStop, with no verdict, no launch-line hashes and the record closed as
+    'no launch line', never a result that could be read."""
+    with pytest.raises(SL.LaunchStop, match="found 0") as e:
+        w.launch("nowrapper")
+    r = e.value.result
+    assert r.verdict is None and r.wrapper_sha256 is None and r.forwarder_sha256 is None
+    (rec,) = records_in(w.state)
+    assert rec["state"] == "done" and "no launch line" in rec["note"]
+
+
+# ================================================ A6: the caller's `--env KEY=VALUE` pairs are an allowlist, not a pass-through
+# `feed4.py`/`feed2.py` Student.__init__ put every `--env` pair into the STUDENT's environment, where the shell-script wrapper runs,
+# so an unlisted key (BASH_ENV, LD_PRELOAD, NODE_OPTIONS, PATH) would be a door. The names are PINNED HERE AS A LITERAL, not read
+# from the module, so a widening shows as a diff in the constant AND in this test. Refusal = the launch does not start, and the
+# message names the key (never a silent drop).
+def test_a6_the_pair_allowlist_is_pinned_as_a_literal():
+    assert tuple(SL.FEEDER_ENV_PAIR_ALLOW) == ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL")
+
+
+@pytest.mark.parametrize("pair,key", [
+    ("BASH_ENV=/nonexistent/rc", "BASH_ENV"),
+    ("LD_PRELOAD=/nonexistent/cell.so", "LD_PRELOAD"),
+    ("PATH=/usr/bin", "PATH"),                         # an --env PATH no longer replaces the built one: it is refused
+    ("NODE_OPTIONS=--require=/nonexistent/cell.js", "NODE_OPTIONS"),
+    ("BEAM_NOT_LISTED_PROBE=1", "BEAM_NOT_LISTED_PROBE"),
+    ("BASH_ENV", "BASH_ENV"),                          # no `=`: the feeder still sets the key (to ""), so it is refused too
+])
+def test_a6_an_env_pair_whose_key_is_not_listed_is_refused_by_name_before_any_launch(w, pair, key):
+    with pytest.raises(SL.LaunchRefused, match=key) as e:
+        w.launch(argv=w.argv(extra=("--env", pair)))
+    assert "--env" in str(e.value)
+    w.assert_nothing_started()
+
+
+def test_a6_an_unlisted_key_after_a_listed_one_is_still_refused(w):
+    with pytest.raises(SL.LaunchRefused, match="BASH_ENV"):
+        w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--env", "BASH_ENV=/x")))
+    w.assert_nothing_started()
+
+
+@needs_linux_wrapper
+def test_a6_the_two_listed_keys_pass_and_reach_the_feeder(w):
+    url = "http://localhost:%d" % w.cfg.model_port
+    r = w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072", "--env", "ANTHROPIC_BASE_URL=" + url)))
+    assert r.returncode == 0
+    (rec,) = w.records()
+    assert rec["pairs"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "131072" and rec["pairs"]["ANTHROPIC_BASE_URL"] == url
+
+
+@pytest.mark.parametrize("value", ["", "-5", "+5", " 5", "5 ", "5\n", "1e5", "0x10", "12.5", "0", "five", "٣"])
+def test_a6_a_context_window_value_that_is_not_a_positive_integer_in_digits_is_refused_by_name(w, value):
+    with pytest.raises(SL.LaunchRefused, match="CLAUDE_CODE_MAX_CONTEXT_TOKENS"):
+        w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" + value)))
+    w.assert_nothing_started()
+
+
+@pytest.mark.parametrize("value", ["131072", "1", "4096"])
+@needs_linux_wrapper
+def test_a6_a_context_window_value_in_digits_passes(w, value):
+    """(The existing cell test_f7_the_exact_allowed_options_are_accepted also passes 131072; these pin the digit rule itself.)"""
+    assert w.launch(argv=w.argv(extra=("--env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS=" + value))).returncode == 0
+    (rec,) = w.records()
+    assert rec["pairs"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == value
+
+
+@needs_linux_wrapper
+def test_a6_the_modules_own_sandbox_pairs_still_reach_the_feeder(w):
+    sb = w.sandbox()
+    w.launch(sandbox=sb)
+    (rec,) = w.records()
+    for k, v in sb.settings.items():
+        assert rec["pairs"][k] == v, k
+    for k in ("SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT"):
+        assert rec["pairs"].get(k), k
+
+
+def test_a6_a_callers_sandbox_pair_is_still_refused(w):
+    with pytest.raises(SL.LaunchRefused, match="SANDBOX_LOG"):
+        w.launch(argv=w.argv(extra=("--env", "SANDBOX_LOG=/x")))
+    w.assert_nothing_started()
+
+
+def test_a6_the_allowlist_is_defined_once_and_nothing_honours_an_env_path_any_more():
+    src = open(MOD).read()
+    assert src.count('"CLAUDE_CODE_MAX_CONTEXT_TOKENS"') == 1 and src.count('"ANTHROPIC_BASE_URL"') == 2   # the tuple; model_url's read
+    import inspect
+    assert "env_pairs" not in inspect.getsource(SL._feeder_path)      # the branch that honoured an --env PATH is gone
+
+
+def test_a6_the_readme_states_the_rule():
+    text = open(os.path.join(TOOLS, "README.md")).read()
+    assert "FEEDER_ENV_PAIR_ALLOW" in text
+    for name in ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL"):
+        assert name in text
