@@ -1150,14 +1150,19 @@ def test_f4_the_unit_scan_includes_every_unit_under_the_prefix_that_is_not_inact
 
 
 @pytest.mark.parametrize("unit", ["dbus.service", "user.slice", "student-sandbox-1-aa.scope", "x-1-ZZ", "{prefix}1-aa;rm"])
-@needs_linux_wrapper
 def test_f4_a_scope_unit_that_is_not_a_name_this_wrapper_makes_is_a_named_stop_and_is_never_stopped(w, monkeypatch, unit):
+    """A pure judgement (no launch, so no /proc, no systemd, no box): the close step is handed a log whose launch line names
+    the unit, and refuses it by name before anything is stopped."""
     unit = unit.replace("{prefix}", TSS.RUN_UNIT_PREFIX)
-    calls, real = [], SL._systemctl
-    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: (calls.append(a), real(*a, **k))[1])
-    with pytest.raises(SL.LaunchStop, match="not a unit this wrapper makes"):
-        w.launch(env={"STUB_UNIT": unit})
-    assert not [c for c in calls if c[0] == "stop"], calls
+    assert not SL.unit_name_re(TSS.RUN_UNIT_PREFIX).fullmatch(unit)
+    calls = []
+    monkeypatch.setattr(SL, "_systemctl", lambda *a, **k: calls.append(a))
+    log = w.d / "unit.log"
+    log.write_text(f"wrapper-launch time=1 pid=2 scope_unit={unit} forwarder_pid=1 forwarder_start=1 bridge_sock=/x/y.sock\n")
+    rec = w.d / "unit.json"; rec.write_text(json.dumps({"state": "open", "log": str(log)}))
+    stop = SL._close_launch(str(rec), json.load(open(rec)), str(log), SL.LaunchResult(None), TSS.RUN_UNIT_PREFIX)
+    assert isinstance(stop, SL.LaunchStop) and "not a unit this wrapper makes" in str(stop)
+    assert calls == [], calls
 
 
 def test_f4_a_recorded_scope_unit_that_is_not_a_wrapper_name_is_refused_not_acted_on(w, monkeypatch):
@@ -1248,14 +1253,14 @@ def test_f7_a_token_that_is_not_an_allowed_option_or_its_value_is_refused_naming
     w.assert_nothing_started()
 
 
-@needs_linux_wrapper
 def test_f7_a_value_that_looks_like_an_option_and_an_option_with_no_value_are_refused(w):
+    """The pure function judges (no launch, so it runs on any OS): the same argvs the launch refuses."""
+    opts, feeder = SL.FEEDER_OPTIONS["feed2.py"], str(w.tools / "feed2.py")
     with pytest.raises(SL.LaunchRefused, match="looks like an option"):
-        w.launch(argv=w.argv(extra=("--env", "--env=PATH=/x")))
+        SL.check_argv_options(w.argv(extra=("--env", "--env=PATH=/x")), opts, feeder)
     with pytest.raises(SL.LaunchRefused, match="has no value"):
-        w.launch(argv=w.argv() + ["--env"])
-    w.assert_nothing_started()
-    assert w.launch(argv=w.argv(extra=("--turns", "-1"))).returncode == 0       # a plain negative number is a value
+        SL.check_argv_options(w.argv() + ["--env"], opts, feeder)
+    SL.check_argv_options(w.argv(extra=("--turns", "-1")), opts, feeder)       # a plain negative number is a value
 
 
 @needs_linux_wrapper
@@ -1579,3 +1584,31 @@ def test_l_a_log_that_becomes_unreadable_between_the_close_and_the_verdict_read_
     monkeypatch.setattr(SL, "read_launch_hashes", boom)
     with pytest.raises(SL.LaunchStop, match=r"cannot be read.*no answer of this session is read"):
         w.launch()
+
+
+# ====================================================================================== the PATH resolution is exec's, not lexical
+def test_p_a_path_entry_with_a_symlink_then_dotdot_resolves_to_the_file_a_real_exec_runs(w):
+    """<d>/L is a symlink to <d>/real/x, so `<d>/L/../wd` is <d>/real/wd for exec (the kernel follows L, then goes up), while a
+    LEXICAL normpath would say <d>/wd. Two different `claude` files: the module's choice must be the one a real exec runs."""
+    d = w.d / "pl"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "wd").mkdir(); (d / "wd").mkdir()
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    TSS.make_exe(str(d / "real" / "wd" / "claude"), "#!/bin/sh\necho real\n")
+    TSS.make_exe(str(d / "wd" / "claude"), "#!/bin/sh\necho lexical\n")
+    path = "%s/L/../wd" % d
+    ran = _sp.run(["claude"], env={"PATH": path}, cwd=str(w.d), capture_output=True, text=True).stdout.strip()
+    assert ran == "real"                                         # what exec really starts
+    got = SL.resolve_on_path("claude", path, str(w.d))
+    assert os.path.samefile(got, str(d / "real" / "wd" / "claude")) and not os.path.samefile(got, str(d / "wd" / "claude")), got
+    assert _sp.run([got], capture_output=True, text=True).stdout.strip() == ran
+
+
+def test_p_the_childs_working_directory_is_not_normalised_lexically_either(w):
+    """--arm-home `<d>/L/../h` is <d>/real/h to the child (cwd `<arm-home>/work`), and an empty PATH entry is that directory."""
+    d = w.d / "pc"
+    (d / "real" / "x").mkdir(parents=True); (d / "real" / "h" / "work").mkdir(parents=True)
+    os.symlink(str(d / "real" / "x"), str(d / "L"))
+    wrapper = d / "real" / "h" / "work" / "claude"
+    TSS.make_exe(str(wrapper), "#!/bin/sh\n")
+    argv = ["--arm-home", "%s/L/../h" % d, "--env", "PATH=:"]
+    SL.check_claude_first(str(wrapper), argv, {"PATH": "/usr/bin"}, str(w.tools / "feed2.py"))   # found, and is the wrapper

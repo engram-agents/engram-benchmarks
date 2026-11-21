@@ -297,10 +297,11 @@ def check_model_url(url, port):
 
 def resolve_on_path(name, path, cwd):
     """The file Popen([name], env={'PATH': path}, cwd=cwd) would start: the first executable regular file among the PATH
-    entries in order (an empty entry is the child's working directory)."""
+    entries in order (an empty entry is the child's working directory). The candidate is joined, never normalised: exec hands
+    the path to the kernel, which follows a symlink and THEN applies `..`, so a lexical normpath would name a different file
+    from the one that runs (`<d>/L/../wd` with L a symlink is not `<d>/wd`)."""
     for d in path.split(os.pathsep):
-        d = d if d else "."
-        cand = os.path.normpath(os.path.join(d if os.path.isabs(d) else os.path.join(cwd, d), name))
+        cand = os.path.join(d if os.path.isabs(d) else (os.path.join(cwd, d) if d else cwd), name)   # empty entry: the cwd itself
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return cand
     return None
@@ -315,7 +316,7 @@ def check_claude_first(wrapper_path, argv, env, feeder):
     if path is None:
         path = env["PATH"] + ":" + os.path.dirname(os.path.abspath(feeder))   # what Student.__init__ builds
     home = argv_value(argv, "--arm-home")
-    cwd = os.path.join(os.path.abspath(home), "work") if home else os.getcwd()
+    cwd = os.path.join(os.getcwd(), home, "work") if home else os.getcwd()   # as the child's chdir resolves it: no lexical abspath
     got = resolve_on_path("claude", path, cwd)
     if got is None or not os.path.samefile(got, wrapper_path):
         raise LaunchRefused(f"the `claude` first on the PATH the feeder will see is {got or 'not found'}, not the sandbox "
