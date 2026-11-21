@@ -260,6 +260,14 @@ minute count and guess goes into this log as plain lines without quotes.
 - Added 2026-11-21, the bound on the two entries above (study lead, relayed by the design owner, team crossing
   33899): the study lead read his local copy of the page and its data, not the published copy, and cannot read the
   key holder's grade files, so the hand-versus-judge level differences are the key holder's measurement alone.
+- Added 2026-11-21 (design owner's ruling, team crossing 34031, on the key holder's read of this log, team crossing
+  34026): the same limit reaches the two criterion items that stay blind to the project lead (Q9 and Q16, see the
+  change log of 2026-11-18). The 2026-11-16 pages carry all 20 rows, so the project lead has already seen those two
+  items' answers and the study lead's hand grades, and on one of the two the hand grade differs in level from the
+  official grade. Pages made for him, and the design owner's own copy, therefore withhold 14 questions (the 12
+  phase-3 items plus Q9 and Q16) and show 6. Where such a page says 'official' it names the grader: the
+  question-seeing judge (claude-sonnet-5-5, low effort, chosen 2026-11-18); the benchmark's released code never
+  shows its judge the question. Whether the project lead opened those rows is asked of him with the 12.
 
 ## Heads (read from GitHub on 2026-11-17, immediately before this commit)
 
