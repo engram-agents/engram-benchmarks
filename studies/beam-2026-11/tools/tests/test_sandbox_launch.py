@@ -925,6 +925,7 @@ def test_t_runs_in_a_finally_a_feeder_that_raised_is_still_torn_down_and_the_rec
     assert rec["state"] == "done" and "no launch line" in rec["note"]
 
 
+@needs_linux_wrapper
 def test_t_a_session_with_no_launch_line_has_nothing_to_stop_and_is_told_apart_by_the_missing_line(w):
     with pytest.raises(SL.LaunchStop, match="log-verdict refused"):
         w.launch("nolaunch")

@@ -179,6 +179,7 @@ def test_s2_p1_session_without_the_flag_refuses_the_line(w):
     cr_refusal(w, over=over_for(s), expect="pre-module", P1_PROTECTED=prot(w, s))
 
 
+@needs_linux_wrapper
 def test_s3_with_the_flag_it_starts_and_setup_txt_carries_the_pilot_line_and_the_hash(w, ollama):
     s = marked_copy(w)
     r = cr_run(w, over=over_for(s, **{"--save-end-state": str(w.root / "saved-next")}), extra=(FLAG,),
@@ -246,6 +247,7 @@ def test_r1_exactly_one_state_sha256_line_is_required(w, second):
     cr_refusal(w, over=over_for(s), extra=(FLAG,), expect="exactly one `state_sha256=` line", P1_PROTECTED=prot(w, s))
 
 
+@needs_linux_wrapper
 def test_r1_an_ordinary_not_flagged_run_carries_no_pilot_line(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"])
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -253,6 +255,7 @@ def test_r1_an_ordinary_not_flagged_run_carries_no_pilot_line(w, ollama):
     assert "pilot, pre-module start" not in text and "pre-module start state_sha256" not in text
 
 
+@needs_linux_wrapper
 def test_r1_the_flag_alone_does_not_label_a_run_a_pilot(w, ollama):
     """The flag is an allowance, not a label: a state that was never marked (it has an ordinary not-flagged record) runs with
     the flag set and setup.txt must not say pilot."""

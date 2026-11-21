@@ -788,6 +788,7 @@ def test_r9_a_run_directory_removed_mid_run_is_reported_on_its_own_line_and_neve
     assert {h: bytes_and_mtimes(h) for h in (w.pres, w.pres2)} == bm and no_saved(w)
 
 
+@needs_linux_wrapper
 def test_r9_an_after_hashes_file_that_cannot_be_written_is_the_same_own_line_in_continue_mode(w, ollama):
     hook = hook_script(w, "block-after.py", "os.makedirs(os.path.join(os.environ['R9_RUNDIR'], 'after-hashes.txt'))\n")
     r = cr_run(w, ollama_url=ollama["url"], P1_AFTER_COPY_HOOK=hook, R9_RUNDIR=str(w.runs / "p1-t1"))
@@ -825,6 +826,7 @@ def test_sb_c_continue_reading_records_the_sandbox_lines(w, ollama):
     assert "sandbox verdict: not-flagged" in lines and any(l.startswith("sandbox log: sandbox-") for l in lines)
 
 
+@needs_linux_wrapper
 def test_sb_c_a_log_verdict_refusal_is_exit_3_and_no_end_state_is_saved(w, ollama):
     r = cr_run(w, ollama_url=ollama["url"], STUB_SANDBOX="nolaunch")
     assert r.returncode == 3, (r.stdout, r.stderr)

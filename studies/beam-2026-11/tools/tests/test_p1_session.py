@@ -498,6 +498,7 @@ def test_a_write_into_the_slot_only_is_exit_0(w):
     c.close()
 
 
+@needs_linux_wrapper
 def test_a_change_to_a_protected_memory_file_is_exit_5(w):
     """The memory-folder hashes are part of the compare, not only the store."""
     victim = os.path.join(w.pres, ".claude", "projects", "-p", "memory", "a.md")
@@ -534,6 +535,7 @@ def test_a_plan_that_is_not_compact_then_the_questions_in_order_is_exit_3(w, mod
     assert not w.mark.exists()
 
 
+@needs_linux_wrapper
 def test_feed4_nonzero_is_exit_3(w):
     r = w.run(STUB_RC="1")
     assert r.returncode == 3 and w.mark.exists()
@@ -751,6 +753,7 @@ def test_an_interruption_alone_still_writes_the_after_artifacts_and_does_not_exi
     assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     """setup.txt is made a directory by the hook, so writing it raises; the protected change still decides the code."""
     blocker = w.runs / "p1-t1" / "setup.txt"
@@ -760,6 +763,7 @@ def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     assert "PROTECTED CHANGED" in r.stdout and "setup.txt" in r.stderr
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_alone_is_reported_on_stderr(w):
     blocker = w.runs / "p1-t1" / "setup.txt"
     hook = w.root / "block-setup.py"; hook.write_text(f"import os\nos.makedirs({str(blocker)!r})\n")
@@ -827,6 +831,7 @@ def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine
 
 
 # ------------------------------------------------------------------ round 4: the after-hash pass itself failing
+@needs_linux_wrapper
 def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w):
     """No protected home changed, but the proof could not be written (after-hashes.txt is made a directory), so the
     launcher must not claim the homes are fine."""
@@ -1227,6 +1232,7 @@ def test_sb_flagged_is_recorded_verbatim_not_a_stop(w):
     assert (w.runs / "p1-t1" / "delivery.txt").exists()
 
 
+@needs_linux_wrapper
 def test_sb_a_log_verdict_refusal_is_exit_3_with_a_stop_line_and_no_answer_is_read(w):
     r = w.run(STUB_SANDBOX="nolaunch")
     assert r.returncode == 3, (r.stdout, r.stderr)
