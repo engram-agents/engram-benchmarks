@@ -28,7 +28,9 @@ socket, and nothing else crosses:
          With --daemon-line (the wrapper's SANDBOX_DAEMON=engram) it does NOT exec: it is the box's supervisor. It runs the
          launcher's own line, waits for the daemon's socket to answer (--daemon-ready-s), starts the command, and after the command
          exits sends the daemon SIGTERM, waits (--daemon-term-s), and SIGKILLs it with a named fault if it must. Its exit code is the
-         command's (128+signal if killed), or 4 if the daemon never became ready (the command is then never started).
+         command's (128+signal if killed), 4 if the daemon never became ready (the command is then never started), 5 if the report
+         descriptor could not be made private (nothing is started), or 6 if the daemon's ready line could not be written to the report
+         channel (the daemon is stopped and the command is never started).
          A signal during the readiness wait stops the daemon, writes daemon-not-ready (reason=signalled) and daemon-stop, and exits
          128+signal; the command is never started. The daemon's identity is its pid AND its start time, read once at spawn.
          The supervisor reports to a PIPE (--report-fd, the write end, non-blocking); nothing in the box holds SANDBOX_LOG.
@@ -56,7 +58,7 @@ Usage (internal): outer --sock S --host H --port P --watch PID (--allow LIST | -
                   latency --host H --port P -n N
                   latency-compare --wrapper PATH -n N      (reads the SANDBOX_* environment, like the wrapper)
 """
-import argparse, os, re, select, shlex, signal, socket, statistics, subprocess, sys, threading, time, urllib.parse
+import argparse, errno, os, re, select, shlex, signal, socket, statistics, subprocess, sys, threading, time, urllib.parse
 
 LOCK = threading.Lock()
 COUNTER = [0]
@@ -956,6 +958,7 @@ def run_inner(a):
 DAEMON_POLL_S = 0.05
 EXIT_DAEMON_NOT_READY = 4      # the command was never started (3 is the bridge listener, 127 an exec failure)
 EXIT_REPORT_CHANNEL = 5        # the report descriptor could not be made private: nothing was started
+EXIT_REPORT_LOST = 6           # the report channel could not take the daemon-ready line: the daemon was stopped, the command never started
 
 
 # ---- the report channel. The supervisor (in the box) writes to a PIPE; the reader (outside the box) writes SANDBOX_LOG. The shapes below
@@ -964,13 +967,13 @@ REPORT_PREFIX = "daemon-report"
 REPORT_MAX_LINE = 256       # bytes, newline excluded: a longer line is dropped (reason=length)
 REPORT_MAX_LINES = 64       # accepted lines per launch: a valid line past it is dropped (reason=count)
 REPORT_MAX_MARKERS = 64     # drop markers written individually per launch; past it drops are only counted, on the closing line
+REPORT_READ_ERROR = r"(?:none|[A-Z0-9_]{1,32})"   # the closing line's read_error: always present, `none` on a clean EOF, else the errno's name
 REPORT_STOP_WAIT_S = 2.0    # how long the supervisor's daemon-stop line may wait, once, for a full pipe to drain; no other line waits
 # value grammar name -> (regex, an example the cells generate samples from)
 REPORT_VALUES = {
     "time": (r"[0-9]{1,12}\.[0-9]{3}", "1700000000.123"),
     "pid": (r"[0-9]{1,10}", "4242"),
     "secs": (r"[0-9]{1,6}\.[0-9]{3}", "1.250"),
-    "limit": (r"[0-9]{1,6}(?:\.[0-9]{1,6})?", "20.0"),
     "count": (r"[0-9]{1,6}", "0"),
     "not_ready_reason": (r"(?:spawn-failed|timeout|exited-early|signalled)", "timeout"),
     "outcome": (r"(?:already-gone|term|killed)", "term"),
@@ -984,7 +987,7 @@ REPORT_SHAPES = (
     ("daemon-ready", (("time", "time"), ("pid", "pid"), ("time_to_ready_s", "secs"), ("rpt_dropped", "count"))),
     ("daemon-not-ready", (("time", "time"), ("reason", "not_ready_reason"), ("waited_s", "secs"), ("rpt_dropped", "count"))),
     ("daemon-stop", (("time", "time"), ("pid", "pid"), ("outcome", "outcome"), ("waited_s", "secs"), ("rpt_dropped", "count"))),
-    ("daemon-fault", (("time", "time"), ("kind", "kind_sigkill"), ("pid", "pid"), ("after_s", "limit"), ("rpt_dropped", "count"))),
+    ("daemon-fault", (("time", "time"), ("kind", "kind_sigkill"), ("pid", "pid"), ("after_s", "secs"), ("rpt_dropped", "count"))),
     ("daemon-fault", (("time", "time"), ("kind", "kind_files_left"), ("pid", "pid"), ("files", "files"), ("rpt_dropped", "count"))),
 )
 
@@ -1055,28 +1058,36 @@ class ReportReader:
             line, self.buf, data = bytes(self.buf) + data[:i], bytearray(), data[i + 1:]
             self.one(line)
 
-    def finish(self):
-        """EOF: an unterminated tail is a dropped line (never a recorded one); then the one closing line."""
+    def finish(self, read_error=None):
+        """EOF (or a read error, named by `read_error`): an unterminated tail is a dropped line (never a recorded one); then the one
+        closing line, which always carries `read_error=` (`none` on a clean EOF), so a failed read cannot pass as a clean close."""
         if self.over:
             self.drop("length", self.over_bytes)
         elif self.buf:
             self.drop("shape", len(self.buf))
         self.over, self.over_bytes, self.buf = False, 0, bytearray()
-        self.write("closed accepted=%d dropped=%d markers_suppressed=%d" % (self.accepted, self.dropped, self.dropped - self.markers))
+        self.write("closed accepted=%d dropped=%d markers_suppressed=%d read_error=%s" % (
+            self.accepted, self.dropped, self.dropped - self.markers, read_error or "none"))
+
+
+def read_error_name(exc):
+    """The errno's name (EIO, EISDIR, ...), inside REPORT_READ_ERROR's grammar; UNKNOWN when the error has none."""
+    return errno.errorcode.get(exc.errno, "UNKNOWN")
 
 
 def run_report_reader(a):
     """stdin is the report pipe's read end; it ends when every write end is closed (the box and the wrapper are gone)."""
     reader = ReportReader(a.log)
+    read_error = None
     try:
         while True:
             data = os.read(0, 65536)
             if not data:
                 break
             reader.push(data)
-    except OSError:
-        pass
-    reader.finish()
+    except OSError as e:
+        read_error = read_error_name(e)      # reading ended early: the closing line says so, never `none`
+    reader.finish(read_error)
     return 0
 
 
@@ -1210,7 +1221,7 @@ def stop_daemon(a, pid, start, rpt):
     if outcome == "killed":
         sys.stderr.write("student-sandbox: the recall daemon ignored SIGTERM for %ss and was killed with SIGKILL (a fault: its "
                          "state may not have been written)\n" % a.daemon_term_s)
-        rpt.send("daemon-fault time=%.3f kind=sigkill pid=%d after_s=%s" % (now, pid, a.daemon_term_s))
+        rpt.send("daemon-fault time=%.3f kind=sigkill pid=%d after_s=%.3f" % (now, pid, a.daemon_term_s))
     elif outcome == "term":
         left = [n for n in (a.daemon_pidfile, a.daemon_sock) if os.path.lexists(n)]
         if left:
@@ -1249,10 +1260,14 @@ def run_supervised(a, env):
         if pid is not None:
             stop_daemon(a, pid, start, rpt)
         return 128 + st["sig"] if state == "signalled" else EXIT_DAEMON_NOT_READY
-    rpt.send("daemon-ready time=%.3f pid=%d time_to_ready_s=%.3f" % (time.time(), pid, waited))
+    sent = rpt.send("daemon-ready time=%.3f pid=%d time_to_ready_s=%.3f" % (time.time(), pid, waited))
     if st["sig"] is not None:                              # signalled after ready, before the client: stop the daemon, start nothing
         stop_daemon(a, pid, start, rpt)
         return 128 + st["sig"]
+    if rfd is not None and not sent:                       # a channel that could not take the ready line: the verdict would refuse the run
+        sys.stderr.write("student-sandbox: the report channel could not take the daemon-ready line: the client was not started\n")
+        stop_daemon(a, pid, start, rpt)                    # afterwards anyway, so the session is not spent first
+        return EXIT_REPORT_LOST
     leak = rfd is not None and getattr(a, "test_report_leak", False)   # test mode only (the wrapper passes it only under SANDBOX_TEST=1)
     if leak:
         env[b"SANDBOX_TEST_REPORT_FD"] = str(rfd).encode()

@@ -92,10 +92,13 @@ DAEMON_SOCKET_MAX = 107   # an AF_UNIX socket path is limited to 107 bytes (108 
 DAEMON_BOX_LABEL = "the box with the recall daemon"   # the caps and peaks of such a run are those of this box (D7)
 DAEMON_EVENTS = ("daemon-ready", "daemon-not-ready", "daemon-stop", "daemon-fault")
 # What the log's reader (outside the box) writes: `daemon-report seq=N time=T line=<event>` for an accepted daemon line and
-# `daemon-report seq=N time=T dropped reason=R bytes=B count=C` for a line it refused. A bare `daemon-ready ...` line is not an event.
+# `daemon-report seq=N time=T dropped reason=R bytes=B count=C` for a line it refused, and ONE `daemon-report seq=N time=T closed accepted=A
+# dropped=D markers_suppressed=S read_error=E` last (E is `none` on a clean EOF, else the errno's name). A bare `daemon-ready ...` line is not an event.
 _REPORT_HEAD = r"daemon-report seq=[0-9]{1,9} time=[0-9]{1,12}\.[0-9]{6} "
 RE_REPORT_EVENT = re.compile(_REPORT_HEAD + r"line=(daemon-(?:ready|not-ready|stop|fault)) (.*)")
 RE_REPORT_DROPPED = re.compile(_REPORT_HEAD + r"dropped reason=(shape|length|count) bytes=([0-9]+) count=([0-9]+)")
+RE_REPORT_CLOSED = re.compile(_REPORT_HEAD + r"closed accepted=([0-9]+) dropped=([0-9]+) markers_suppressed=([0-9]+) read_error=((?:none|[A-Z0-9_]{1,32}))")
+RE_REPORT_ANY = re.compile(r"daemon-report seq=([0-9]{1,9}) time=[0-9]{1,12}\.[0-9]{6} .*")   # any line in the reader's own prefix
 _SEQ = itertools.count(1)
 
 
@@ -251,15 +254,60 @@ def read_daemon_events(log):
     return out
 
 
-def daemon_verdict(expected, launch_fields, events, res):
+def report_record_problems(log):
+    """What is wrong with the report reader's OWN record in the log (a list of reasons, empty when it is complete): exactly one `closed`
+    line, LAST among the reader's lines; its `accepted` equals the accepted event lines present; its `dropped` equals the drop markers
+    present plus its `markers_suppressed`; its read_error is `none`; and the reader's seq values run 1..N in order, N = accepted event
+    lines + markers + 1 (no gap, no repeat). A reader killed after daemon-stop, a marker whose write failed, or a line lost on the log
+    side each leave one of these false. A log that cannot be read is LaunchLogUnreadable (as read_daemon_events)."""
+    try:
+        text = open(log, "rb").read().decode("utf-8", "replace")
+    except OSError as e:
+        raise LaunchLogUnreadable(f"the launch log {log} cannot be read ({type(e).__name__}): what the recall daemon did is not known")
+    seqs, kinds, closed = [], [], []
+    for line in text.splitlines():
+        m = RE_REPORT_ANY.fullmatch(line)
+        if not m:
+            continue
+        seqs.append(int(m.group(1)))
+        c = RE_REPORT_CLOSED.fullmatch(line)
+        kinds.append("closed" if c else "event" if RE_REPORT_EVENT.fullmatch(line) else "dropped" if RE_REPORT_DROPPED.fullmatch(line) else "other")
+        if c:
+            closed.append(c.groups())
+    events, markers = kinds.count("event"), kinds.count("dropped")
+    why = []
+    if len(closed) != 1:
+        why.append("it has no `closed` line" if not closed else f"it has {len(closed)} `closed` lines (exactly one is required)")
+    else:
+        if kinds[-1] != "closed":
+            why.append("the `closed` line is not the last of the reader's lines")
+        acc, dropped, suppressed, err = closed[0]
+        if err != "none":
+            why.append(f"the reader's read ended on an error (read_error={err}), not at the end of the pipe")
+        if int(acc) != events:
+            why.append(f"the `closed` line says accepted={acc} but the log holds {events} accepted event line(s)")
+        if int(dropped) != markers + int(suppressed):
+            why.append(f"the `closed` line says dropped={dropped} but the log holds {markers} drop marker(s) plus markers_suppressed={suppressed}")
+    want = list(range(1, events + markers + 2))
+    if seqs != want:
+        why.append(f"the reader's seq values are not 1..{len(want)} in order, with no gap and no repeat (found {seqs[:12]}{'...' if len(seqs) > 12 else ''})")
+    return why
+
+
+def daemon_verdict(expected, launch_fields, events, res, log=None):
     """After the session: None when the daemon part of the launch is as it should be, else the reason (a LaunchStop). Fills
-    res.daemon, res.box_label and res.daemon_time_to_ready_s. `expected` is what this module asked the wrapper for."""
+    res.daemon, res.box_label and res.daemon_time_to_ready_s. `expected` is what this module asked the wrapper for. With `log` (the
+    launch's SANDBOX_LOG) the reader's own record must also be complete (report_record_problems); without it that check has nothing to read."""
     said = launch_fields.get("daemon")
     if not expected:
         return None if said is None else f"the launch line says daemon={said} but this launch did not ask for a daemon: what ran is not what was asked for"
     if said != expected:
         return f"the launch line says daemon={said!r}, the launch asked for {expected!r}: the student was not in the box with the recall daemon"
     res.daemon, res.box_label = expected, DAEMON_BOX_LABEL
+    if log is not None:
+        problems = report_record_problems(log)
+        if problems:
+            return "the daemon's report reader's own record is not complete: " + "; ".join(problems)
     ready = [f for k, f in events if k == "daemon-ready"]
     notready = [f for k, f in events if k == "daemon-not-ready"]
     if ready:
@@ -1006,7 +1054,7 @@ def run_feeder(py, feeder, argv, *, sandbox=None, log_dir=None, log_path=None, s
                 if res.__dict__[k] != sandbox.expected[k]:
                     raise LaunchStop(f"the launch line's {k} is {res.__dict__[k]}, expected {sandbox.expected[k]}: what ran "
                                      "is not what was registered; no answer of this session is read", res)
-            why = daemon_verdict(daemon, lf, read_daemon_events(log_path), res)   # D3/D4: a daemon that failed is a stop, never a session
+            why = daemon_verdict(daemon, lf, read_daemon_events(log_path), res, log=log_path)   # D3/D4: a daemon that failed is a stop, never a session
             if why:
                 raise LaunchStop(f"{why}; no answer of this session is read", res)
         except LaunchStop as e:

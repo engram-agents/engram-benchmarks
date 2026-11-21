@@ -13,6 +13,9 @@ a reader OUTSIDE the box writes SANDBOX_LOG. Contract-first: written before the 
       prefix and a count; the launch module's parser reads that form and no other.
   P8  a duplicated or out-of-order daemon line is RECORDED, not deduplicated.
   P9  a failed write in the supervisor is counted and surfaces, never swallowed.
+  C1  the verdict requires the reader's own complete record: exactly one `closed` line, last, whose counts match the log and whose seq
+      values run 1..N (the reader's side of P9). S1 a lost ready line stops before the client. S2 a read error is not a clean close.
+  S3  daemon-fault's after_s is printed "%.3f" in the `secs` grammar.
 Synthetic fixtures only: the stub daemon of test_daemon_prestart.py; no real daemon, no real binary, no model.
 """
 import importlib.util, json, os, re, subprocess, sys, threading, time
@@ -64,7 +67,7 @@ PINNED_PATTERNS = [
     r"daemon-ready time=[0-9]{1,12}\.[0-9]{3} pid=[0-9]{1,10} time_to_ready_s=[0-9]{1,6}\.[0-9]{3} rpt_dropped=[0-9]{1,6}",
     r"daemon-not-ready time=[0-9]{1,12}\.[0-9]{3} reason=(?:spawn-failed|timeout|exited-early|signalled) waited_s=[0-9]{1,6}\.[0-9]{3} rpt_dropped=[0-9]{1,6}",
     r"daemon-stop time=[0-9]{1,12}\.[0-9]{3} pid=[0-9]{1,10} outcome=(?:already-gone|term|killed) waited_s=[0-9]{1,6}\.[0-9]{3} rpt_dropped=[0-9]{1,6}",
-    r"daemon-fault time=[0-9]{1,12}\.[0-9]{3} kind=sigkill pid=[0-9]{1,10} after_s=[0-9]{1,6}(?:\.[0-9]{1,6})? rpt_dropped=[0-9]{1,6}",
+    r"daemon-fault time=[0-9]{1,12}\.[0-9]{3} kind=sigkill pid=[0-9]{1,10} after_s=[0-9]{1,6}\.[0-9]{3} rpt_dropped=[0-9]{1,6}",
     r"daemon-fault time=[0-9]{1,12}\.[0-9]{3} kind=files-left pid=[0-9]{1,10} files=(?:recall-daemon\.pid,recall-daemon\.sock|recall-daemon\.pid|recall-daemon\.sock) rpt_dropped=[0-9]{1,6}",
 ]
 
@@ -339,7 +342,7 @@ def test_a_full_pipe_does_not_stall_the_supervisor_and_daemon_stop_still_arrives
         got = drain(rfd)
         out, err = p.communicate(timeout=30)
         got += drain(rfd)
-        assert p.returncode == 7, (p.returncode, err)    # the supervisor's exit is still the client's
+        assert p.returncode == FW.EXIT_REPORT_LOST, (p.returncode, err)    # S1: the ready line was lost, so the client was never started
         assert time.time() - t0 < 10
         lines = daemon_lines(got)
         assert [l.split()[0] for l in lines] == ["daemon-stop"], lines          # ready was dropped; stop arrived
@@ -358,7 +361,7 @@ def test_a_pipe_nobody_drains_costs_the_supervisor_one_bounded_wait_and_never_a_
         p, home = start_sup(tmp_path, wfd)
         out, err = p.communicate(timeout=40)
         took = time.time() - t0
-        assert p.returncode == 7, (p.returncode, err)
+        assert p.returncode == FW.EXIT_REPORT_LOST, (p.returncode, err)
         assert took < 10 + FW.REPORT_STOP_WAIT_S, took
         assert daemon_lines(drain(rfd)) == []
         assert err.count("not written") == 2, err                     # the ready line and the stop line: both named, both counted
@@ -373,7 +376,7 @@ def test_a_failed_write_is_counted_and_named_not_swallowed(tmp_path):
     try:
         p, home = start_sup(tmp_path, wfd)
         out, err = p.communicate(timeout=30)
-        assert p.returncode == 7, (p.returncode, err)
+        assert p.returncode == FW.EXIT_REPORT_LOST, (p.returncode, err)
         assert err.count("not written") == 2 and "report channel" in err, err       # the ready line and the stop line, each named
     finally:
         os.close(wfd)
@@ -553,3 +556,236 @@ def test_r4_a_term_during_the_readiness_wait_stops_the_daemon_and_writes_the_sto
         assert TSS.pids_mentioning(home) == [], "the daemon was left running"
     finally:
         os.close(rfd); os.close(wfd)
+
+
+# ============================================================================================ C1: the reader's own record is complete
+def good_log(tmp_path, name="c.log", junk=0):
+    r, log = reader_for(tmp_path, name)
+    r.push(sample(shape(0)).encode() + b"\n")
+    for _ in range(junk):
+        r.push(b"junk\n")
+    r.push(sample(shape(2)).encode() + b"\n")
+    r.finish()
+    return log
+
+
+def record_verdict(log):
+    """The verdict as the launch module asks for it: the daemon's events AND the log, so the reader's own record is read."""
+    return SL.daemon_verdict("engram", {"daemon": "engram"}, SL.read_daemon_events(log), SL.LaunchResult(0), log=log)
+
+
+def edit_log(log, fn):
+    new = fn(rlines(log))                                       # read first: open(..., "w") truncates
+    open(log, "w").write("\n".join(new) + "\n")
+
+
+def next_seq(ls, line):
+    return re.sub(r"seq=[0-9]+", "seq=%d" % (len(ls) + 1), line, 1)
+
+
+def test_c1_the_normal_run_has_a_complete_record_and_no_stop(tmp_path):
+    assert record_verdict(good_log(tmp_path)) is None
+
+
+def test_c1_a_missing_closed_line_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path)
+    edit_log(log, lambda ls: ls[:-1])                                           # the reader was killed after daemon-stop
+    why = record_verdict(log)
+    assert why and "report reader's own record is not complete" in why and "closed" in why, why
+
+
+def test_c1_a_second_closed_line_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path)
+    edit_log(log, lambda ls: ls + [next_seq(ls, ls[-1])])
+    why = record_verdict(log)
+    assert why and "not complete" in why and "2 `closed`" in why, why
+
+
+def test_c1_a_line_after_the_closed_line_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path)
+    edit_log(log, lambda ls: ls + [next_seq(ls, ls[0])])
+    why = record_verdict(log)
+    assert why and "not complete" in why and "last" in why, why
+
+
+def test_c1_an_accepted_count_one_higher_than_the_lines_present_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path)
+    edit_log(log, lambda ls: ls[:-1] + [ls[-1].replace("accepted=2", "accepted=3")])
+    why = record_verdict(log)
+    assert why and "not complete" in why and "accepted=3" in why, why
+
+
+def test_c1_an_event_line_lost_on_the_log_side_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path)
+    edit_log(log, lambda ls: ls[:1] + ls[2:])                                    # the stop line is gone; the closing line still says 2
+    why = record_verdict(log)
+    assert why and "not complete" in why and "accepted" in why, why
+
+
+def test_c1_a_dropped_count_higher_than_the_markers_plus_suppressed_is_a_named_stop(tmp_path):
+    log = good_log(tmp_path, "m.log", junk=1)
+    edit_log(log, lambda ls: [l for l in ls if " dropped reason=" not in l])    # the marker's write failed
+    why = record_verdict(log)
+    assert why and "not complete" in why and "dropped=1" in why, why
+    log = good_log(tmp_path, "m2.log")
+    edit_log(log, lambda ls: ls[:-1] + [ls[-1].replace("dropped=0", "dropped=1")])
+    why = record_verdict(log)
+    assert why and "not complete" in why and "dropped=1" in why, why
+
+
+def test_c1_suppressed_markers_count_in_the_dropped_total_so_a_whole_record_is_not_this_checks_stop(tmp_path):
+    r, log = reader_for(tmp_path)
+    r.push(sample(shape(0)).encode() + b"\n")
+    for _ in range(FW.REPORT_MAX_MARKERS + 5):
+        r.push(b"junk\n")
+    r.push(sample(shape(2)).encode() + b"\n")
+    r.finish()
+    why = record_verdict(log)
+    assert why is not None and "not complete" not in why, why        # the record is whole; the drops themselves are the older, separate stop
+    log = good_log(tmp_path, "j.log", junk=2)
+    why = record_verdict(log)
+    assert why is not None and "not complete" not in why and "dropped" in why, why
+
+
+def test_c1_a_seq_gap_or_repeat_is_a_named_stop(tmp_path):
+    for n, to in enumerate(("seq=5", "seq=1")):                                  # a gap, then a repeat
+        log = good_log(tmp_path, "s%d.log" % n)
+        edit_log(log, lambda ls: [ls[0], ls[1].replace("seq=2", to)] + ls[2:])
+        why = record_verdict(log)
+        assert why and "not complete" in why and "seq" in why, why
+
+
+def test_c1_the_closed_shape_is_anchored_like_the_other_two(tmp_path):
+    mutations = (lambda l: l + " ", lambda l: " " + l, lambda l: l.replace("markers_suppressed=0", "markers_suppressed=x"),
+                 lambda l: l.replace(" accepted=2 dropped=0", " dropped=0 accepted=2"), lambda l: l + " extra=1",
+                 lambda l: l.replace("read_error=none", "read_error=eio"))
+    for n, bad in enumerate(mutations):
+        log = good_log(tmp_path, "a%d.log" % n)
+        edit_log(log, lambda ls: ls[:-1] + [bad(ls[-1])])
+        why = record_verdict(log)
+        assert why and "not complete" in why, (n, why)
+
+
+def test_c1_the_launch_module_passes_the_log_to_its_verdict():
+    import inspect
+    assert inspect.getsource(SL).count("daemon_verdict(daemon, lf, read_daemon_events(log_path), res, log=log_path)") == 1
+
+
+# ============================================================================================ S2: a read error is not a clean close
+CLOSED_OK = ("none", "EISDIR", "EIO", "E" * 32, "E0_9")
+CLOSED_BAD = ("", "None", "eio", "E" * 33, "none ", " none", "E-IO", "EIO,EBADF")
+
+
+def test_s2_one_grammar_the_field_is_always_present_none_on_a_clean_close_and_it_is_pinned_in_both_parsers(tmp_path):
+    assert FW.REPORT_READ_ERROR == r"(?:none|[A-Z0-9_]{1,32})"
+    for v in CLOSED_OK + CLOSED_BAD:
+        mine = bool(re.fullmatch(FW.REPORT_READ_ERROR, v))
+        line = "daemon-report seq=3 time=1700000000.500000 closed accepted=2 dropped=0 markers_suppressed=0 read_error=" + v
+        theirs = bool(SL.RE_REPORT_CLOSED.fullmatch(line))
+        assert mine == theirs == (v in CLOSED_OK), (v, mine, theirs)
+    r, log = reader_for(tmp_path)
+    r.finish()
+    assert rlines(log)[-1].endswith("closed accepted=0 dropped=0 markers_suppressed=0 read_error=none")
+    r2, log2 = reader_for(tmp_path, "e.log")
+    r2.finish(read_error="EIO")
+    assert rlines(log2)[-1].endswith("closed accepted=0 dropped=0 markers_suppressed=0 read_error=EIO")
+
+
+def test_s2_the_errno_name_is_always_inside_the_grammar():
+    import errno
+    for name in errno.errorcode.values():
+        assert re.fullmatch(FW.REPORT_READ_ERROR, name) and name != "none", name
+    assert FW.read_error_name(OSError(errno.EIO, "x")) == "EIO"
+    assert FW.read_error_name(OSError("no errno at all")) == "UNKNOWN"
+    assert FW.read_error_name(OSError(99999, "no name")) == "UNKNOWN"
+
+
+READER_DRIVER = r'''
+import argparse, importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("fw", sys.argv[1])
+fw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fw)
+os.dup2(os.open(sys.argv[3], os.O_RDONLY), 0)          # the reader's stdin, as the wrapper's pipe would be: here a path (a directory or /dev/null)
+sys.exit(fw.run_report_reader(argparse.Namespace(log=sys.argv[2])))
+'''
+
+
+def run_reader_process(tmp_path, stdin_path, name):
+    """The real run_report_reader in its own process, whose descriptor 0 is `stdin_path` (set after startup: Python itself refuses a
+    directory as stdin)."""
+    log = str(tmp_path / name)
+    drv = tmp_path / ("rd-" + name + ".py")
+    drv.write_text(READER_DRIVER)
+    p = subprocess.run(["/usr/bin/python3", "-I", str(drv), TSS.FWD, log, stdin_path], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    return p, log
+
+
+def test_s2_a_reader_whose_read_raises_says_so_on_its_closing_line_and_the_verdict_stops_naming_it(tmp_path):
+    p, log = run_reader_process(tmp_path, str(tmp_path), "re.log")      # read(2) on a directory descriptor raises EISDIR
+    assert p.returncode == 0, p.stderr
+    assert rlines(log)[-1].endswith("closed accepted=0 dropped=0 markers_suppressed=0 read_error=EISDIR"), rlines(log)
+    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9", "rpt_dropped": "0"}),
+                                                              ("daemon-stop", {"outcome": "term", "pid": "9", "rpt_dropped": "0"})],
+                            SL.LaunchResult(0), log=log)
+    assert why and "read_error" in why and "EISDIR" in why, why
+
+
+def test_s2_a_clean_eof_closes_with_read_error_none(tmp_path):
+    p, log = run_reader_process(tmp_path, "/dev/null", "ok.log")
+    assert p.returncode == 0 and rlines(log)[-1].endswith("read_error=none"), rlines(log)
+
+
+# ============================================================================================ S1: a lost ready line stops before the client
+def test_s1_the_reader_gone_before_ready_means_no_client_the_named_exit_and_no_daemon(tmp_path):
+    rfd, wfd = os.pipe()
+    os.close(rfd)                                              # the reader is gone: the ready line cannot be written
+    try:
+        marker = str(tmp_path / "client-ran")
+        p, home = start_sup(tmp_path, wfd, cmd=("/usr/bin/touch", marker))
+        out, err = p.communicate(timeout=30)
+        assert p.returncode == FW.EXIT_REPORT_LOST, (p.returncode, err)
+        assert not os.path.exists(marker), "the client was started although its ready line was lost"
+        assert "report channel" in err and "client was not started" in err, err
+        assert not os.path.exists(home + "/recall-daemon.pid") and TSS.pids_mentioning(home) == [], "the daemon was left running"
+    finally:
+        os.close(wfd)
+
+
+def test_s1_the_exit_code_is_a_named_constant_beside_four_and_five_and_in_the_docstring():
+    assert FW.EXIT_REPORT_LOST == 6
+    assert len({FW.EXIT_DAEMON_NOT_READY, FW.EXIT_REPORT_CHANNEL, FW.EXIT_REPORT_LOST}) == 3
+    doc = " ".join(FW.__doc__.split())
+    for code, word in ((4, "never became ready"), (5, "private"), (6, "report channel")):
+        assert re.search(r"\b%d\b[^.;]*%s" % (code, word), doc), (code, word)
+
+
+def test_s1_with_no_report_channel_nothing_changes_the_client_runs_and_its_exit_is_the_supervisors(tmp_path):
+    marker = str(tmp_path / "client-ran")
+    args, home = sup_args(tmp_path, None, cmd=("/bin/sh", "-c", "touch %s; exit 7" % marker))
+    drv = tmp_path / "driver.py"
+    drv.write_text(DRIVER)
+    p = subprocess.run(["/usr/bin/python3", "-I", str(drv), TSS.FWD, json.dumps(args)], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=40)
+    assert p.returncode == 7, (p.returncode, p.stderr)
+    assert os.path.exists(marker)
+
+
+# ============================================================================================ S3: after_s is "%.3f" in the secs grammar
+def test_s3_the_sigkill_fault_prints_its_limit_in_the_secs_grammar(tmp_path):
+    rfd, wfd = os.pipe()
+    try:
+        p, home = start_sup(tmp_path, wfd, mode="ignore-term", term_s=1.0)
+        out, err = p.communicate(timeout=40)
+        lines = daemon_lines(drain(rfd))
+        fault = [l for l in lines if l.startswith("daemon-fault")]
+        assert len(fault) == 1 and fields(fault[0])["after_s"] == "1.000", lines
+        for l in lines:
+            assert FW.report_shape_ok(l.encode()), l
+    finally:
+        os.close(rfd); os.close(wfd)
+
+
+def test_s3_no_value_grammar_of_the_table_is_unused():
+    used = {v for _, flds in FW.REPORT_SHAPES for _, v in flds}
+    assert set(FW.REPORT_VALUES) == used, set(FW.REPORT_VALUES) ^ used
