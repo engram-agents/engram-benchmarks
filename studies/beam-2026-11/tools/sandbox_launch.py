@@ -423,7 +423,7 @@ def check_no_other_claude(wrapper_path, path, cwd, feeder_dir=None):
                      + ("that directory" if len(fixed) == 1 else "those directories") + "): "
                      + ", ".join(fixed) + "; the fixed list of directories is the design owner's to change")
     raise LaunchRefused("a second executable `claude` is on the PATH the feeder will see, in " + ", ".join(others) + why
-                        + "; ".join(parts))
+                        + ". ".join(parts))
 
 
 def _prepare_dir():

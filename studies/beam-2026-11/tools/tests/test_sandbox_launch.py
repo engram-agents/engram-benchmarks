@@ -1738,9 +1738,12 @@ def test_g_both_cases_in_one_refusal_each_name_gets_its_own_remedy(w):
     msg = str(e.value)
     assert fixed in msg and own in msg
     assert "feeder's own" in msg and "design owner's to change" in msg
-    own_seg = next(x for x in msg.split("; ") if own + " is the feeder's own" in x)
-    fixed_seg = next(x for x in msg.split("; ") if "design owner" in x)
-    assert "remove" in own_seg and "design owner" not in own_seg and own not in fixed_seg.split(": ")[-1]
+    sentences = msg.split(". ")                          # the boundary the message joins its parts with
+    own_s = [x for x in sentences if "remove the `claude`" in x]
+    fixed_s = [x for x in sentences if "design owner's to change" in x]
+    assert len(own_s) == 1 and len(fixed_s) == 1 and own_s[0] is not fixed_s[0], sentences
+    assert own in own_s[0] and own not in fixed_s[0]     # the feeder's own directory: remove it, and not the design owner's text
+    assert fixed in fixed_s[0] and fixed not in own_s[0]  # the fixed-list directory: the design owner's text, and not remove
 
 
 def test_g_the_launch_names_the_feeders_directory_remedy_for_an_appended_claude(w):
