@@ -1837,3 +1837,11 @@ def test_e3_a_real_feeder_never_gets_extra_names(w):
         SL.run_feeder(sys.executable, os.path.join(TOOLS, "feed4.py"), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
                       state_dir=str(w.state), env=w.env(), test_env_names=("REC",))
     w.assert_nothing_started()
+
+
+def test_e3_every_allowlisted_name_is_one_the_feeders_actually_read():
+    """The generated companion of the pinned literal: each name of the allowlist is read by feed.py (the module the other feeders
+    import), so no name is listed that nothing reads."""
+    src = open(os.path.join(TOOLS, "feed.py")).read()
+    for name in SL.FEEDER_ENV_ALLOW:
+        assert re.search(r'os\.environ\.get\("%s"' % re.escape(name), src), name
