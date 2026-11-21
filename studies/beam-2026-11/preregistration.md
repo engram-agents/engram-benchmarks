@@ -128,6 +128,12 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 - Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
   proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
   once as setup, outside exam timing. Arm 1 has no equivalent step.
+- Arm 2's recall service (OPEN: the project lead decides at the freeze; the design owner recommends the plan below).
+  The sandbox has no service manager, so the release's own launcher cannot start ENGRAM's recall daemon there; in
+  the cost pilot every prompt then fell back to keyword search. The plan: the harness starts the arm's own daemon
+  inside the sandbox with the release's own launch command before the student starts, starts the student only once
+  the daemon answers, and stops it before the store is saved. The daemon's readiness and its stop are in the run's
+  log; a launch whose daemon never became ready is stopped before any exam begins.
 - One GPU, exclusive per run; the model is unloaded after every run.
 - Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF: web search and
   fetch (also told to the student, section 4); sub-agents, a stated limit (one student, one window; and
@@ -185,7 +191,9 @@ Two judges, named by the one thing that differs between them (the project lead's
   otherwise), this study follows the paper. Where the paper is silent or ambiguous, or two places in the paper
   disagree, the released code stands, and a case of the last kind is listed as unresolved. Every application of
   this rule is listed here with its paper location and its code location, and is declared before the first
-  scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet).
+  scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet). Cases
+  where the paper is silent and the released code therefore stands are listed the same way: one, how an Event
+  Ordering answer is cut into items (the Event Ordering bullets below).
   Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
   judge's score as a number (at b2da22e every score conversion of the earlier code, `int()`, upstream issue 8,
   became `float()`), so the paper and the current code agree.
@@ -249,13 +257,44 @@ Two judges, named by the one thing that differs between them (the project lead's
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
   rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
   whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
+- Event Ordering is the one type the paper does not score by rubric items (the project lead's direction of
+  2026-11-21, "align our scoring method with the paper"; the design owner's ruling the same day). Its OFFICIAL score
+  is the paper's released procedure, exactly:
+  - The answer is cut into items at every line break, with no filter (upstream `evaluate_event_ordering`,
+    `llm_response.split("\n")`). The paper says only that an equivalence detector "aligns events in system responses
+    with nuggets" (section 2, the evaluation paragraph) and is silent on how a response is cut, so under the rule
+    above the released code stands.
+  - Each item, in answer order, is compared with each still-unmatched reference event, in reference order, by a
+    yes/no judge call with the upstream equivalence prompt verbatim; the first yes is the match (upstream
+    `align_with_llm`, `llm_equivalence`). That prompt and the paper's Listing 21 are one text: their only difference
+    in wording is a misspelling in the code ("exaplanation"). Two details are the code's alone, where the paper is
+    silent, so the code stands: the instruction goes as a system message and the two snippets as a user message, and
+    a reply counts as yes if it contains "yes" anywhere.
+  - Kendall tau-b is computed over the matched sequences as upstream computes it (the union of both lists, a tie rank
+    for an item absent from one), normalised to (tau + 1) / 2, the value the upstream report prints for this type
+    (upstream `event_ordering_score`; code read at b2da22e). Our own code computes it, pinned by cells against the
+    upstream arithmetic, including the position cases and repeated identical lines named below.
+  - The yes/no calls use the study's judge model. They run after collection, on the saved answers, and change nothing
+    the student sees; the student is given no format instruction (the texts are frozen).
+- Every yes/no verdict is stored as a match table per question (answer item, reference event, verdict), so the
+  Event Ordering score can be recomputed from the record by anyone.
+- Reported beside the OFFICIAL Event Ordering score, never instead: the question-seeing judge's rubric score for the
+  same questions, and the match's F1 (presence alone, order ignored).
+- What the paper's number rewards, stated in the report: an answer that is only the ordered list of events. Every
+  line that is not an event counts against it, empty lines included (identical lines share one rank but each counts
+  as unmatched). A missing event costs according to its place: of five events in order, the last one missing scores
+  1.0, a middle one 0.8, the first 0.6. On run A's two answer shapes (one tuning conversation), a perfect
+  recollection written in the student's usual format would score at most about 0.6.
 - Absolute scores are not comparable with the paper's table (a different judge model, and the code that
   produced that table is not known). The comparison is between our arms.
 
 ## 11. Primary analysis
 
 - Outcome: per-conversation overall score (mean of its 20 questions), OFFICIAL, under the question-seeing judge of
-  section 10. The OFFICIAL score is the central result (Lei, 2026-11-17).
+  section 10, with the two Event Ordering questions scored by the paper's measure (section 10). The OFFICIAL score is
+  the central result (Lei, 2026-11-17). Every scored conversation has exactly two questions of each of the ten
+  types, so this mean is also the unweighted mean of its ten per-type scores; the paper's results tables print an
+  "Average" row without saying how it is formed, so no claim is made that the two are the same.
 - Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
   in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
   details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
@@ -267,6 +306,13 @@ Two judges, named by the one thing that differs between them (the project lead's
   fixed and published). H1 is supported if the CI's lower bound is above 0.
 - Reported beside it, never instead: the ADJUSTED contrast; per question type; the efficiency table
   (section 12) per arm.
+- Per question type (the project lead's request of 2026-11-21): for each of the ten types, each arm's mean score and
+  the paired contrast with its interval, grouped by conversation-length group. This study's scored set is the 100K
+  group, the main bucket; another length group enters only by an amendment registered before its runs.
+- Event Ordering sensitivity (the design owner's ruling of 2026-11-21, declared before any scored run): the paper's
+  Event Ordering measure depends on how an answer is formatted, and the two arms may format differently, so the
+  primary contrast is also reported with the rubric score in place of the paper's measure for the two Event Ordering
+  questions per conversation, next to the OFFICIAL contrast.
 - Secondary, direction only (Lei's idea, ruled by Kepler, 2026-11-14): the arm 2 minus arm 1 paired
   difference is larger in Knowledge Update and Contradiction Resolution than in the other categories,
   because ENGRAM records a change of mind as a supersede. It is conditional on the student superseding
@@ -324,6 +370,15 @@ stays excluded. A wrong or empty answer is never a harness fault. A book-closed 
 student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
 report and reported as it stands, never re-run (section 13).
 
+A failed automatic compaction during reading (the summary the harness makes when the window fills does not
+complete) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this rule, and
+the design owner and the study lead chose it on 2026-11-21). Every such event is named in the run's log and in the
+report, with its exchange. The primary contrast is also reported a second time without the conversations in which
+either arm's exam had one (dropped for both arms, so the pairing holds), next to the primary result. Measured
+before registration: 1 failure in 129 automatic compactions across every reading run on this setup (Claude Code
+2.1.325 to 2.1.328; exact 95% interval 0.02% to 4.2% per compaction). A long exam makes dozens of compactions, so
+at the measured rate some scored exams would have one; at the interval's low end, none would.
+
 ## 15. What this design can and cannot show
 
 It measures each product's whole memory as shipped, the on-disk session transcript included, in
@@ -368,6 +423,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
   watch for changes of mind and contradictions, which BEAM scores directly.
 - The per-turn timeout value, fixed before the first scored run.
+- Whether the scored runs start arm 2's recall daemon in the sandbox (section 7): the project lead's decision at
+  the freeze.
 - How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
   judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
   that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
