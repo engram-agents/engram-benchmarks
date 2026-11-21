@@ -98,6 +98,11 @@ silently.
 Not covered, by design: the check looks at rows about the withheld questions. A kept row that quotes a
 withheld question in its own free text (a note on another question, say) is not detected.
 
+Extra fields on a KEPT answer or finding row pass through unchanged, by design, because they are about a kept
+question. Under `--withhold`, only the runs, categories and causes rows are reduced to their allowed fields (the
+fields listed above plus the ones the tool computes, `questions_total` today; any other field on those rows is
+dropped without a message), because they are recomputed summaries over kept and withheld questions alike.
+
 ## Offline mode (`--d3 PATH`)
 
 Without `--d3`, the page loads d3 from a CDN tag and the tool prints one line saying the page needs
