@@ -416,6 +416,17 @@ def banner_html(withheld, reason):
             f"remain. {html.escape(FREE_TEXT_NOTICE)}</div>")
 
 
+# SCORE-REVIEW-PRINCIPLES.md section 7: "This sentence, or its equivalent, wherever an adjusted score appears".
+# Quoted exactly; only its first letter is capitalised for display. It is FIXED: no option and no input
+# switches it off, and the tests read the principles file to check this text against it.
+INDEPENDENCE_SENTENCE = ("All reviewers belong to the team that builds the agent under test. These principles "
+                         "reduce our bias; they do not make the adjusted score independent.")
+
+
+def independence_html():
+    return f'<p class="bs-k bs-independence">{html.escape(INDEPENDENCE_SENTENCE)}</p>'
+
+
 def official_note_html(note):
     """The note shown beside every place 'Official' labels a column or chart, or '' when no note was given.
     Escaped like the withhold reason; the markup is the same in every section that carries it."""
@@ -436,7 +447,8 @@ def render(datasets, title, banner, d3_text, official_note=None):
     t = html.escape(title)
     # ONE pass over the template: a marker-shaped string inside a filled-in value (a title, the note) is text,
     # never substituted again.
-    fill = {"TITLE": t, "BANNER": banner, "OFFICIAL_NOTE": official_note_html(official_note)}
+    fill = {"TITLE": t, "BANNER": banner, "OFFICIAL_NOTE": official_note_html(official_note),
+            "INDEPENDENCE": independence_html()}
     page = re.sub(r"__(" + "|".join(fill) + r")__", lambda m: fill[m.group(1)], page)
     d3_tag = f"<script>{d3_text}</script>" if d3_text is not None else f'<script src="{D3_URL}"></script>'
     return f"""<!doctype html>

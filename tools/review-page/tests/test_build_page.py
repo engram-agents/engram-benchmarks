@@ -1179,3 +1179,128 @@ def test_n1_an_empty_or_blank_note_is_refused_named_and_writes_nothing(env, valu
     code, out, err = env.run("--answers-file", env.answers, "--official-note", value)
     assert code == 2 and err.startswith("build_page:") and "--official-note" in err and "empty" in err  # the tool's own refusal, not argparse's
     assert not os.path.exists(env.out)
+
+
+# ----------------------------------------------------------------------------------------------
+# N2: the independence sentence. Fixed text, quoted from SCORE-REVIEW-PRINCIPLES.md section 7, in the static
+# markup of every section that holds an adjusted column or chart. No option removes it.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+PRINCIPLES = os.path.join(REPO_ROOT, "SCORE-REVIEW-PRINCIPLES.md")
+
+
+def principles_sentence():
+    """The sentence section 7 says to carry wherever an adjusted score appears: the bold text of the bullet
+    that begins 'This sentence, or its equivalent'. Read from the file, never copied here; the line breaks of
+    the markdown wrap are single spaces."""
+    with open(PRINCIPLES, encoding="utf-8") as fh:
+        text = fh.read()
+    sec7 = text.split("## 7. What is published", 1)[1].split("\n## ", 1)[0]
+    bullet = re.search(r"^- This sentence, or its equivalent.*?(?=^- |\Z)", sec7, re.S | re.M).group(0)
+    bold = re.findall(r"\*\*(.+?)\*\*", bullet, re.S)
+    assert len(bold) == 1, bold
+    return re.sub(r"\s+", " ", bold[0]).strip()
+
+
+def displayed_sentence():
+    s = principles_sentence()
+    return s[0].upper() + s[1:]  # the one change allowed: a capital first letter
+
+
+def indep_markup():
+    return INDEP_MARKUP.format(htmllib.escape(displayed_sentence()))
+
+
+def test_n2_the_principles_file_has_the_sentence_this_cell_reads():
+    s = principles_sentence()
+    assert s.startswith("all reviewers belong to the team that builds the agent under test.")
+    assert s.endswith("they do not make the adjusted score independent.")
+
+
+def test_n2_the_generated_set_of_adjusted_sections_is_the_expected_kind():
+    keys = generated_sections(page_html_text(), ADJUSTED_RE)
+    ids = [k[0] for k in keys]
+    assert len(keys) >= 5, keys  # the header, the Adjusted tile, by question type, all runs, every question
+    for want in ('id="top"', 'id="by-category"', 'id="runs"', 'id="questions"'):
+        assert any(want in i for i in ids), (want, ids)
+    for notwant in ('id="findings"', 'id="causes"', 'id="method"'):
+        assert not any(notwant in i for i in ids), (notwant, ids)
+
+
+def test_n2_the_set_is_generated_a_new_adjusted_section_joins_it():
+    text = page_html_text()
+    before = generated_sections(text, ADJUSTED_RE)
+    extra = '<section id="added"><h2>Adjusted score per cohort</h2></section>\n  '
+    mutated = text.replace('<section id="findings">', extra + '<section id="findings">', 1)
+    assert mutated != text and len(generated_sections(mutated, ADJUSTED_RE)) == len(before) + 1
+
+
+def test_n2_the_sentence_is_in_every_generated_adjusted_section(env):
+    keys = generated_sections(page_html_text(), ADJUSTED_RE)
+    env.write()
+    code, _, err = env.run("--answers-file", env.answers)
+    assert code == 0, err
+    built = env.html()
+    assert missing_from(built, keys, indep_markup()) == []
+    assert built.count(indep_markup()) == len(keys)  # once per section, nowhere else
+
+
+def test_n2_the_coverage_check_goes_red_on_a_section_without_the_sentence(env):
+    keys = generated_sections(page_html_text(), ADJUSTED_RE)
+    env.write()
+    code, _, err = env.run("--answers-file", env.answers)
+    assert code == 0, err
+    broken = env.html().replace(indep_markup(), "", 1)
+    assert missing_from(broken, keys, indep_markup()) == [keys[0]]
+
+
+def test_n2_the_page_text_is_the_principles_text_exactly(env):
+    env.write()
+    code, _, err = env.run("--answers-file", env.answers)
+    assert code == 0, err
+    shown = INDEP_MARKUP_RE.findall(env.html())
+    assert shown and set(shown) == {indep_markup()}
+    assert htmllib.unescape(shown[0][len('<p class="bs-k bs-independence">'):-len("</p>")]) == displayed_sentence()
+    assert displayed_sentence()[1:] == principles_sentence()[1:]  # only the first letter differs
+
+
+def cli_option_groups(env):
+    """Every option the CLI offers, read off its --help, grouped as the CLI needs them together. A new option
+    that is in no group fails here, so an added option cannot slip past the all-combinations cell below."""
+    code, out, err = env.run("-h", base=False)
+    assert code == 0, err
+    offered = set(re.findall(r"(?m)^\s{1,4}(?:-\w,\s*)?(--[a-z0-9-]+)", out)) - {"--help"}
+    groups = [("--answers-file",), ("--withhold", "--withhold-reason"), ("--d3",), ("--title",), ("--official-note",)]
+    known = {"--data", "--out"} | {o for g in groups for o in g}
+    assert offered == known, f"options not in the all-combinations cell: {sorted(offered ^ known)}"
+    return groups
+
+
+def test_n2_every_option_combination_the_cli_offers_still_carries_the_sentence(env, bp, monkeypatch):
+    groups = cli_option_groups(env)
+    d3 = str(env.tmp / "d3.min.js")
+    with open(d3, "wb") as fh:
+        fh.write(FAKE_D3)
+    monkeypatch.setattr(bp, "D3_SHA256", hashlib.sha256(FAKE_D3).hexdigest())
+    keys = generated_sections(page_html_text(), ADJUSTED_RE)
+    wfile = str(env.tmp / "w.txt")
+    with open(wfile, "w") as fh:
+        fh.write("1:3\n")
+    values = {"--answers-file": env.answers, "--withhold": wfile, "--withhold-reason": "reason-text", "--d3": d3,
+             "--title": "T <x>", "--official-note": NOTE}
+    env.write()
+    n = 0
+    for r in range(len(groups) + 1):
+        for combo in itertools.combinations(groups, r):
+            argv = [x for g in combo for o in g for x in (o, values[o])]
+            code, _, err = env.run(*argv)
+            assert code == 0, (argv, err)
+            built = env.html()
+            assert missing_from(built, keys, indep_markup()) == [], argv
+            n += 1
+    assert n == 2 ** len(groups)  # every subset of the option groups, none skipped
+
+
+def test_n2_no_option_name_mentions_the_sentence():
+    # the sentence is not switched by anything: nothing in the CLI is named for it
+    code_src = open(TOOL, encoding="utf-8").read()
+    assert not re.search(r"add_argument\([^)]*(independen|sentence)", code_src, re.I)
