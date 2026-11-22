@@ -128,12 +128,20 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 - Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
   proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
   once as setup, outside exam timing. Arm 1 has no equivalent step.
-- Arm 2's recall service (OPEN: the project lead decides at the freeze; the design owner recommends the plan below).
-  The sandbox has no service manager, so the release's own launcher cannot start ENGRAM's recall daemon there; in
-  the cost pilot every prompt then fell back to keyword search. The plan: the harness starts the arm's own daemon
-  inside the sandbox with the release's own launch command before the student starts, starts the student only once
-  the daemon answers, and stops it before the store is saved. The daemon's readiness and its stop are in the run's
-  log; a launch whose daemon never became ready is stopped before any exam begins.
+- Arm 2's recall service (the project lead's decision of 2026-11-21). The sandbox has no service manager, so the
+  release's own launcher cannot start ENGRAM's recall daemon there; in the cost pilot every prompt then fell back to
+  keyword search. The harness therefore starts the arm's own daemon inside the sandbox with the release's own launch
+  command before the student starts, starts the student only once the daemon answers, and stops it before the store is
+  saved. The arm states whether it expects the daemon; the launch separately derives, from the arm's home, whether the
+  daemon is installed there, and a launch where the statement and the derived value differ is stopped before any exam
+  begins, in a record naming both. The daemon's readiness and its stop are in the run's log; a launch whose daemon
+  never became ready is stopped before any exam begins. After each session the launch module's own record states the
+  daemon's process id and that no process still holds its socket (the design owner's requirement of 2026-11-22), so no
+  manual check carries it. Pilot evidence, not scored, one stretch of one conversation: on 2026-11-22 two sessions
+  with the harness-started daemon (3 exchanges, then 23 exchanges through 13 automatic compactions) had every proctor
+  prompt answered by semantic recall, none by the keyword fallback, read from the recall event ENGRAM's prompt hook
+  writes for each prompt (all 26 with the fallback flag false, including the prompts after each of the 13
+  compactions).
 - One GPU, exclusive per run; the model is unloaded after every run.
 - Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF: web search and
   fetch (also told to the student, section 4); sub-agents, a stated limit (one student, one window; and
@@ -284,13 +292,14 @@ Two judges, named by the one thing that differs between them (the project lead's
   2026-11-18: the no-question numbers are not worth their cost). H1 and the primary analysis (section 11) are tested
   on its scores, and "the OFFICIAL score" in this plan means that judge's OFFICIAL score. The no-question judge (the
   b2da22e template) is run only inside the known-answer check, never on a scored benchmark item.
-- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected. A gold answer is
-  "confirmed wrong" only after a first-hand check against the conversation text. Before any finding goes upstream
-  it is checked against the benchmark's issue tracker, open and closed issues: a finding already reported there
-  is credited to its reporter, with the issue number, in the study's per-item change log (the one
-  SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue
-  rather than reported again; only a finding not already reported is raised as a new issue. Every finding,
-  whether credited, corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
+- OFFICIAL score: gold answers as shipped. ADJUSTED score: confirmed gold errors corrected and, for Event Ordering
+  only, the upstream procedure run on an adjusted item list as stated below (the Event Ordering ADJUSTED bullet). A
+  gold answer is "confirmed wrong" only after a first-hand check against the conversation text. Before any finding
+  goes upstream it is checked against the benchmark's issue tracker, open and closed issues: a finding already
+  reported there is credited to its reporter, with the issue number, in the study's per-item change log (the one
+  SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue rather
+  than reported again; only a finding not already reported is raised as a new issue. Every finding, whether credited,
+  corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
 - Event Ordering is the one type the paper does not score by rubric items (the project lead's direction of
   2026-11-21, "align our scoring method with the paper"; the design owner's ruling the same day). Its OFFICIAL score
   is the paper's released procedure, exactly:
@@ -321,6 +330,39 @@ Two judges, named by the one thing that differs between them (the project lead's
   events each; 17 and 22 items after the cut), a perfect recollection written in the student's usual format would
   score at most 0.65 and 0.57, assuming each event matches exactly one of the answer's list lines, in order, and
   nothing else matches.
+- ADJUSTED Event Ordering (the project lead's direction of 2026-11-21, "if we see issues there, we improve it through
+  the adjusted score process", and his approval the same evening, "the matching table correction only, keep the
+  arithmetic"; the design owner's rulings of 2026-11-21 and 2026-11-22). OFFICIAL Event Ordering is unchanged.
+  ADJUSTED Event Ordering is the upstream procedure, matching and arithmetic, run on an adjusted item list, and it is
+  reported at two levels, both always shown:
+  - Level A, mechanical: by code, on every answer of both arms, a line is dropped before matching if, once all
+    whitespace is removed (no-break and zero-width spaces included), it contains no letter (Unicode general category
+    L); every other line stays. So an empty line, a bare list marker, a heading marker, a horizontal rule or a table
+    rule is dropped, and a list marker followed by words stays. Its one known cost: a line of only digits and
+    punctuation (a bare year, a bare number) is dropped; that is accepted because such a line cannot name an event,
+    and such drops are counted. Pinned by cells, one per class, including a digits-only line (dropped), an
+    emoji-only line (dropped), a line in a non-Latin script (stays) and a list marker followed by one letter
+    (stays). Level A carries no gold correction: a corrected reference list enters only at level B. That the project
+    lead's approval covers level A is the design owner's reading, stated back to him (PROVENANCE, 2026-11-21). The
+    report names level A for what it is: a second measure with a cleaner cut, not a case-by-case correction.
+  - Level B, judged: level A plus three causes decided through the score review (SCORE-REVIEW-PRINCIPLES.md), with its
+    blinding, its per-item change log, both arms and the dispute invitation: (1) a confirmed wrong reference event
+    list (the gold-error path above); (2) a confirmed wrong yes/no verdict; (3) a line with words that names no event
+    is removed, and two adjacent lines are joined only if neither alone names a complete event and together they name
+    one reference event. No other cause. Verdicts on cause (3) carry a stated limit: an answer's format can tell its
+    arm.
+  - Filling the table (the design owner's ruling of 2026-11-22): removing or joining a line frees reference events and
+    creates item and event pairs the OFFICIAL matching never asked, so at both levels the upstream matching is re-run
+    on the adjusted item list. One verdict store, keyed by the exact pair (item text, reference event text): a stored
+    verdict is reused, which is sound only because the judge's input is the pair alone (the instruction and the two
+    snippets, above); a cell pins that, and if the prompt ever carries more than the pair, reuse is off and the design
+    owner rules again. A pair is asked at most once, at any level; the first stored verdict stands unless the review
+    overrides it under cause (2). Level A is computed in the same scoring pass as OFFICIAL, with the one store, so
+    every judge call it needs is made at scoring, by code, before any review and before any arm label is seen. Level
+    B's new calls (a joined line, a corrected reference list, pairs freed by a removal or an override) use the same
+    judge model, prompt and settings, pinned; they are made after that item's review decisions are fixed and before
+    unblinding, and each stored row records the level and the cause that made it necessary.
+  - The adjusted item lists and match tables are frozen before arm labels are unblinded, like the adjusted set.
 - Absolute scores are not comparable with the paper's table (a different judge model, and the code that
   produced that table is not known). The comparison is between our arms.
 
@@ -333,17 +375,18 @@ Two judges, named by the one thing that differs between them (the project lead's
   results tables' "Average" row is formed; checked on its Table 1 (four length blocks, 48 cells), that row equals the
   unweighted mean of the ten ability rows within rounding (largest difference 0.0009, where rounding three-decimal
   values allows up to 0.001), so the two are formed the same way.
-- Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear
-  in a clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item
-  details, so a reader sees which official answers we dispute and can judge for themselves. A floor that can be
-  checked afterwards (the design owner's reading, open to the project lead's tightening): the ADJUSTED contrast
-  appears in the same table and the same summary paragraph as the OFFICIAL one, and that summary states how many
-  official answers we dispute and links to the per-item change log.
+- Report layout (Lei, 2026-11-17, binding): our adjustments and our disagreements with official answers appear in a
+  clearly noticeable place in the report, not a footnote or a late page, with a pointer to the per-item details, so a
+  reader sees which official answers we dispute and can judge for themselves. A floor that can be checked afterwards
+  (the design owner's reading, open to the project lead's tightening): the ADJUSTED contrast appears in the same table
+  and the same summary paragraph as the OFFICIAL one, and that summary states how many official answers we dispute;
+  for Event Ordering, per level and per arm, how many lines each cause changed, and how many judge verdicts were
+  reused and how many newly asked; and it links to the per-item change log.
 - Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
-- Reported beside it, never instead: the ADJUSTED contrast; per question type; the efficiency table
-  (section 12) per arm.
+- Reported beside it, never instead: the ADJUSTED contrast (with Event Ordering at level A and at level B, section 10,
+  each shown); per question type; the efficiency table (section 12) per arm.
 - Per question type (the project lead's request of 2026-11-21): for each of the ten types, each arm's mean score and
   the paired contrast with its interval, grouped by conversation-length group. This study's scored set is the 100K
   group, the main bucket; another length group enters only by an amendment registered before its runs.
@@ -364,14 +407,15 @@ Two judges, named by the one thing that differs between them (the project lead's
 
 ## 12. Logged per run
 
-Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, tool calls (name, ok or
-error), whether ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files
-the student wrote; compactions (count, trigger, tokens before and after); the forced compaction's
-preserved messages; which ENGRAM hooks fired at it; the post-compaction check; every escalation; the four
-network counts of section 7 (rule refusals, framing refusals, cap refusals, network-capable shell calls) with the
-per-reason breakdown beside them; the UPSTREAM ERRORS count with its per-reason breakdown (section 7)
-and the wrapper's verdict on the endpoint (section 14); the wrapper's launch line,
-from the wrapper log.
+Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, tool calls (name, ok or error), whether
+ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files the student wrote; compactions
+(count, trigger, tokens before and after); the forced compaction's preserved messages; which ENGRAM hooks fired at it;
+the post-compaction check; every escalation; the four network counts of section 7 (rule refusals, framing refusals,
+cap refusals, network-capable shell calls) with the per-reason breakdown beside them; the UPSTREAM ERRORS count with
+its per-reason breakdown (section 7) and the wrapper's verdict on the endpoint (section 14); the wrapper's launch
+line, from the wrapper log; arm 2's recall daemon lines (the arm's statement and the launch's derived value, time to
+ready, the stop's outcome, and the after-session record of the daemon's process id and that no process holds its
+socket) and, per prompt, whether recall fell back to keyword search.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
 and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
@@ -504,12 +548,21 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - Two more bounds for section 15: after a compaction the harness re-reads recently edited files, so
   arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
   watch for changes of mind and contradictions, which BEAM scores directly.
-- Whether the scored runs start arm 2's recall daemon in the sandbox (section 7): the project lead's decision at
-  the freeze.
 - How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
   judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
   that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
   judging bias on 100K conversation 1).
+- What a scored exam does when the student itself turns its next launch into a daemon stop (the arm's home is
+  writable by the student, so it can remove what the launch derives the daemon setting from). Setup verifies, read-only
+  and never clearing, the three paths the setting is derived from before each launch. Starting text (the security
+  seat's): a daemon already gone at stop is a fault exactly when the session was to have the daemon throughout.
+- The review load of ADJUSTED Event Ordering (a third item kind in the score-review tool, built after the project
+  lead's word on that tool; a prerequisite of the review phase, not of the scored runs, since the match tables are
+  stored at scoring; level B's new judge calls need the judge callable at review time): measured in the pilot on Event
+  Ordering items, run A's two answers first.
+- How section 14 treats a launch stopped before any exam begins (no student turn sent: whether it is retried, and
+  whether that spends the run's one re-run) and a recall daemon lost during an exam (any prompt whose recall falls
+  back to keyword search), stated before any scored run.
 
 ## Deviations log
 
