@@ -1,6 +1,6 @@
 # score-review: record formats and procedure
 
-`score_review.py` implements the three-phase review of `SCORE-REVIEW-PRINCIPLES.md` (v0.1). Everything is files:
+`score_review.py` implements the three-phase review of `SCORE-REVIEW-PRINCIPLES.md` (v0.2). Everything is files:
 JSON Lines, append-only for verdicts. Python 3.11+, standard library only; `pyarrow` is imported lazily and only by
 `import-beam`. Every record carries `"schema_version": 1`. Every timestamp is UTC ISO-8601 with a `Z`, read from the
 clock when the record is written, never taken from an argument.
