@@ -107,6 +107,11 @@ entries say so.
 |---|---|---|---|---|
 | 16:03 | Kepler (design owner) | For scored runs, the launch module's own after-session record states the recall daemon's process id and that no process still holds its socket; a manual sweep, accepted for the pilot, does not carry it. | Paraphrased from the design owner's message. | `ob_8147` |
 | 18:30 | Kepler (design owner); the project lead told 2026-11-22, about 18:31 UTC, in session | ADJUSTED Event Ordering is the upstream procedure, matching and arithmetic, run on the adjusted item list. The design owner's statement to the project lead on 2026-11-21 ('dropping lines changes only the table') was incomplete: removing or joining a line frees events and creates pairs never asked. Added: judge rows for pairs never asked, with the same judge and prompt, each pair asked at most once, level A's calls made in the official scoring pass. OFFICIAL and the arithmetic are unchanged. Level A's rule is defined: a line with no letter, once whitespace is removed, is dropped. Told, not yet approved. | Paraphrased from the design owner's ruling. | `ob_8154` |
+| 20:11 | Kepler (design owner) | The review phase's random order and the freeze before "report --unblind" are hand steps with named witnesses until the tool enforces them. | Paraphrased from the design owner's ruling. | `ob_8187` |
+| 20:14 | Kepler (design owner), after the security seat | The background check sits in the model-endpoint forwarder and covers every request: each body is untrusted, parsed as a bounded copy, never evaluated or logged, the original bytes forwarded unmodified; a refusal names its class and is distinguishable from a transport error. The parser's further conditions (invalid UTF-8 and duplicate keys refused; every tool entry and the whole schema scanned; a schema shape it cannot read refused, never resolved, as its own fifth class) are the security seat's, given to the study lead the same minute. | Paraphrased from the design owner's ruling and the security seat's message. | `ob_8189` |
+| 20:15 | Kepler (design owner), after the security seat | The forwarder's refusal rule, as a bridge: a first-request refusal refuses the launch; a later isolated refusal refuses that request only; a pervasive lapse (same class and same Bash property names on every request from some index to the launch's last) flags the run and halts further launches until explained; the cost is stated in section 7. | Paraphrased from the design owner's ruling. | `ob_8190`, `ob_8191` |
+| 20:28 | Kepler (design owner) | Section 7's switch rule is confirmed on the launcher's own switch configuration (cell S); the background switch changes how a sub-agent runs, not whether it can; the scored launcher's dry-box cell runs both routes and the marker check before the freeze, and the registration cites it. | Paraphrased from the design owner's ruling. | `ob_8196` |
+| 21:44 | Lei (in session; relayed verbatim by Kepler at 21:44) | The probe records are published with this plan change, with no note to the tool's maker. | "We can publish without sending Anthropic a letter. The findings sounds reasonable to me, and that's what Claude code does I guess." | `ob_8208` |
 
 ## Corrections (METHODOLOGY section 7)
 
@@ -122,6 +127,38 @@ entries say so.
   It was never measured; Kepler questioned it from his own context, and one search showed plain Claude Code's
   compaction summary carries the same pointer. The claim was retracted (`ob_7520`; the measured record is
   `ob_7521`).
+- 2026-11-22, the tool rule (correcting the 2026-11-14 23:03 row, which stays as written). The design owner ruled on
+  2026-11-14 that the tool rule be "enforced by configuration and verified per run". Neither the configuration nor the
+  per-run check was ever built, and the design owner did not verify that they were before treating runs as made under
+  the plan. So in every session run through 2026-11-22, sub-agents, the web tools and the scheduling tools were offered
+  to the student with no permission check; none was called (three counts by two seats over the 39 session logs that
+  contain tool calls; those logs stay private, and the published past-runs table covers only the routes to a turn
+  nobody sent). A probe without a model on 2026-11-22 (Claude Code 2.1.328, one run per cell; section 7's
+  table) showed that a sub-agent call would have worked and could write outside the student's home. No reading is
+  withdrawn for it; this entry and the limit it states are the correction (design owner's ruling, 2026-11-22). The
+  practice runs' "without sub-agents the shipped sleep stops after its first half" stayed true of what ran, since no
+  sub-agent call was made in any session; it does not mean those sleeps ran whole. (`ob_8176`, `ob_8177`, `ob_8179`)
+- 2026-11-22, the turns nobody sent. In the configuration those runs used, both routes to a turn the proctor did not
+  send were open: a background shell call and the 120-second move of a foreground command. In the design owner's
+  adopted words (the security seat's sentence): "on 2.1.328 in print mode the 120 s move to the background is the
+  default; it was open in the affected configuration; across every population named in the table there is no
+  occurrence of the move or of a backgrounded task; the single session that records turns only is covered by relay
+  accounting, to that bound." The table is data/probes-2026-11-22/PAST-RUNS-TABLE.md (its private original's sha256
+  begins 239c2ecb, the version the design owner read). Bounds: 2.1.328 only (runs also used 2.1.325 and 2.1.327, not
+  measured); the files that exist now; a scan for the harness's own messages. The readers used in those runs returned
+  the first result after a send, so a turn nobody sent would have been mis-attributed to the next question; since no
+  occurrence was found, to that bound, nothing shows that route was taken (section 7 now requires the fixed reader).
+  (`ob_8192`, `ob_8193`, `ob_8205`)
+- 2026-11-22, one session outside the wrapper. One session on 2026-11-21 ran outside the sandbox wrapper by mistake;
+  no tool call is visible in its relay accounting (a call that bypassed the relay, or one that failed mid-stream, would
+  not be seen there); a write-up is to follow. The past-runs table's sentence that no tool call was made in that
+  session at all is to be read with this narrower bound. (`ob_8207`)
+- 2026-11-22, how the probe records are published. The design owner ruled that the plan cites only records a reader can
+  open, so scrubbed copies are published with a redaction record that a private script reproduces byte for byte (run
+  by the study lead and by the design owner). They are study records, not a vulnerability report: every behaviour was
+  measured in a mode that grants the session all permissions, and the disallow option and the switches do what they
+  say. Publishing them with no note to the tool's maker was the project lead's decision, 2026-11-22. (`ob_8207`,
+  `ob_8208`)
 
 ## Practice observations behind the rulings
 

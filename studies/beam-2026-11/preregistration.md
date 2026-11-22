@@ -123,6 +123,7 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
 - Model `qwen3.8:27b` Q4_K_M served by Ollama 0.33.2 as a variant with `num_ctx` 131,072 (the server's
   default context for these requests is 32,768). Server sampling defaults (temperature 1, top_k 20,
   top_p 0.95). Claude Code 2.1.325 on Ollama's Anthropic-compatible endpoint. Versions recorded per run.
+  [the version of the scored runs is fixed at the freeze; every measurement in this section is on 2.1.328]
 - One persistent Claude Code print-mode process per exam (stream-json input), permission mode bypass,
   each run in its own sandbox home outside any git repository, never on a real user's memory graph.
 - Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
@@ -143,13 +144,111 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   writes for each prompt (all 26 with the fallback flag false, including the prompts after each of the 13
   compactions).
 - One GPU, exclusive per run; the model is unloaded after every run.
-- Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF: web search and
-  fetch (also told to the student, section 4); sub-agents, a stated limit (one student, one window; and
-  an ENGRAM sub-agent writing into its parent's memory is an open hazard, engram#1989); scheduling,
-  wakeups and background monitors (no turn starts that the proctor did not send). ON: file tools and the
-  shell; in arm 2, ENGRAM's tools as the release ships them. Enforced by the harness's disallow option
-  and verified per run from the session's first record; a run whose tool list differs from this one is
-  flagged. Every registered run goes through the student wrapper (tools/student-sandbox.sh), once it is
+- Tools, identical in both arms (Kepler, as amended for Lei's full-capabilities core). OFF, by twelve names passed to the
+  harness's disallow option: CronCreate, CronDelete, CronList, ListAgents, Monitor, ScheduleWakeup, SendMessage, Task,
+  TaskStop, WebFetch, WebSearch, Workflow. That is web search and fetch (also told to the student, section 4);
+  sub-agents, a stated limit (one student, one window; and an ENGRAM sub-agent writing into its parent's memory is an
+  open hazard, engram#1989); scheduling, wakeups, background monitors and stopping background tasks (no turn starts that
+  the proctor did not send). ON: file tools and the shell; in arm 2, ENGRAM's tools as the release ships them. The
+  disallow option binds at dispatch: a named tool is refused even when called by name, while a tool merely absent from
+  the list the model sees can still be called (cells A and B below), so that list is never read as the closed set. The
+  OFF set is verified per run from the session's first record (exactly the twelve names absent); a run whose tool list
+  differs is flagged.
+  The shell's own routes to a turn nobody sent. The OFF set does not close them, because the shell stays on: on Claude
+  Code 2.1.328 in print mode, a shell command the model asks to run in the background, and a foreground command moved to
+  the background at the shell's 120-second default limit, each start a turn the proctor did not send when they finish
+  (cells A, B, B4, U). Both arms therefore run with three harness switches set in the student's environment:
+  CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, CLAUDE_CODE_DISABLE_CRON and CLAUDE_CODE_DISABLE_WORKFLOWS. With them the shell's
+  input schema has no background option, so such a request is refused at input validation, and a foreground command
+  past the limit is killed at 120 seconds instead of moved (cells D and S). The launcher also asserts unset every
+  auto-background variable the binary reads; that is a second barrier only (cell D was quiet with the enabling variable
+  set): the switches are what protect the run. The background switch changes HOW a sub-agent runs (in the foreground
+  instead of asynchronously), not WHETHER it can: in cell S a sub-agent ran with the switches on and wrote outside the
+  student's home. Sub-agents are closed by the OFF set alone, and nothing in this plan reads "background disabled" as
+  a statement about sub-agents. The skills missing from the session's first record (loop, workflow-authoring) are
+  second signs for the cron and workflow switches only, never for the background switch.
+  Default and measurement, kept apart. On 2.1.328 in print mode the 120-second move to the background is the default
+  (cell U: the past runs' arguments and environment, with the probe's scripted model and a stand-in MCP tool); it was
+  open in the configuration every run before this rule used, and no occurrence of it was found in them, to the table's
+  bound (PROVENANCE, Corrections, 2026-11-22). The shell's sleep guard, an observation on 2.1.328 and not a guarantee.
+  Measured, one pair: a bare sleep of 150 seconds was refused with the background option available (cell B4) and ran
+  with it disabled (cell D). Read from the binary, not measured: the guard matches only a first command segment that
+  is a bare sleep over 25 seconds; whether the refusal depends on the background feature is not established. In the
+  scored configuration (background disabled) the guard did not refuse it: the bare sleep ran until the shell's
+  120-second kill (cell D). The 120 seconds are only the default (a call may ask for up to 600), and short commands
+  chain, so nothing here stops a student stalling a turn; section 14's turn-timeout rule is neither weakened nor
+  settled by it.
+  The proctor's reader. It matches each result to the turn it sent, so the result of a turn nobody sent can never be
+  read as the answer to the next question, and it bounds its own wait, so a silent harness cannot stall it past the
+  turn timeout; what a timed-out turn then means is section 14's rule. (The readers used before this rule returned the
+  first result after a send; no occurrence of a turn nobody sent was found in those runs, to the table's bound,
+  PROVENANCE, Corrections, 2026-11-22.)
+  Checked on every request, not once per run. The model-endpoint forwarder parses a copy of every request body (bounded
+  size and nesting depth, never evaluated, never logged) and forwards the original bytes unmodified. It refuses a
+  request whose body does not parse (invalid UTF-8 and duplicate keys included), has no tools list, has no Bash tool,
+  or whose Bash input schema has run_in_background anywhere; it scans every tool entry and the whole schema, and a
+  schema shape it cannot read (two Bash entries, a reference, a composition) is refused, never resolved. Each refusal
+  is a line the harness writes outside the box, with its class (unparseable, no tools list, no Bash, run_in_background
+  present, unsupported schema shape), the request's index counted from the launch's first request, and the Bash
+  property names seen (names only, nothing of the body); a refusal is distinguishable from a transport error. An exam
+  counts only if the forwarder wrote a pass line for the launch's first request; with none, the launch did not start
+  under this rule: it is a launch stopped before any exam begins, handled by section 14's rule for that case. A
+  forwarder that dies later leaves transport errors, which silence the model like a lapse; that is the model endpoint
+  dying during a run, and section 14's rule for it applies (the design owner decides re-run or keep), with the last
+  pass line's index recorded. Cells
+  before the freeze, built with the launcher: a request whose Bash schema carries run_in_background is refused; one
+  without it passes; a malformed body and a body with no Bash are refused; an always-pass mutant of the check reddens
+  the first of these; and the harness's own real request, taken from a dry-box launch, passes, so the stricter parser
+  is shown not to refuse every legitimate launch. The study's rule for refusals:
+  (a) a refusal on a launch's first request refuses the launch (nothing of the exam has gone upstream, and the student
+      has had no turn); it is a launch stopped before any exam begins, handled by section 14's rule for that case
+      (OPEN list until it is stated);
+  (b) a later isolated refusal refuses that request only: the exam is kept, counted, and reported with the class and
+      the launch-relative index;
+  (c) a lapse is PERVASIVE when every request from some index k to the launch's last has the same class and the same
+      Bash property names. The run is MARKED configuration-suspect (a mark, not a section 14 flag: the run stays in
+      the primary analysis, kept and counted), and the mark is reported beside the primary contrast with the count
+      of launches lost to such a halt; further launches halt until the design owner and the security seat have the
+      explanation (no score is touched).
+  Every run's record carries its count of turns nobody sent, with those after a lapse's onset counted separately.
+  After the onset that count is a verification expected to be zero (every request is refused, so the model gets no
+  turn); a nonzero count means a request reached the model without passing the check, and it halts launches like a
+  pervasive lapse. Cost, stated: a genuine lapse silences the model for the rest of that exam, and the arm carries the
+  unanswered questions in the primary analysis. It is a harness fault counted against the arm, uniformly, because the
+  alternative is a re-run a student could reach; the flag and the count of turns nobody sent let a reader see the
+  penalty came from the harness. Limit (OPEN list): the forwarder cannot tell a forged request from the harness's own.
+  Before the freeze, the scored launcher's own dry-box cell, in the launcher's real arguments and environment (the
+  twelve-name OFF set, the three switches, the auto-background variables unset), no model: both routes (the model's
+  background request; a 150-second foreground command that is not a bare sleep, no timeout parameter), and the probe's
+  scripted first turn, whose sub-agent call writes one marker in the student's home and one outside it. No marker may
+  appear: their absence shows the OFF set reached the run, and cell S (the same turn, both markers written) is the
+  paired positive control, so the absence is not the instrument's silence. Both marker paths are checked and what was
+  found at each is recorded. No probe cell ran this whole configuration at once (D has the OFF set and the switches
+  with the enabling variable set; S has the switches with the variable unset and no OFF set); they bracket it. The
+  registration cites the dry-box cell, not the probe.
+  The probe, 2026-11-22 (scrubbed copies of its records in data/probes-2026-11-22/, with their redaction record). One
+  run per cell; every cell's expectations were committed before it ran, and the security seat read them before each
+  run except the first, where its read was of the version before its own five requested fixes (redaction record,
+  and the dated correction at the end of RESULT.md). Every cell:
+  Claude Code 2.1.328 only (the runs before this rule also used 2.1.325 and 2.1.327, which were not measured), print
+  mode, one host, a private network namespace, a scripted model (so whether the student would form these calls is not
+  measured), a stand-in MCP tool in place of ENGRAM's.
+
+  | cell | configuration | the model asks for a background shell | a 150 s foreground command | sub-agent | RESULT.md section |
+  |---|---|---|---|---|---|
+  | A | the past runs' flags: no disallow option, no variable, no switch | ran, finished about 3 s later; a turn nobody sent began at once | not run | ran (asynchronously); markers in the home and outside it | lines 1-99, 7d332529 |
+  | B | A plus the disallow option with the twelve names | as A | not run | refused at dispatch; no marker | lines 1-99, 7d332529 |
+  | C | A plus the fetch preflight off (not a configuration any run used) | ran; a turn nobody sent | not run | as A | lines 1-99, 7d332529 |
+  | B4 | B plus the auto-background variable | ran; a turn nobody sent | NOT MEASURED: the command was a bare sleep and the sleep guard refused it | not reported (the twelve names disallowed, as in B) | lines 100-156, cd24ffaa |
+  | D | B4 plus the three switches | refused at input validation; nothing ran | killed at 120 s, but its control (B4) never ran the command, so this is no test | not reported (the twelve names disallowed, as in B) | lines 100-156, cd24ffaa |
+  | B4, rerun | as B4; the long command is a python nap | ran; a turn nobody sent | moved to the background at 120.1 s; a turn nobody sent 29.9 s later | not reported (the twelve names disallowed, as in B) | lines 157-186, e1fa8e5b |
+  | D, rerun | as D; the same python nap | refused at input validation | killed at 120 s (exit 143); no further turn | not reported (the twelve names disallowed, as in B) | lines 157-186, e1fa8e5b |
+  | U | the past runs' arguments and environment (as A) plus the long command | ran, finished at 3.0 s; a turn nobody sent began at once (fidelity check: U reproduces A) | moved at 120.1 s; a turn nobody sent 29.9 s later | as A | lines 187-233, 5f94894c |
+  | S | U plus the three switches, variable unset, no disallow option | refused at input validation | killed at 120 s (exit 143); no further turn | ran in the foreground; markers in the home and outside it | lines 234-266, 32891114 |
+
+  RESULT.md's two sections appended after the reads (a correction of its lines 3-4, and an addition on the skills in
+  the session records) are part of the published file and are not rows of this table.
+  Every registered run goes through the student wrapper (tools/student-sandbox.sh), once it is
   merged with its colleague read (OPEN list); a scored run without it is flagged (section 14). Inside the
   wrapper the shell has no network: nothing leaves except requests to the model endpoint, through a bridge
   with a method-and-path allow-list. The security seat measured this inside the box (loopback only; the
@@ -300,6 +399,13 @@ Two judges, named by the one thing that differs between them (the project lead's
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue rather
   than reported again; only a finding not already reported is raised as a new issue. Every finding, whether credited,
   corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
+- Two steps of the review phase are hand steps until the tool enforces them, each with a named witness recorded in the
+  review log: (1) phase 2 receives its items in a random order with no set label shown; the study lead shuffles and
+  hands out the packets, and the design owner checks that no set label travelled with them; (2) "report --unblind" is
+  run only on a frozen adjusted set; the design owner confirms the set's freeze record before it is run, and the study
+  lead runs it. Enforcing both in the tool is a build item for the review phase, not for the freeze. The engine's real
+  parquet path was first run on 2026-11-22 in a scratch environment (259 passed, 0 skipped); neither seat's default
+  Python has pyarrow, so in a default environment those two cells skip.
 - Event Ordering is the one type the paper does not score by rubric items (the project lead's direction of
   2026-11-21, "align our scoring method with the paper"; the design owner's ruling the same day). Its OFFICIAL score
   is the paper's released procedure, exactly:
@@ -415,7 +521,9 @@ cap refusals, network-capable shell calls) with the per-reason breakdown beside 
 its per-reason breakdown (section 7) and the wrapper's verdict on the endpoint (section 14); the wrapper's launch
 line, from the wrapper log; arm 2's recall daemon lines (the arm's statement and the launch's derived value, time to
 ready, the stop's outcome, and the after-session record of the daemon's process id and that no process holds its
-socket) and, per prompt, whether recall fell back to keyword search.
+socket) and, per prompt, whether recall fell back to keyword search; the forwarder's lines (each pass and refusal,
+with class, launch-relative index and Bash property names) and the run's count of turns nobody sent, with those after
+a lapse's onset counted separately (section 7).
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
 and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
@@ -560,6 +668,13 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - How section 14 treats a launch stopped before any exam begins (no student turn sent: whether it is retried, and
   whether that spends the run's one re-run) and a recall daemon lost during an exam (any prompt whose recall falls
   back to keyword search), stated before any scored run.
+- The forwarder cannot tell a forged request from the harness's own: the student has a shell and can send requests to
+  it. A per-launch credential would close this (the world-credential work); the freeze does not wait on it (the
+  security seat did not object, 2026-11-22), and it comes later as a dated amendment.
+- Event Ordering in the score-review engine: that engine takes one rubric score per rubric line, from 0 to 1, for every
+  question, while Event Ordering is scored pair by pair (decision log 2026-11-21) and its ADJUSTED score is the upstream
+  procedure on an adjusted item list (decision log 2026-11-22). What an Event Ordering item's rubric lines and level
+  are in that engine, answered before the review phase, with the ADJUSTED load item above.
 
 ## Deviations log
 
