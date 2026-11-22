@@ -675,8 +675,10 @@ follow the security seat's reads):
 - Pairing. After the one permitted re-run, if either arm's run of a conversation is still excluded, that
   conversation leaves the paired primary for both arms. The surviving arm's score appears in the per-conversation
   table, marked, and in no contrast. The report states, per dropped conversation, which arm was flagged and why.
-  Stated bound: arm 2 has more machinery that can flag (the first session, the recall daemon), so dropping is not
-  symmetric by construction; the count of dropped conversations per arm makes that visible.
+  Stated bound: arm 2 runs a setup session before its exam, and those turns count toward the timeout flag, so
+  dropping is not symmetric by construction. Arm 2's other extra machinery (the first session's completion, the
+  recall daemon) puts exams in the contrast set instead (section 11). The counts per arm, of dropped conversations
+  and of contrast-set members, make both visible.
 
 A failed automatic compaction during reading (the summary the harness makes when the window fills does not complete;
 distinct from the post-compaction record of section 8, the measure taken on the forced /compact after the last
@@ -716,7 +718,7 @@ About 143 exchanges per conversation. Arm 1 at about 5 to 25 s per exchange: rou
 conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conversation, plus about
 7 to 16 min of first-session setup. The book-closed second runs (3 of 17 conversations, both arms) add about 18%.
 
-## OPEN before registration
+## OPEN items, by phase
 
 ### Before the freeze (the registered hashes wait on these)
 
@@ -773,7 +775,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 
 - Licence handling for published transcripts. The dataset's licence was read on 2026-11-19 (CC BY-SA 4.0:
   redistribution allowed with attribution and share-alike) and an attribution file was added to the study folder
-  (the study record's custody entry of 2026-11-19); this closes when that record reaches main.
+  (the study record's tuning log, entry 'Public-repository custody', 2026-11-19); this closes when that record
+  reaches main.
 
 ### Stated limits the freeze does not wait on
 
