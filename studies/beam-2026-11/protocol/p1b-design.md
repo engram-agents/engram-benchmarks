@@ -136,10 +136,9 @@ The tools exist: `tools/p1_answers.py`, `tools/p1_grade.py`, `tools/p1_score.py`
 plus the new reading-continuation mode in section 1.
 
 - **A8. Timetable and cut-off rule (design owner, Office crossing 32804, fixed before any reading round).** The card is
-  used in daylight only. Lei's recorded words, as read by the design owner: 2026-10-27, "The machine has to go off around
-  9 pm latest because it is bright and loud in the night and Leona is sleeping in the room"; 2026-11-16, "plan for the EOD
-  around 8:30". The design owner's own bound, stricter and labelled as his: no GPU work of this study runs past 8:00 PM
-  New York; a different hour from Lei replaces it. **Option A, each reading unbroken** (a split would add a second cold
+  used in daylight only. This is the project lead's
+  constraint on when the study may use the card. The design owner's own bound, stricter and labelled as his: no GPU
+  work of this study runs past 8:00 PM New York; a different hour from the project lead replaces it. **Option A, each reading unbroken** (a split would add a second cold
   start and a second session-start injection to both arms). (1) The K = 3 reading starts on 2026-11-19 as soon as the
   card rule holds. (2) The k = 1 reading runs on its own day and starts only if it can start at or before 9:00 AM New
   York (its 10.6-hour upper bound must end by 8:00 PM); a later start moves it to the next day. (3) The two answering
@@ -151,14 +150,13 @@ plus the new reading-continuation mode in section 1.
   again. Limits line, in the design owner's words: P1 itself recorded no serving lines, so A7 rests on 'no record match
   for P1, file dates unchanged' (model file last modified 2026-11-14, server binary 2026-08-28, both before P1's reading
   runs began on 2026-11-16).
-  - **A8 amendment, 2026-11-19 (K = 3 reading only), relayed by the design owner (Office crossing 32952).** *Who:* Lei,
-    the owner of the household bound the cut-off was derived from. *When:* 4:48 PM New York, before the 7:45 PM cut-off,
+  - **A8 amendment, 2026-11-19 (K = 3 reading only), relayed by the design owner (Office crossing 32952).** *Who:* Lei, the project lead,
+    whose constraint the cut-off was derived from. *When:* 2026-11-19, before the 7:45 PM cut-off,
     with 19 of the 30 K = 3 rounds done. *What he had seen:* round counts and the projected end only; nothing about
-    answers (the study lead's progress reports carry counts, error counts and a projected end, never answer text). *His
-    words:* "About today's 3-turn-per-read test, don't waste it if it's close to finish at 7:45pm, keep running until I
-    check in and call eod tonight, and I'll make the decision whether it's still too far from finish and whether we
-    forfeit the results and try another day." *Change:* the 7:45 PM clock stop is removed for this one reading; it runs
-    until Lei calls end of day. *Forfeit:* Lei's decision, made then; his named criterion is distance from finishing. A
+    answers (the study lead's progress reports carry counts, error counts and a projected end, never answer text). *His decision:* the
+    7:45 PM stop is lifted for this reading; it keeps running until he checks in, and he then decides whether it is
+    still too far from finishing and whether its results are forfeited. *Change:* the 7:45 PM clock stop is removed for this one reading; it runs
+    until Lei's word to stop. *Forfeit:* Lei's decision, made then; his named criterion is distance from finishing. A
     reading that completes exchange 135 is used as designed; a forfeited one is treated as the cut-off rule above treats a
     stopped run. The design owner's 8:00 PM bound is lifted for this one run by the same word; nothing else starts on the
     card tonight. The k = 1 rule (start at or before 9:00 AM New York) is unchanged unless Lei changes it. *How the stop
@@ -211,9 +209,8 @@ plus the new reading-continuation mode in section 1.
   the owner's processes run the exam. *Our-side control from 2026-11-20:* each morning, the value-blind scan over every
   student transcript written since the last scan, one line to the design owner.
 - **A11. The k = 1 reading starts tonight, overnight (design owner, Office crossing 33156, 2026-11-20; written before
-  the first k = 1 round).** *Lei's words,* 8:04 PM New York on 2026-11-19, relayed verbatim by the design owner: "How
-  about we run another away night practice tonight? I'll leave the machine on, and Borges can run through the night?
-  ... Tonight we rehearse the whole routine and make sure everything will work smoothly in the week I'm away." *The
+  the first k = 1 round).** *The project lead's decision of 2026-11-19,* relayed by the design
+  owner: the k = 1 reading may run overnight, starting that night. *The
   changed start rule:* A8's "starts only if it can start at or before 9:00 AM New York" existed because the night was
   closed to the card. Lei opens tonight, so the k = 1 reading runs as one unbroken overnight reading starting tonight
   instead, and the design owner's 8:00 PM bound is lifted for tonight by the same word. There is no daylight cut-off
