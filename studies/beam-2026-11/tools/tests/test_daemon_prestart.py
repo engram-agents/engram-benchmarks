@@ -15,7 +15,7 @@ SIGTERM; variants never bind, exit early, ignore SIGTERM). No real daemon, no re
 """
 import importlib.util, os, re, shutil, subprocess, sys, time
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, reader_log_for
 import test_student_sandbox as TSS
 from test_student_sandbox import fake_bwrap                 # fixtures reused as they are
 from test_sandbox_launch import w, mk_sandbox, SL            # noqa: F401  (w: the module cells' world; SL: the module under test)
@@ -189,7 +189,9 @@ def test_absent_no_daemon_and_the_launch_line_unchanged(dcfg):
     lines = log_lines(dcfg)
     assert not [l for l in lines if l.startswith("daemon-")], lines
     launch = log_line(dcfg, "wrapper-launch")
-    assert "daemon" not in launch and ARM_LABEL not in launch, launch
+    f = fields(launch)
+    assert "daemon" not in f and "daemon_script_sha256" not in f and ARM_LABEL not in launch, launch   # no daemon, no daemon fields
+    assert f["daemon_expected"] == "unstated", launch    # the wrapper was not told the arm's statement: it says so, never one of the two values
 
 
 @TSS.needs_box
@@ -236,7 +238,7 @@ def test_the_module_sets_it_on_the_real_filesystem_and_in_one_place(tmp_path):
 def test_a_slot_with_the_arm_install_gets_the_setting_from_the_module_alone(w):
     build_engram_slot(w.cfg.slot)
     with pytest.raises(SL.LaunchStop):                                  # the stub feeder writes no daemon lines: see below
-        w.launch("ok")
+        w.launch("ok", daemon_expected="engram")
     pairs = w.records()[0]["pairs"]
     assert pairs.get("SANDBOX_DAEMON") == "engram"
 
@@ -266,7 +268,7 @@ def test_a_launch_with_a_slot_too_long_for_the_socket_is_refused_before_anything
     build_engram_slot(long_slot)
     with pytest.raises(SL.LaunchRefused, match="107"):
         w.launch("ok", argv=["--arm-home", long_slot, "--out", w.out()],
-                 sandbox=w.sandbox(SANDBOX_SLOT=long_slot))
+                 sandbox=w.sandbox(SANDBOX_SLOT=long_slot), daemon_expected="engram")
     w.assert_nothing_started()
 
 
@@ -460,7 +462,7 @@ needs_arrow = pytest.mark.usefixtures("arrow_python")
 
 def _real(w, arrow_python, exec_, **settings):
     return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_, **settings), log_dir=str(w.logs),
-                         state_dir=str(w.state), env=w.env(), test_stub=True)
+                         state_dir=str(w.state), env=w.env(), test_stub=True, daemon_expected="engram")
 
 
 def _client(w):
@@ -470,16 +472,18 @@ def _client(w):
 def test_a_session_that_was_to_have_the_daemon_and_has_no_ready_line_is_a_named_stop(w):
     build_engram_slot(w.cfg.slot)
     with pytest.raises(SL.LaunchStop, match="recall daemon") as e:       # the stub feeder's launch line does not even say daemon=
-        w.launch("ok")
+        w.launch("ok", daemon_expected="engram")
     assert e.value.result.log
     res = SL.LaunchResult(0)
-    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [], res)    # a launch line that says it, and no daemon line at all
+    none = reader_log_for(w.logs / "none.log")                           # the reader's own (empty) record, which the verdict now requires
+    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [], res, none)    # a launch line that says it, and no daemon line at all
     assert why and "daemon-ready" in why and "daemon-not-ready" in why
-    assert SL.daemon_verdict("engram", {"daemon": "engram"}, [("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9"}),
-                                                              ("daemon-stop", {"outcome": "term", "pid": "9"})], res) is None
+    ev = [("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9", "rpt_dropped": "0"}),
+          ("daemon-stop", {"outcome": "term", "pid": "9", "rpt_dropped": "0"})]
+    assert SL.daemon_verdict("engram", {"daemon": "engram"}, ev, res, reader_log_for(w.logs / "ok.log", ev)) is None
     assert res.daemon == "engram" and res.daemon_time_to_ready_s == 1.5 and res.box_label == ARM_LABEL
-    assert SL.daemon_verdict(None, {}, [], SL.LaunchResult(0)) is None
-    assert "did not ask" in SL.daemon_verdict(None, {"daemon": "engram"}, [], SL.LaunchResult(0))
+    assert SL.daemon_verdict("none", {}, [], SL.LaunchResult(0), none) is None
+    assert "daemon_expected='none'" in SL.daemon_verdict("none", {"daemon": "engram"}, [], SL.LaunchResult(0), none)
 
 
 @TSS.needs_box

@@ -32,6 +32,10 @@
 #                         SIGTERM and waited for (20 s, then SIGKILL and a named fault), so it is gone before anything is saved.
 #                         Anything else is a refusal, never a default. The caps and peaks of such a run are those of "the box
 #                         with the recall daemon", and the launch line says so.
+#   SANDBOX_DAEMON_EXPECTED  optional, MODULE-OWNED. The arm's statement, `engram` or `none`, of whether its student is to run with the
+#                         recall daemon; anything else is a refusal. The wrapper only RECORDS it: the launch line carries
+#                         `daemon_expected=<value>` with a daemon and without one. Not set (direct use), the line says
+#                         `daemon_expected=unstated`, which is neither value; the launch module stops on a line that is not its statement.
 #   SANDBOX_TEST=1 + SANDBOX_TEST_EXEC="<shell command>"   test only: run that command inside the same box instead
 #                         of the binary, after every check and mount (the hash check still runs)
 set -u
@@ -53,6 +57,17 @@ DAEMON=""
 if [ -n "${SANDBOX_DAEMON+x}" ]; then
   [ "$SANDBOX_DAEMON" = engram ] || refuse "SANDBOX_DAEMON must be exactly 'engram' (the only daemon the wrapper pre-starts) or unset; it is not defaulted"
   DAEMON=engram
+fi
+# D8: the arm's STATEMENT of whether its student is to have the daemon, made by the launch module outside the slot and only RECORDED
+# here (`daemon_expected=` on the launch line, with and without a daemon); the wrapper does not act on it. Set (even empty) it must be
+# exactly `engram` or `none`. NOT set (direct use of the wrapper), the line says `daemon_expected=unstated`: that reads as neither value,
+# and the launch module, which compares the line with its own statement, stops on it.
+DAEMON_EXPECTED=unstated
+if [ -n "${SANDBOX_DAEMON_EXPECTED+x}" ]; then
+  case "$SANDBOX_DAEMON_EXPECTED" in
+    engram|none) DAEMON_EXPECTED=$SANDBOX_DAEMON_EXPECTED ;;
+    *) refuse "SANDBOX_DAEMON_EXPECTED must be exactly 'engram' or 'none' (the arm's statement of whether its student has the recall daemon) or unset; it is not defaulted" ;;
+  esac
 fi
 # The scope unit's name prefix: `student-sandbox-` in a real run, which is the only value there. A test run may give its own
 # (SANDBOX_TEST_UNIT_PREFIX, test mode only, so that two test runs on one host never see each other's units); set outside
@@ -511,7 +526,7 @@ if [ "${SANDBOX_TEST:-}" = 1 ]; then
   printf '%s: *** TEST MODE (SANDBOX_TEST=1): test knobs are honoured; this is not a registered run (caps: tmp=%s home_run=%s request=%s total=%s conns=%s tasks=%s memory=%s) ***\n' \
     "$PROG" "$TMP_CAP" "$HOME_CAP" "$REQ_CAP" "$TOTAL_CAP" "$CONN_CAP" "$BOX_TASKS" "$BOX_MEM" >&2
 fi
-log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -)$DAEMON_FIELDS"
+log "wrapper-launch time=$EPOCHREALTIME pid=$$ wrapper_sha256=$WRAPPER_SUM forwarder_sha256=$FWD_SUM scope_unit=$SCOPE_UNIT forwarder_pid=$FPID forwarder_start=$FSTART bridge_sock=$SOCK binary_sha256=$BIN_SUM model=$SANDBOX_MODEL_HOST:$PORT model_mode=$MODEL_MODE model_allow_entries=$ALLOW_N test_mode=$TESTFLAG test_exec=$TESTMODE cap_tmp=$TMP_CAP cap_home_run=$HOME_CAP cap_request=$REQ_CAP cap_total=$TOTAL_CAP cap_conns=$CONN_CAP cap_read_idle_s=$READ_IDLE_S cap_tasks=$BOX_TASKS cap_memory=$BOX_MEM ro_binds=$RO_LOG rw_binds=$RW_LOG etc_masked=$ETC_MASKED box_paths=$(box_paths | paste -sd: -) daemon_expected=$DAEMON_EXPECTED$DAEMON_FIELDS"
 [ -z "$DAEMON" ] || log "daemon-command $DAEMON_LINE"
 # The daemon's report channel (time to ready, the stop, a named fault) is a PIPE made here, outside the box. Only its WRITE end goes
 # into the box (to the in-box supervisor, which is also non-dumpable: defence in depth); the READ end belongs to a small reader the

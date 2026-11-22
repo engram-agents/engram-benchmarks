@@ -21,7 +21,7 @@ Synthetic fixtures only: the stub daemon of test_daemon_prestart.py; no real dae
 import importlib.util, json, os, re, subprocess, sys, threading, time
 import pytest
 import test_student_sandbox as TSS
-from conftest import TOOLS
+from conftest import TOOLS, reader_log_for
 from test_daemon_prestart import (STUB_DAEMON, build_engram_slot, client_cmd, dcfg, fields, log_line,  # noqa: F401  (dcfg: a fixture)
                                   log_lines, run_daemon, wait_report_closed)
 from test_sandbox_launch import SL                                                                    # noqa: F401
@@ -251,7 +251,8 @@ def test_the_module_reads_the_readers_form_and_no_other(tmp_path):
                              "daemon-report seq=1 time=1700000000.500000 line=fwd-first-request\n")):
         assert SL.read_daemon_events(_log(tmp_path, bad, "b%d.log" % n)) == [], "accepted: %r" % bad
     res = SL.LaunchResult(0)
-    why = SL.daemon_verdict("engram", {"daemon": "engram"}, SL.read_daemon_events(_log(tmp_path, ready + "\n", "old.log")), res)
+    old = SL.read_daemon_events(_log(tmp_path, ready + "\n", "old.log"))
+    why = SL.daemon_verdict("engram", {"daemon": "engram"}, old, res, reader_log_for(tmp_path / "old-rec.log", old))
     assert why and "daemon-ready" in why and "neither" in why, why        # an old-form ready line is no ready line at all
 
 
@@ -259,13 +260,14 @@ def test_a_drop_marker_or_a_supervisor_side_loss_is_a_named_stop_in_the_verdict(
     res = SL.LaunchResult(0)
     ready = ("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9", "rpt_dropped": "0"})
     stop = ("daemon-stop", {"outcome": "term", "pid": "9", "rpt_dropped": "0"})
-    assert SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, stop], res) is None
+    assert SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, stop], res, reader_log_for(tmp_path / "a.log", [ready, stop])) is None
     mark = SL.read_daemon_events(_log(tmp_path, "daemon-report seq=2 time=1700000000.500000 dropped reason=shape bytes=4 count=1\n"))
     assert mark and mark[0][0] == "daemon-report-dropped"
-    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, stop] + mark, SL.LaunchResult(0))
+    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, stop] + mark, SL.LaunchResult(0),
+                            reader_log_for(tmp_path / "b.log", [ready, stop] + mark))
     assert why and "dropped" in why and "report" in why, why
     lost = ("daemon-stop", {"outcome": "term", "pid": "9", "rpt_dropped": "2"})
-    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, lost], SL.LaunchResult(0))
+    why = SL.daemon_verdict("engram", {"daemon": "engram"}, [ready, lost], SL.LaunchResult(0), reader_log_for(tmp_path / "c.log", [ready, lost]))
     assert why and "2" in why and "could not write" in why, why
 
 
@@ -495,7 +497,8 @@ def test_the_leak_knob_is_a_test_mode_knob_only_and_the_client_has_no_report_des
 def test_r2_a_ready_event_needs_exactly_one_stop_event(tmp_path):
     ready = ("daemon-ready", {"time_to_ready_s": "1.5", "pid": "9", "rpt_dropped": "0"})
     stop = ("daemon-stop", {"outcome": "term", "pid": "9", "rpt_dropped": "0"})
-    ok = lambda ev: SL.daemon_verdict("engram", {"daemon": "engram"}, ev, SL.LaunchResult(0))
+    n = iter(range(100))
+    ok = lambda ev: SL.daemon_verdict("engram", {"daemon": "engram"}, ev, SL.LaunchResult(0), reader_log_for(tmp_path / ("r%d.log" % next(n)), ev))
     assert ok([ready, stop]) is None
     none = ok([ready])
     assert none and "daemon-stop" in none and "no " in none, none
@@ -668,7 +671,7 @@ def test_c1_the_closed_shape_is_anchored_like_the_other_two(tmp_path):
 
 def test_c1_the_launch_module_passes_the_log_to_its_verdict():
     import inspect
-    assert inspect.getsource(SL).count("daemon_verdict(daemon, lf, read_daemon_events(log_path), res, log=log_path)") == 1
+    assert inspect.getsource(SL).count("daemon_verdict(daemon_expected, lf, read_daemon_events(log_path), res, log=log_path)") == 1
 
 
 # ============================================================================================ S2: a read error is not a clean close

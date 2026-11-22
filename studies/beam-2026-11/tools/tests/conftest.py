@@ -129,3 +129,23 @@ LINUX_PROC = sys.platform.startswith("linux") and os.path.isdir("/proc/self")
 NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
                     "manager that can start a capped scope: the sandbox is Linux-only")
 needs_linux_wrapper = pytest.mark.skipif(not LINUX_PROC, reason=NEEDS_BOX_REASON)
+
+
+def reader_log_for(path, events=()):
+    """A launch log holding exactly the reader's own record of `events` (the form the log's reader writes: one `daemon-report seq=N
+    time=T line=<event>` per accepted event, a `dropped` marker per drop, then ONE `closed` line), so the launch module's verdict can
+    read the record it requires. `events` is the shape read_daemon_events returns: [(kind, {key: value})]. Returns the path."""
+    lines, accepted, dropped = [], 0, 0
+    for kind, f in events:
+        n = len(lines) + 1
+        if kind == "daemon-report-dropped":
+            lines.append("daemon-report seq=%d time=1700000000.500000 dropped reason=%s bytes=%s count=%s" % (n, f["reason"], f["bytes"], f["count"]))
+            dropped += 1
+        else:
+            lines.append("daemon-report seq=%d time=1700000000.500000 line=%s %s" % (n, kind, " ".join("%s=%s" % kv for kv in f.items())))
+            accepted += 1
+    lines.append("daemon-report seq=%d time=1700000000.500000 closed accepted=%d dropped=%d markers_suppressed=0 read_error=none"
+                 % (len(lines) + 1, accepted, dropped))
+    with open(str(path), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return str(path)

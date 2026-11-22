@@ -77,6 +77,16 @@ line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} sc
         f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1 "
         f"test_mode={1 if mode == 'testline' or pairs.get('SANDBOX_TEST') == '1' else 0} test_exec={1 if mode == 'testline' else 0} "
         f"cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
+# what the real wrapper writes about the daemon: `daemon_expected=` is the module's own statement as it reached the wrapper (`unstated`
+# when the wrapper was not told); `daemon=engram` only for a launch that ran with the daemon. STUB_DAEMON_EXPECTED_LINE overrides the
+# first (`-` leaves the field out); STUB_DAEMON=<term|killed|already-gone|lost> says the launch ran with a daemon and writes the
+# reader's own lines (ready, stop with that outcome, the closing line) the way the log's reader does.
+dexp = os.environ.get("STUB_DAEMON_EXPECTED_LINE", pairs.get("SANDBOX_DAEMON_EXPECTED", "unstated"))
+dmode = os.environ.get("STUB_DAEMON", "")
+if dexp != "-":
+    line += " daemon_expected=" + dexp
+if dmode:
+    line += " daemon=engram"
 if mode == "nomarker":
     line = line.replace(f"forwarder_start={fstart} ", "")
 if mode == "nounit":
@@ -86,6 +96,14 @@ body = {"ok": [line, "fwd-first-request"], "unreachable": [line, CF], "nolaunch"
         "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"],
         "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"],
         "zerostart": [line, "fwd-first-request"], "testline": [line, "fwd-first-request"], "rostate": [line, "fwd-first-request"], "nounit": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
+def reader(events):
+    out = ["daemon-report seq=%d time=1700000000.500000 line=%s" % (n, e) for n, e in enumerate(events, 1)]
+    return out + ["daemon-report seq=%d time=1700000000.500000 closed accepted=%d dropped=0 markers_suppressed=0 read_error=none"
+                  % (len(events) + 1, len(events))]
+if dmode:
+    ready = "daemon-ready time=1700000000.500000 pid=9 time_to_ready_s=1.5 rpt_dropped=0"
+    stop = "daemon-stop time=1700000000.600000 pid=9 outcome=%s waited_s=0.100 rpt_dropped=0" % dmode
+    body = body + reader([] if dmode == "lost" else [ready, stop])
 if log and mode != "nolaunch":
     with open(log, "a") as f:
         f.write("".join(l + "\n" for l in body))
@@ -122,7 +140,8 @@ sys.exit(st.p.wait(timeout=90))
 
 
 # What the cells' own stub reads from its environment: it receives these by name through run_feeder's test seam, never by inheritance.
-STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH")
+STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH",
+            "STUB_DAEMON", "STUB_DAEMON_EXPECTED_LINE")
 
 
 class World:
@@ -169,6 +188,7 @@ class World:
         kw.setdefault("state_dir", str(self.state))
         kw.setdefault("stub_as", "feed2.py")    # the module cells' stub stands in for feed2 (its option set is the broader one)
         kw.setdefault("test_env_names", STUB_ENV)
+        kw.setdefault("daemon_expected", "none")   # the arm's statement: these cells' slots hold no arm install (a cell that builds one says "engram")
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -490,7 +510,7 @@ def test_e_the_modules_own_launch_through_the_same_real_student_reaches_the_box(
     """The companion: the same real Student, started by the module, gets the settings as `--env` pairs, passes every
     check of the real wrapper, runs the test command in the box, and the launch line is logged and verified."""
     r = SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_="true"), log_dir=str(w.logs), state_dir=str(w.state),
-                      env=w.env(), test_stub=True)
+                      env=w.env(), test_stub=True, daemon_expected="none")
     assert r.returncode == 0 and r.verdict == NOT_FLAGGED
     assert r.wrapper_sha256 == TSS.sha256_of(TSS.WRAPPER) and r.forwarder_sha256 == TSS.sha256_of(TSS.FWD)
     line = [l for l in open(r.log) if l.startswith("wrapper-launch ")]
@@ -774,7 +794,7 @@ def real_caller(w, arrow_python, exec_, detach=False):
                       'c = json.load(open(sys.argv[2]))\n'
                       'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"], allow_test=True),\n'
                       '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True,\n'
-                      '              test_env_names=("DRIVER_DETACH",))\n')
+                      '              test_env_names=("DRIVER_DETACH",), daemon_expected="none")\n')
     cj = w.d / "caller.json"
     cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
                               "expected": str(w.expected), "log_dir": str(w.logs), "state_dir": str(w.state),
@@ -785,7 +805,7 @@ def real_caller(w, arrow_python, exec_, detach=False):
 def real_launch(w, arrow_python, exec_, detach=False):
     return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_), log_dir=str(w.logs),
                          state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True,
-                         test_env_names=("DRIVER_DETACH",))
+                         test_env_names=("DRIVER_DETACH",), daemon_expected="none")
 
 
 # ---------------------------------------------------------------------------------------------------- W: the launch line
@@ -959,7 +979,7 @@ def test_t_a_launch_line_that_lacks_a_marker_is_a_named_stop(w):
 def test_t_runs_in_a_finally_a_feeder_that_raised_is_still_torn_down_and_the_record_closed(w):
     with pytest.raises(FileNotFoundError):
         SL.run_feeder("/nonexistent-python", str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
-                      state_dir=str(w.state), env=w.env(), test_stub=True)
+                      state_dir=str(w.state), env=w.env(), test_stub=True, daemon_expected="none")
     (rec,) = records_in(w.state)
     assert rec["state"] == "done" and "no launch line" in rec["note"]
 
@@ -1685,7 +1705,7 @@ def test_g_the_fixed_list_is_one_named_constant_of_absolute_directories():
 def test_g_a_caller_environment_with_no_path_launches_since_nothing_of_it_is_used(w):
     r = SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
                       env={k: v for k, v in w.env().items() if k != "PATH"}, test_stub=True, stub_as="feed2.py",
-                      test_env_names=STUB_ENV)
+                      test_env_names=STUB_ENV, daemon_expected="none")
     assert r.returncode == 0
 
 
@@ -1818,7 +1838,7 @@ def test_d_a_wrapper_that_cannot_exec_is_a_launch_stop_and_the_decoy_on_the_call
     env = w.env(PATH="%s:%s" % (decoy, os.environ["PATH"]))
     with pytest.raises(SL.LaunchStop, match="log-verdict refused") as e:     # no log at all: the wrapper never ran
         SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
-                      env=env, test_stub=True, stub_as="feed2.py")
+                      env=env, test_stub=True, stub_as="feed2.py", daemon_expected="none")
     r = e.value.result
     assert r.verdict is None and r.wrapper_sha256 is None                # no answer of this session is read
     assert not sentinel.exists(), "the decoy `claude` on the caller's PATH was run"
