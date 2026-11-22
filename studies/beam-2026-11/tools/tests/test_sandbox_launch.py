@@ -201,20 +201,25 @@ class World:
         assert os.listdir(self.logs) == [], "a log was created"
 
 
-@pytest.fixture
-def w(tmp_path, monkeypatch):
+def _world(root, monkeypatch):
     """The module stops and checks the launch's scope through `systemctl --user`. On a host with no systemctl (a Mac) the pure
     cells still run, against a stub systemctl that answers as an empty user manager; only the cells that need a REAL user
-    manager (real scopes and boxes) are marked `needs_box` and skip there."""
+    manager (real scopes and boxes) are marked `needs_box` and skip there. `root` is the world's scratch directory: the cells of
+    this file use pytest's tmp_path; the daemon files, which bind sockets under it, pass a short one (test_daemon_prestart.w)."""
     if shutil.which("systemctl") is None:
-        stub = install_stub_systemctl(tmp_path / "stub-systemctl-bin")
+        stub = install_stub_systemctl(root / "stub-systemctl-bin")
         monkeypatch.setenv("PATH", stub + os.pathsep + os.environ.get("PATH", ""))
-    world = World(tmp_path)
+    world = World(root)
     yield world
     # these cells leave nothing behind: any box of this cell (attributed by its scratch root, as in test_student_sandbox)
-    units, ended = TSS.stop_boxes_of(str(tmp_path))
+    units, ended = TSS.stop_boxes_of(str(root))
     TSS.CREATED_UNITS.extend(units)
     assert not ended, "processes of this cell outlived it and had to be ended: %s" % ended
+
+
+@pytest.fixture
+def w(tmp_path, monkeypatch):
+    yield from _world(tmp_path, monkeypatch)
 
 
 # ====================================================================================== H: the expected-hashes file

@@ -13,12 +13,19 @@ Contract-first (written before the implementation). The contract, D1-D7, is the 
 Synthetic fixtures only: a STUB daemon script in a test slot (writes its pid file, binds after a delay, serves connects, exits on
 SIGTERM; variants never bind, exit early, ignore SIGTERM). No real daemon, no real binary, no model.
 """
-import importlib.util, os, re, shutil, subprocess, sys, time
+import importlib.util, os, pathlib, re, shutil, subprocess, sys, time
 import pytest
-from conftest import TOOLS, reader_log_for
+from conftest import TOOLS, reader_log_for, needs_linux_proc, short_dir
 import test_student_sandbox as TSS
 from test_student_sandbox import fake_bwrap                 # fixtures reused as they are
-from test_sandbox_launch import w, mk_sandbox, SL            # noqa: F401  (w: the module cells' world; SL: the module under test)
+from test_sandbox_launch import mk_sandbox, SL, _world       # noqa: F401  (SL: the module under test)
+
+
+@pytest.fixture
+def w(monkeypatch):
+    """test_sandbox_launch's world (the module cells' world), rooted at a SHORT real path (conftest.short_dir): the daemon's socket
+    path may not exceed 107 bytes, and a Mac's long $TMPDIR plus pytest's folders would refuse every slot that holds the arm install."""
+    yield from _world(pathlib.Path(short_dir("w")), monkeypatch)
 
 WRAPPER_TEXT = open(TSS.WRAPPER).read()
 HOOKS = os.path.join(".engram", "marketplace", "plugins", "engram", "hooks")
@@ -114,9 +121,10 @@ def set_stub(slot, **kw):
 
 
 @pytest.fixture
-def dcfg(tmp_path_factory):
-    """One wrapper configuration whose slot holds the synthetic arm install. The root is short on purpose (the socket path)."""
-    c = TSS.Cfg(tmp_path_factory.mktemp("d"))
+def dcfg():
+    """One wrapper configuration whose slot holds the synthetic arm install. The root is short on purpose (the socket path): a
+    short real path under /tmp (conftest.short_dir), never under the long base temp of a Mac or of a long $TMPDIR."""
+    c = TSS.Cfg(pathlib.Path(short_dir("d")))
     build_engram_slot(c.slot)
     yield c
     units, ended = TSS.stop_boxes_of(c.root)
@@ -243,16 +251,17 @@ def test_a_slot_with_the_arm_install_gets_the_setting_from_the_module_alone(w):
     assert pairs.get("SANDBOX_DAEMON") == "engram"
 
 
+@needs_linux_proc
 def test_a_slot_without_the_arm_install_gets_no_setting_and_no_daemon_check(w):
     assert w.launch("ok").returncode == 0
     assert "SANDBOX_DAEMON" not in w.records()[0]["pairs"]
 
 
 # ======================================================================================== D6: the socket path
-def test_the_socket_length_is_checked_at_the_byte(tmp_path):
+def test_the_socket_length_is_checked_at_the_byte():
     tail = "/.engram/recall-daemon.sock"
     assert SL.DAEMON_SOCKET_MAX == 107
-    base = str(tmp_path) + "/s"
+    base = short_dir() + "/s"                                     # a short real base: the cell pads it to the byte itself
     ok = base + "x" * (107 - len(base + tail))
     assert len(ok + tail) == 107
     SL.check_daemon_socket(ok)                                    # 107 bytes: allowed
@@ -469,6 +478,7 @@ def _client(w):
     return client_cmd(w.cfg)
 
 
+@needs_linux_proc
 def test_a_session_that_was_to_have_the_daemon_and_has_no_ready_line_is_a_named_stop(w):
     build_engram_slot(w.cfg.slot)
     with pytest.raises(SL.LaunchStop, match="recall daemon") as e:       # the stub feeder's launch line does not even say daemon=

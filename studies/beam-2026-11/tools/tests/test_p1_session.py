@@ -10,7 +10,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS, install_stub_systemctl, needs_linux_wrapper
+from conftest import TOOLS, install_stub_systemctl, needs_linux_proc, needs_linux_wrapper
 
 TOOL = os.path.join(TOOLS, "p1-session.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -1373,6 +1373,7 @@ def test_k1_the_route_states_only_none_and_only_for_a_stub(w, kw):
     assert not w.mark.exists()
 
 
+@needs_linux_proc
 def test_k2_setup_txt_records_the_daemon_lines_when_the_session_ends_normally(w):
     r = w.run()
     assert r.returncode == 0, (r.stdout, r.stderr)

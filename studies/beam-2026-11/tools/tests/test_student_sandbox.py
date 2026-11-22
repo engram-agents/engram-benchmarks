@@ -50,7 +50,7 @@ def _box_usable():
 
 
 # The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
-from conftest import NEEDS_BOX_REASON   # the one reason string (conftest.py)
+from conftest import LINUX_PROC, NEEDS_BOX_REASON   # the one reason string (conftest.py); LINUX_PROC: Linux with /proc
 BOX_OK = _box_usable()
 needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
 
@@ -4303,7 +4303,7 @@ def test_l_s2_a_response_that_outlasts_the_timeout_is_not_cut(outer, tmp_path):
 
 # ---- L-S3: an unreaped zombie is not alive (Linux reads /proc/<pid>/stat)
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc/<pid>/stat: Linux only; elsewhere os.kill stays")
+@pytest.mark.skipif(not LINUX_PROC, reason="reads /proc/<pid>/stat: Linux with /proc only; elsewhere os.kill stays")
 def test_l_s3_a_child_that_exited_but_is_not_reaped_reads_dead():
     mod = _load_forwarder()
     p = subprocess.Popen([sys.executable, "-c", "pass"])

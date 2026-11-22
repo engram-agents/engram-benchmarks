@@ -21,11 +21,11 @@ these cells needs pyarrow: the real-box cell uses its own small driver in place 
 """
 import inspect, json, os, re, sys
 import pytest
-from conftest import TOOLS, reader_log_for
+from conftest import TOOLS, reader_log_for, needs_linux_proc
 import test_student_sandbox as TSS
 from test_student_sandbox import fake_bwrap                                   # noqa: F401  (fixture)
-from test_sandbox_launch import w, mk_sandbox, SL, STUB_ENV                    # noqa: F401  (w: the module cells' world)
-from test_daemon_prestart import (build_engram_slot, client_cmd, dcfg, run_daemon, log_line, fields, ARM_LABEL,  # noqa: F401
+from test_sandbox_launch import mk_sandbox, SL, STUB_ENV                       # noqa: F401
+from test_daemon_prestart import (w, build_engram_slot, client_cmd, dcfg, run_daemon, log_line, fields, ARM_LABEL,  # noqa: F401  (w: the module cells' world, on a short root)
                                   wait_report_closed)
 
 PATHS = (".engram/venv/bin/python3", ".engram/marketplace/plugins/engram/hooks/engram-surface-daemon.py", ".engram")
@@ -115,6 +115,7 @@ def test_p2_one_function_computes_the_paths_and_the_setting_is_defined_from_it(m
         assert SL.daemon_setting("/no/such/slot") == want, "daemon_setting does not take its answer from daemon_paths"
 
 
+@needs_linux_proc
 def test_p2_a_launch_reads_the_slot_once_and_the_verdict_never_derives_again(w, monkeypatch):
     calls = []
     real = SL.daemon_paths
@@ -152,6 +153,7 @@ def test_p6_the_record_of_the_other_direction_says_what_is_there(w):
     assert rec["daemon_expected"] == "none" and rec["daemon_derived"] == "engram" and all(rec["paths"].values())
 
 
+@needs_linux_proc
 def test_p6_a_refused_record_does_not_block_the_next_launch_and_is_left_as_it_is(w):
     refuse_once(w)
     (name,) = os.listdir(str(w.state))
@@ -186,6 +188,7 @@ def test_p6_a_refusal_whose_record_cannot_be_written_is_still_a_refusal_and_says
 
 
 # ======================================================================================== pin 3 and 5: what is placed, what the line says
+@needs_linux_proc
 def test_p3_stated_none_on_a_bare_slot_places_no_daemon_and_the_line_says_none(w):
     r = w.launch("ok", daemon_expected="none")
     pairs = w.records()[0]["pairs"]
@@ -195,6 +198,7 @@ def test_p3_stated_none_on_a_bare_slot_places_no_daemon_and_the_line_says_none(w
     assert r.daemon_expected == "none" and r.daemon is None and r.daemon_stop_outcome is None and r.box_label is None
 
 
+@needs_linux_proc
 def test_p3_stated_engram_on_a_full_slot_places_the_derived_value_and_fills_the_result(w):
     full_slot(w)
     r = w.launch("ok", daemon_expected="engram", env={"STUB_DAEMON": "term"})
@@ -269,6 +273,7 @@ def test_p4_run_feeder_hands_the_verdict_the_statement_and_the_log():
 # ======================================================================================== pin 5: the line's own daemon_expected
 @pytest.mark.parametrize("stated,line,build", [("none", "engram", False), ("none", "unstated", False), ("none", "-", False),
                                                ("engram", "none", True), ("engram", "unstated", True), ("engram", "-", True)])
+@needs_linux_proc
 def test_p5_a_line_whose_daemon_expected_is_not_the_statement_is_a_launch_stop(w, stated, line, build):
     if build:
         full_slot(w)
@@ -280,12 +285,14 @@ def test_p5_a_line_whose_daemon_expected_is_not_the_statement_is_a_launch_stop(w
     assert e.value.result.daemon_expected == stated and "no answer of this session is read" in str(e.value)
 
 
+@needs_linux_proc
 def test_p5_the_line_that_says_the_statement_passes(w):
     assert w.launch("ok", daemon_expected="none", env={"STUB_DAEMON_EXPECTED_LINE": "none"}).returncode == 0
 
 
 # ======================================================================================== K2: the stop outcome is recorded
 @pytest.mark.parametrize("outcome", ["term", "already-gone"])
+@needs_linux_proc
 def test_k2_the_stop_outcome_is_read_off_the_one_stop_line_and_already_gone_still_passes(w, outcome):
     full_slot(w)
     r = w.launch("ok", daemon_expected="engram", env={"STUB_DAEMON": outcome})
@@ -312,6 +319,7 @@ def test_r3s1_no_log_is_a_refusal_by_name_never_a_silent_skip_of_the_reader_reco
 
 
 # ======================================================================================== R3-S2: the in-box supervisor exited 6
+@needs_linux_proc
 def test_r3s2_a_supervisor_that_lost_the_report_channel_ends_as_a_named_stop_through_the_verdict(w):
     full_slot(w)
     with pytest.raises(SL.LaunchStop, match="daemon-ready") as e:

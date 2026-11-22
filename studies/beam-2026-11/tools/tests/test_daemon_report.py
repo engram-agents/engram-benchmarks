@@ -21,7 +21,7 @@ Synthetic fixtures only: the stub daemon of test_daemon_prestart.py; no real dae
 import importlib.util, json, os, re, subprocess, sys, threading, time
 import pytest
 import test_student_sandbox as TSS
-from conftest import TOOLS, reader_log_for
+from conftest import TOOLS, reader_log_for, needs_linux_proc, remove_short_dirs, short_dir, _argv_of
 from test_daemon_prestart import (STUB_DAEMON, build_engram_slot, client_cmd, dcfg, fields, log_line,  # noqa: F401  (dcfg: a fixture)
                                   log_lines, run_daemon, wait_report_closed)
 from test_sandbox_launch import SL                                                                    # noqa: F401
@@ -283,7 +283,7 @@ sys.exit(fw.run_supervised(a, dict(os.environ)))
 
 
 def sup_args(tmp_path, wfd, *, mode="ok", delay=0.3, term_s=3.0, cmd=("/bin/sh", "-c", "exit 7")):
-    home = str(tmp_path / ".engram")
+    home = os.path.join(short_dir("s"), ".engram")        # the supervisor connects to <home>/recall-daemon.sock: a short REAL path (107 bytes)
     os.makedirs(home)
     script = os.path.join(home, "stub-daemon.py")
     open(script, "w").write(STUB_DAEMON)
@@ -334,6 +334,33 @@ def daemon_lines(blob):
     return [l for l in blob.decode().splitlines() if l.startswith("daemon-")]
 
 
+def test_a_stub_daemon_a_failing_cell_leaves_behind_is_stopped_by_the_teardown():
+    """The teardown (conftest.remove_short_dirs, run for every cell, failing or not) stops a stub daemon that nothing else stopped: one
+    that ignores SIGTERM, parented to init as a supervisor's daemon is, started and then left, as a cell that failed before its
+    stop would leave it. (The teardown signals a pid only when that process's command line still names the cell's directory, so it
+    needs one readable: /proc or ps. A host with neither, such as the no-/proc simulation, skips the cell. That same blindness is why
+    a supervisor there leaves the daemon running: see stop_stub_daemons in conftest.py.)"""
+    if not _argv_of(os.getpid()):
+        pytest.skip("this host cannot read a process's command line (no /proc, no ps)")
+    home = os.path.join(short_dir("s"), ".engram")
+    os.makedirs(home)
+    script = os.path.join(home, "stub-daemon.py")
+    open(script, "w").write(STUB_DAEMON)
+    open(os.path.join(home, "stub-config"), "w").write("mode=ignore-term delay=0.1\n")
+    subprocess.run(["/bin/sh", "-c", '"$0" "$1" "$2" </dev/null >/dev/null 2>&1 &', sys.executable, script, home], check=True)
+    pidfile = os.path.join(home, "recall-daemon.pid")
+    end = time.time() + 15
+    while time.time() < end and not (os.path.exists(pidfile) and open(pidfile).read().strip()):
+        time.sleep(0.05)
+    pid = int(open(pidfile).read())
+    assert pid > 1 and os.kill(pid, 0) is None, "the stub daemon did not start"
+    assert remove_short_dirs() == []
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)                                           # gone, not merely signalled
+    assert not os.path.exists(home)
+
+
+@needs_linux_proc
 def test_a_full_pipe_does_not_stall_the_supervisor_and_daemon_stop_still_arrives(tmp_path):
     rfd, wfd = os.pipe()
     try:
@@ -355,6 +382,7 @@ def test_a_full_pipe_does_not_stall_the_supervisor_and_daemon_stop_still_arrives
         os.close(rfd); os.close(wfd)
 
 
+@needs_linux_proc
 def test_a_pipe_nobody_drains_costs_the_supervisor_one_bounded_wait_and_never_a_hang(tmp_path):
     rfd, wfd = os.pipe()
     try:
@@ -372,6 +400,7 @@ def test_a_pipe_nobody_drains_costs_the_supervisor_one_bounded_wait_and_never_a_
         os.close(rfd); os.close(wfd)
 
 
+@needs_linux_proc
 def test_a_failed_write_is_counted_and_named_not_swallowed(tmp_path):
     rfd, wfd = os.pipe()
     os.close(rfd)                                                   # no reader: every write fails (EPIPE)
@@ -384,6 +413,7 @@ def test_a_failed_write_is_counted_and_named_not_swallowed(tmp_path):
         os.close(wfd)
 
 
+@needs_linux_proc
 def test_the_report_object_counts_each_failure_and_carries_the_count_on_the_next_line(tmp_path):
     rfd, wfd = os.pipe()
     try:
@@ -507,16 +537,18 @@ def test_r2_a_ready_event_needs_exactly_one_stop_event(tmp_path):
     assert ok([stop, ready, stop]) is not None           # a reordered pair is still two stops: recorded, and refused as a count
 
 
-R1_LINE = ('HOMEV="%s" /bin/sh -c \'sleep 1; exec /usr/bin/python3 "$HOMEV/stub-daemon.py" "$HOMEV"\' >> "%s/surface-daemon.log" 2>&1 < /dev/null &')
+# ENGRAM_HOME is pinned to the fixture home, like every other fixture here: the stub prefers the environment's ENGRAM_HOME to its argv.
+R1_LINE = ('HOMEV="%s" ENGRAM_HOME="%s" /bin/sh -c \'sleep 1; exec /usr/bin/python3 "$HOMEV/stub-daemon.py" "$HOMEV"\' >> "%s/surface-daemon.log" 2>&1 < /dev/null &')
 
 
+@needs_linux_proc
 def test_r1_a_daemon_still_in_its_fork_to_exec_window_reads_as_starting_not_as_exited(tmp_path):
     """The shell that will exec the daemon has no daemon directory in its argv until it execs: the old identity test read that as
     'exited-early' and the client was never started. The pid's start time pins identity instead."""
     rfd, wfd = os.pipe()
     try:
         args, home = sup_args(tmp_path, wfd, delay=0.2)
-        args["daemon_line"] = R1_LINE % (home, home)
+        args["daemon_line"] = R1_LINE % (home, home, home)
         drv = tmp_path / "driver.py"
         drv.write_text(DRIVER)
         p = subprocess.Popen(["/usr/bin/python3", "-I", str(drv), TSS.FWD, json.dumps(args)], pass_fds=[wfd], stdin=subprocess.DEVNULL,
@@ -530,6 +562,7 @@ def test_r1_a_daemon_still_in_its_fork_to_exec_window_reads_as_starting_not_as_e
         os.close(rfd); os.close(wfd)
 
 
+@needs_linux_proc
 def test_r1_identity_is_the_start_time_a_reused_pid_is_not_the_daemon(tmp_path):
     me = os.getpid()
     start = FW.proc_start(me)
@@ -539,6 +572,7 @@ def test_r1_identity_is_the_start_time_a_reused_pid_is_not_the_daemon(tmp_path):
     assert FW.daemon_up(me, a, start + 1) is False          # same pid, another start time: another process
 
 
+@needs_linux_proc
 def test_r4_a_term_during_the_readiness_wait_stops_the_daemon_and_writes_the_stop_line(tmp_path):
     import signal as _sig
     rfd, wfd = os.pipe()
@@ -740,6 +774,7 @@ def test_s2_a_clean_eof_closes_with_read_error_none(tmp_path):
 
 
 # ============================================================================================ S1: a lost ready line stops before the client
+@needs_linux_proc
 def test_s1_the_reader_gone_before_ready_means_no_client_the_named_exit_and_no_daemon(tmp_path):
     rfd, wfd = os.pipe()
     os.close(rfd)                                              # the reader is gone: the ready line cannot be written
@@ -763,6 +798,7 @@ def test_s1_the_exit_code_is_a_named_constant_beside_four_and_five_and_in_the_do
         assert re.search(r"\b%d\b[^.;]*%s" % (code, word), doc), (code, word)
 
 
+@needs_linux_proc
 def test_s1_with_no_report_channel_nothing_changes_the_client_runs_and_its_exit_is_the_supervisors(tmp_path):
     marker = str(tmp_path / "client-ran")
     args, home = sup_args(tmp_path, None, cmd=("/bin/sh", "-c", "touch %s; exit 7" % marker))
@@ -775,6 +811,7 @@ def test_s1_with_no_report_channel_nothing_changes_the_client_runs_and_its_exit_
 
 
 # ============================================================================================ S3: after_s is "%.3f" in the secs grammar
+@needs_linux_proc
 def test_s3_the_sigkill_fault_prints_its_limit_in_the_secs_grammar(tmp_path):
     rfd, wfd = os.pipe()
     try:
