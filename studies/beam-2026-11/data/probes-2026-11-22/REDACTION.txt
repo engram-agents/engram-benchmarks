@@ -1,0 +1,133 @@
+Scrubbed copies of the 2026-11-22 tool-capability probe records (design owner's ruling of 2026-11-22, on the model of
+data/gate2-redaction.txt). The originals stay private with the study lead. Each copy differs from its original only
+by the four classes below; a private script (it holds the table of internal message numbers, so it is not published)
+applies the classes to the original and reproduces each copy byte for byte. It was run by the study lead and by the
+design owner.
+
+CLASSES
+A  An internal team-message number becomes the UTC date and minute of that message's own timestamp, truncated
+   (2026-11-22T19:58Z). The sender and the item, where the original cited them, stay as written beside it. Where two
+   cited messages joined by a slash share a minute, both carry seconds (2026-11-22T20:23:57Z/2026-11-22T20:23:59Z).
+   29 distinct messages: 26 timestamps read by the study lead, 3 by the design owner (the security seat's messages
+   of 2026-11-22T19:29Z and two of 2026-11-22T20:02Z, not open to the study lead).
+B  A host path becomes its role: <probe base>, <probe base slug>, <pinned claude-2.1.328 binary>, <study lead's
+   private probe folder>, <the host's shared agent directory>.
+C  Account, uid and file-mode wording becomes role wording: 'readable by the study lead only' where it states an
+   access boundary; 'the study lead's account'; the temp path that carries the numeric uid becomes
+   <Claude Code's per-uid temp directory> (the repository's privacy gate matches that path's SHAPE, not only the
+   number, so a placeholder for the number alone was not enough; first found by that gate); a seat's own
+   working-session id becomes 'the study lead's interactive session'. Claude Code's own 'per-uid temp tree' layout
+   names nobody and stays. The study's own harness session ids stay.
+D  Which service runs on the host and on what port: the service's name becomes 'a host service', the port <port>.
+Seat names stay where they attribute a read or a ruling. Nothing else differs.
+
+NOT A SECURITY REPORT (design owner, 2026-11-22): every behaviour here was measured in a mode that grants the session
+all permissions, and the disallow option and the switches do what they say; so these records are published as study
+records, not filed as a vulnerability report. Publishing with no note to the tool's maker: decided by the project
+lead on 2026-11-22.
+
+== RESULT.md
+original sha256 (private): c184b88494b16e069cf0cb573a784dfdf27104f8678eb11a7125d96ebeed1bad
+copy sha256:               e73168fcbf3c7f4234c72387749f7d9842e4263ad9446d5a8cf2e91c34c28c5e
+lines: original 283, copy 283; lines with a change: 28
+changes by class: A 24, B 3, C 3, D 1
+note: this original is the version the design owner and the security seat read (sha256 dc70e0dcea6ba226...)
+plus two sections appended at its end, 'Correction, 2026-11-22' and 'Addition, 2026-11-22'; nothing above them
+changed.
+
+== PAST-RUNS-TABLE.md
+original sha256 (private): 239c2ecb379f04ab00cc1d74769a18337c4bda85d27699b5e972d35eb59c239b
+copy sha256:               f2010c196aa85aaf58dda43977284b02328552578045171cb14e7562d18018a3
+lines: original 69, copy 69; lines with a change: 14
+changes by class: A 10, B 0, C 6, D 0
+
+== EXPECTED.md
+original sha256 (private): 09bf722dc642d7d7f1b04187363134db219ab5dbb76e0bb48f518f2a8c5ca854
+copy sha256:               38dd6322012d8aba6508b316f74ca1ee1cfb6ff5227f8e61671a5eb83621a2f9
+lines: original 316, copy 316; lines with a change: 26
+changes by class: A 20, B 9, C 0, D 2
+note: this original is the version that ran cell S (sha256 0c525c59535b1e74...) plus one section appended at its
+end, 'Correction, 2026-11-22' (a finding withdrawn before cell U ran); nothing above it changed.
+
+== INTERACTIVE-MOVE-RECORD.md
+original sha256 (private): e91e69046fa05eefa3935808b3088cce6e6ee537b5853fd7baef65901793797b
+copy sha256:               00678b76de69a636c4b76b48e5bb59def591aee7883371db944a266c1a540617
+lines: original 42, copy 42; lines with a change: 1
+changes by class: A 1, B 0, C 1, D 0
+
+== probe.py
+original sha256 (private): 8678b009056b3a4a87ab1b94269393c1078af00cc5bd74baded73253e003062f
+copy sha256:               67ce3342845f5eb3b45e00724fb6888a49240af3cd2e667c2526df1e26941984
+lines: original 365, copy 365; lines with a change: 13
+changes by class: A 12, B 2, C 0, D 2
+note: the copy documents the probe and does not run as published (host paths and the port are placeholders).
+The original with the hash above is the version that ran cell S; each earlier run's script hash is below.
+
+EXPECTATIONS BEFORE EACH RUN (EXPECTED.md)
+Each run's start is the probe's own UTC stamp (written by the script at start; it names the run's evidence folder).
+'Committed' is the study lead's private repository commit holding that version, UTC. The last figure compares that
+version line by line with the final original (0c525c59, the version the published copy is made from): 0 means every
+line of it stands unchanged there; later work only added sections.
+- run 2026-11-22T19:38:25Z, cells A, B, C: script 882f9c6b (committed 2026-11-22T19:38:10Z), expectations 4ab62988 (committed 2026-11-22T19:38:10Z);
+  first sent 2026-11-22T19:38Z; security read: not re-read before the run: the security seat's pre-run read (2026-11-22T19:37Z) was of the previous pair (script 377e37c4, expectations e9a64d32); the only change between that pair and the one that ran is that seat's own five requested fixes; lines of 4ab62988 removed or changed in the final original: 0.
+- run 2026-11-22T19:51:39Z, cells B4, D: script e2f6837d (committed 2026-11-22T19:49:35Z), expectations f56cf650 (committed 2026-11-22T19:49:35Z);
+  first sent 2026-11-22T19:50Z; security read: cleared 2026-11-22T19:50Z; lines of f56cf650 removed or changed in the final original: 0.
+- run 2026-11-22T20:02:10Z, cells B4, D (leg-2 rerun): script 511d9447 (committed 2026-11-22T20:01:11Z), expectations 8aeffabe (committed 2026-11-22T20:01:11Z);
+  first sent 2026-11-22T20:01Z; security read: cleared 2026-11-22T20:01Z; lines of 8aeffabe removed or changed in the final original: 0.
+- run 2026-11-22T20:14:36Z, cells U: script a09ce21e (committed 2026-11-22T20:12:18Z), expectations d5c46957 (committed 2026-11-22T20:06:20Z);
+  first sent 2026-11-22T20:12Z (script), 2026-11-22T20:11Z (expectations); security read: cleared 2026-11-22T20:14Z; lines of d5c46957 removed or changed in the final original: 0.
+- run 2026-11-22T20:22:26Z, cells S: script 8678b009 (committed 2026-11-22T20:19:18Z), expectations 0c525c59 (committed 2026-11-22T20:14:48Z);
+  first sent 2026-11-22T20:19Z; security read: cleared 2026-11-22T20:21Z; lines of 0c525c59 removed or changed in the final original: 0.
+One version never ran: the first B4/D expectations (5d65ee9b), replaced before any B4/D run after the security
+seat's read; 23 of its lines differ in the final original.
+
+ONE INEXACT SENTENCE IN AN ORIGINAL: RESULT.md lines 3-4 say run 1's script and expectations were 'both committed
+before the run, and read before the run by Zephyr'. The commit half is true; the read half is not (the run 1 row
+above). Lines 3-4 are left as written; RESULT.md itself now ends with a dated section, 'Correction, 2026-11-22',
+saying so. (Found by the study lead on 2026-11-22 while drafting the plan text.)
+
+HELD PRIVATE, cited by hash only (39 files): the evidence folders (event streams, probe logs, argv
+records, leftover task outputs), the run logs, and the interactive-session record's raw form and environment file.
+a3072930c24c92c169725daa52db62000be153fb0bedff7bfb530c72dd777f5a         26 bytes  LAST-RUN.txt
+380bd567b4dc92850d53e3e816a21afb8c99df8a84d2f924144ff0e863fad574     40,052 bytes  evidence-20261122T193825Z/events-A.jsonl
+782b0247f712c923917a960999756b99317bba85e37a106345bd070c3c0b8c60     33,129 bytes  evidence-20261122T193825Z/events-B.jsonl
+03b592691d971d59c0bc07d54486f2d5f76de36eb81d24f8e5ea1dfda035f19a     39,522 bytes  evidence-20261122T193825Z/events-C.jsonl
+12dc9187a867fbdcca72b34edfa5deca63d3b46df66308f6b78952e58e5bab23         30 bytes  evidence-20261122T193825Z/leftover-task-outputs/-<probe base slug>-20261122T193825Z-home-A-work/b17d0aad-067b-49fa-bada-5452673ce784/tasks/biazcjv3q.output
+12dc9187a867fbdcca72b34edfa5deca63d3b46df66308f6b78952e58e5bab23         30 bytes  evidence-20261122T193825Z/leftover-task-outputs/-<probe base slug>-20261122T193825Z-home-B-work/4ffa2d4a-53b3-482f-ba4a-24de4c2ae5d4/tasks/b0voub6b1.output
+12dc9187a867fbdcca72b34edfa5deca63d3b46df66308f6b78952e58e5bab23         30 bytes  evidence-20261122T193825Z/leftover-task-outputs/-<probe base slug>-20261122T193825Z-home-C-work/ceb388b5-eec0-4754-91d5-f588e2232902/tasks/bxhtd8yk0.output
+4a9b586df27febec9fa1318175ba8fe35cceb5ae17bd32adcdd4f4dfbf28d9c3        485 bytes  evidence-20261122T193825Z/outer-argv.json
+0f5c881b2fc42d165d3d365f314b2467edef7343bff1319774de890b00196bb1  1,830,854 bytes  evidence-20261122T193825Z/probe-log.jsonl
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T193825Z/stderr-A.log
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T193825Z/stderr-B.log
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T193825Z/stderr-C.log
+174f4361db200b4fa04e4ebd8fb4b4c57feb0e27ecaa42fd207f743d39307f9c     40,156 bytes  evidence-20261122T195139Z/events-B4.jsonl
+e97689b21500c3c0efd8eb0051eea8ff191ff094c2603f89cb2db186206f26e4     33,251 bytes  evidence-20261122T195139Z/events-D.jsonl
+6a3b453d7c11b5fd4d6e3c04955cb509c083c33adec9ef695327a71b689869be        487 bytes  evidence-20261122T195139Z/outer-argv.json
+1893bc5b23a11df2838bb2ceb5c4a63b7b67801c5e9a9b16297365c60f4733ea    875,661 bytes  evidence-20261122T195139Z/probe-log.jsonl
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T195139Z/stderr-B4.log
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T195139Z/stderr-D.log
+a440e4b403e3ba824b338c93df9589b68ec5cc8f7811a5c472b67843783b2ab1     49,145 bytes  evidence-20261122T200210Z/events-B4.jsonl
+9b41fdc8ebdf48551c384fc38df1318d5a7861ebc39e4286a76c623eb19c75f0     33,311 bytes  evidence-20261122T200210Z/events-D.jsonl
+23cae2bd55724f2afd0910a87ff0ee40ff6110b774fb341149bf1a52176cd3d2        487 bytes  evidence-20261122T200210Z/outer-argv.json
+39c94b9bfc436dc166060538d179a6e194bd7705d0236e571e6d5ed6a8273db9    916,117 bytes  evidence-20261122T200210Z/probe-log.jsonl
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T200210Z/stderr-B4.log
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T200210Z/stderr-D.log
+4d69e2ae5fb88885fa07f91bedea67c2140b2e9739b8fbc0dc6a6a8f132194d9     56,364 bytes  evidence-20261122T201436Z/events-U.jsonl
+2489593cfc995e01d085eb029bf2fd0bc5ac31597f8d6260b3b1b80476251ad0        484 bytes  evidence-20261122T201436Z/outer-argv.json
+a8d38dcc9aa3eae1ed02949492f32e94343f4af4e31e24bd83b74047e7878299    903,088 bytes  evidence-20261122T201436Z/probe-log.jsonl
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T201436Z/stderr-U.log
+ff4b402f4eadf7568269750e617f1d71e334a3f9df65b8d8e3ea2a425fd04c47     39,692 bytes  evidence-20261122T202226Z/events-S.jsonl
+48f4c22d062dcd2dcd5c86ab3f40af8ab72b04d0e2cf70019f04f07b733e5419        484 bytes  evidence-20261122T202226Z/outer-argv.json
+85cdabe5ddfc71cbf9a97bc939f8550dc73db3fb74d1e944a139f308d00be8a5    665,746 bytes  evidence-20261122T202226Z/probe-log.jsonl
+0fbf7c55477bea88f94343704342b695a495c927f3d711d321f23a8278af8a36         83 bytes  evidence-20261122T202226Z/stderr-S.log
+40ef6c03b447f281d98bc04824e29e925984c8f8d28c8060bd70d1630545995f        856 bytes  interactive-move-env.txt
+ca44430706db654c597598b5bb744c49e2bdf68cfa56e3898406fa85e3413ec0      2,980 bytes  interactive-move-record.raw.json
+9c90455adfb9c060e5e837c076df5e723fdeb1e67e1d0c773327eb85b9b7f3fa      1,546 bytes  run-20261122T193825Z.out
+a597896d15abd6f7e7b706f849d7000e21fc7250eccfa570f3c888ff093b8dad        245 bytes  run-20261122T195139Z.log
+2f6ff51c4e72dd92c943833c6a74f36da5ceb07c2c4eef7ef35a2b1d9783ee62        245 bytes  run-20261122T200210Z.log
+d70c5150dfda5500c0d17a1056a8fb71314ef831c2639c5ff3c82a31317a060d        245 bytes  run-20261122T201436Z.log
+87a04cc9ff3ad4a0343e2f69b692a021cb4775c1459659174df5ef3abf58998d        245 bytes  run-20261122T202226Z.log
+Also in the evidence, not held as content (2 links): the harness's pointers to the asynchronous
+sub-agent's output, which aimed into the probe base; the base was removed at cleanup, so their targets were not kept.
+link  evidence-20261122T193825Z/leftover-task-outputs/-<probe base slug>-20261122T193825Z-home-A-work/b17d0aad-067b-49fa-bada-5452673ce784/tasks/a7934bbb0dff2789c.output
+link  evidence-20261122T193825Z/leftover-task-outputs/-<probe base slug>-20261122T193825Z-home-C-work/ceb388b5-eec0-4754-91d5-f588e2232902/tasks/ac1a42cc611d2e89c.output
