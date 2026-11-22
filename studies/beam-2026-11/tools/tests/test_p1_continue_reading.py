@@ -369,9 +369,11 @@ def real_dump(arrow_python, parquet, *extra):
 
 
 def real_world(w, arrow_python, synthetic_parquet):
-    """The launcher over the REAL feed4.py (no P1_FEED4) and the synthetic parquet."""
+    """The launcher over the REAL feed4.py (no P1_FEED4) and the synthetic parquet;
+    the stub-only daemon route (P1_TEST_DAEMON_EXPECTED) is unset with the stub."""
     prefix = P1S.file_sha256(synthetic_parquet)[:12]
-    return dict(BEAM_PY=arrow_python, BEAM_PARQUET=synthetic_parquet, P1_EXPECTED_PARQUET_PREFIX=prefix, P1_FEED4=None)
+    return dict(BEAM_PY=arrow_python, BEAM_PARQUET=synthetic_parquet, P1_EXPECTED_PARQUET_PREFIX=prefix, P1_FEED4=None,
+                P1_TEST_DAEMON_EXPECTED=None)
 
 
 def real_run(w, arrow_python, synthetic_parquet, ollama, over=None, extra=("--dry-run",)):
