@@ -1,9 +1,10 @@
 # BEAM study: pre-registration (DRAFT v0.2, NOT registered)
 
 Lead: Borges (lab owner, teacher). Design owner and co-signer: Kepler. Decisions by Lei (project lead).
-Registered when Kepler co-signs and every open item below is closed. Until then this file is a draft
-and changes freely; after registration every change goes in the Deviations log with date, reason and
-who ruled. The decision history behind each rule is in [PROVENANCE.md](PROVENANCE.md).
+Registered when Kepler co-signs and the OPEN list's first two groups below are closed (its later groups belong to
+later phases). Until then this file is a draft and changes freely; after registration every change goes in the
+Deviations log with date, reason and who ruled.
+The decision history behind each rule is in [PROVENANCE.md](PROVENANCE.md).
 
 **No scored run happens before registration, and none before the entry gate (section 5) is met.**
 
@@ -19,7 +20,6 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 - H1 (primary): arm 2's OFFICIAL overall score on the scored conversations of the 100K split is higher
   than arm 1's (scored by the question-seeing judge of section 10).
 - H0: no difference, or arm 1 higher. A null or a loss is a publishable result.
-- Arm 3 is reported descriptively; no hypothesis is stated for it.
 
 ## 3. Arms
 
@@ -27,13 +27,12 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
 |---|---|---|
 | 1 | Claude Code as shipped: built-in memory, note files, compaction | nothing |
 | 2 (primary) | arm 1 + a fresh ENGRAM install (named release, default tier) | the ENGRAM plugin and its instruction profile |
-| 3 (secondary) | arm 2 after behavioural training by the teacher | training |
 
 - After the tool-reachability work (PROVENANCE, 2026-11-14) there is ONE arm 2: the shipped release.
   An earlier "tools loaded up front" secondary arm was dropped. The pre-registration names the exact
-  release or commit both ENGRAM arms run.
-- Arm 3 rules: teach behaviour, never benchmark content; every teacher message is logged and published
-  with the result; training cases are drawn first by a published seed and are never scored.
+  release or commit the ENGRAM arm runs.
+- Two arms (the project lead, 2026-11-18). A trained third arm is a possible later study; it would enter by an
+  amendment registered before its runs.
 
 ## 4. Instruction files (identical where they must be)
 
@@ -47,8 +46,11 @@ First sub-question (Lei): does qwen3.8:27b use ENGRAM's tools at all, out of the
   It is method-neutral: each arm has a long-term memory, and the line names none of them. What the
   study then measures is each setup *when the user has said this material matters*.
 - **What the student may use** is the exam line's last two sentences, Lei's wording (A) (2026-11-14): the rule is
-  told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) this sentence also
-  excludes the student's own session transcript; that wording is OPEN until frozen.
+  told to the student, not only enforced by the sandbox. In the book-closed runs (section 13) the third sentence,
+  and only it, is replaced (the design owner, 2026-11-22): "You may use any tool and any file on this machine,
+  including the records your own tools keep, with one exception: do not open the saved transcript of this session
+  or any copy of it." It names no path. Before it is hashed, the study lead checks that 'the saved transcript of
+  this session' is what the students call it in the tuning transcripts; if not, it is reworded once.
 - **Each arm's own memory practice.** The earlier condition of comparable length is withdrawn
   (Amendment 2 in the tuning log): it cannot hold together with existing components only and no exam
   prose. Token counts are in the student model's tokenizer (Qwen3.8-27B):
@@ -126,7 +128,7 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   [the version of the scored runs is fixed at the freeze; every measurement in this section is on 2.1.328]
 - One persistent Claude Code print-mode process per exam (stream-json input), permission mode bypass,
   each run in its own sandbox home outside any git repository, never on a real user's memory graph.
-- Arms 2 and 3: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
+- Arm 2: ENGRAM's first session runs BEFORE the exam as its own session, driven by a fixed
   proctor fact sheet (identical every run, nothing from any BEAM conversation). Its cost is reported
   once as setup, outside exam timing. Arm 1 has no equivalent step.
 - Arm 2's recall service (the project lead's decision of 2026-11-21). The sandbox has no service manager, so the
@@ -152,8 +154,8 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   the proctor did not send). ON: file tools and the shell; in arm 2, ENGRAM's tools as the release ships them. The
   disallow option binds at dispatch: a named tool is refused even when called by name, while a tool merely absent from
   the list the model sees can still be called (cells A and B below), so that list is never read as the closed set. The
-  OFF set is verified per run from the session's first record (exactly the twelve names absent); a run whose tool list
-  differs is flagged.
+  OFF set is verified per run from the session's first record (exactly the twelve names absent); a launch whose tool
+  list differs is a harness defect, not a run (section 14).
   The shell's own routes to a turn nobody sent. The OFF set does not close them, because the shell stays on: on Claude
   Code 2.1.328 in print mode, a shell command the model asks to run in the background, and a foreground command moved to
   the background at the shell's 120-second default limit, each start a turn the proctor did not send when they finish
@@ -204,9 +206,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   without it passes; a malformed body and a body with no Bash are refused; an always-pass mutant of the check reddens
   the first of these; and the harness's own real request, taken from a dry-box launch, passes, so the stricter parser
   is shown not to refuse every legitimate launch. The study's rule for refusals:
-  (a) a refusal on a launch's first request refuses the launch (nothing of the exam has gone upstream, and the student
-      has had no turn); it is a launch stopped before any exam begins, handled by section 14's rule for that case
-      (OPEN list until it is stated);
+  (a) a refusal on a launch's first request refuses the launch (nothing of the exam has gone upstream, and in that
+      launch the student has had no turn); it is a launch stopped before any exam begins, handled by section 14's
+      rule for that case;
   (b) a later isolated refusal refuses that request only: the exam is kept, counted, and reported with the class and
       the launch-relative index;
   (c) a lapse is PERVASIVE when every request from some index k to the launch's last has the same class and the same
@@ -298,9 +300,10 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
    reading-material format. The student ends each turn with NEXT.
 2. After the last exchange the proctor sends `/compact` (the same command in both arms). ENGRAM's
    pre-compaction behaviour runs as shipped, untuned.
-3. Post-compaction check: no raw conversation text in the window; the student's own words are allowed.
-   Read off the compaction record's preserved messages. A run that fails is FLAGGED and excluded from
-   the primary analysis.
+3. Post-compaction record: how much raw conversation text survives the forced /compact in the window (the
+   student's own words are allowed), read off the compaction record's preserved messages. A measure reported
+   per exam in both arms, never a flag: the summary is the student model's own writing (the design owner,
+   2026-11-22). Its counting rule is on the OPEN list.
 4. The conversation's 20 probing questions, one per user message, in the dataset's order, in the same
    session. The answer is the text of the student's final reply to that message.
 5. Escalation: the student may run `ask-proctor`; the proctor answers harness and environment questions
@@ -312,7 +315,8 @@ BEAM 100K split (Hugging Face `Mohammadta/BEAM`, parquet sha256 prefix `c0519be2
 conversations, 97,252 to 190,209 Qwen tokens each, 20 probing questions each, CC BY-SA 4.0. Scored set:
 17 conversations, ids 1 to 8, 10 to 14 and 16 to 19. Never scored: conversation 15 (tuning, every practice
 run before the draw) and conversations 9 and 20 (drawn for entry-gate runs and lean-profile tuning). From the
-500K split (parquet sha256 prefix `af05921c9793`), conversation 21 (arm-3 training) and conversation 30
+500K split (parquet sha256 prefix `af05921c9793`), conversation 21 (drawn for arm-3 training;
+unused, since this registration has two arms) and conversation 30
 (length-stress tuning). Book-closed second runs (section 13): scored conversations 12, 16 and 5. All were
 drawn on 2026-11-15 from drand round 6642370, announced in a published commit before the round existed;
 see [data/draw-rule.md](data/draw-rule.md) and [data/draw2-result.json](data/draw2-result.json). An earlier
@@ -493,7 +497,8 @@ Two judges, named by the one thing that differs between them (the project lead's
   and the same summary paragraph as the OFFICIAL one, and that summary states how many official answers we dispute;
   for Event Ordering, per level and per arm, how many lines each cause changed, and how many judge verdicts were
   reused and how many newly asked; and it links to the per-item change log.
-- Contrast: arm 2 minus arm 1, paired by conversation (scored set minus flagged runs).
+- Contrast: arm 2 minus arm 1, paired by conversation (the scored set minus the conversations section 14's pairing
+  rule drops).
 - Estimate: mean paired difference with a 95% bootstrap CI over conversations (10,000 resamples, seed
   fixed and published). H1 is supported if the CI's lower bound is above 0.
 - Reported beside it, never instead: the ADJUSTED contrast (with Event Ordering at level A and at level B, section 10,
@@ -515,20 +520,38 @@ Two judges, named by the one thing that differs between them (the project lead's
   Event Ordering.
 - Efficiency is reported beside the score and never combined with it: no efficiency-adjusted score, and
   no ratio invented after the numbers are seen.
+- The contrast set is the conversations in which either arm's exam had an event that this plan keeps and reports
+  instead of flagging; the primary contrast is reported a second time without them, dropped for both arms, once,
+  over the whole set, not once per member; the report lists, for each conversation of the set, which member event
+  or events put it there, and the count per member and per arm. Its
+  members: a failed automatic compaction during reading (section 14, rule B); a recall daemon already gone at stop
+  (section 14); ENGRAM's first session not complete at the end of setup (section 14); recall daemon files changed by
+  the arm during setup (section 14); a run marked for a pervasive forwarder lapse (section 7). That second figure is
+  descriptive and never a score (the design owner, 2026-11-22): it is reported beside the primary contrast, never
+  instead, labelled descriptive, never in the abstract or a headline, and never as the study's result. H1 and the
+  primary are decided on the primary contrast only, and the primary moves on nothing but section 14's flags.
+- No interim scores: nothing is judged until every scored run is complete, so no score can inform a re-run.
 
 ## 12. Logged per run
 
 Versions; setup cost (arm 2); per exchange: wall seconds, input/output tokens, tool calls (name, ok or error), whether
 ENGRAM's write check fired and what the student did next; ENGRAM nodes written; files the student wrote; compactions
 (count, trigger, tokens before and after); the forced compaction's preserved messages; which ENGRAM hooks fired at it;
-the post-compaction check; every escalation; the four network counts of section 7 (rule refusals, framing refusals,
+the post-compaction record (section 8);
+every escalation; the four network counts of section 7 (rule refusals, framing refusals,
 cap refusals, network-capable shell calls) with the per-reason breakdown beside them; the UPSTREAM ERRORS count with
 its per-reason breakdown (section 7) and the wrapper's verdict on the endpoint (section 14); the wrapper's launch
 line, from the wrapper log; arm 2's recall daemon lines (the arm's statement and the launch's derived value, time to
 ready, the stop's outcome, and the after-session record of the daemon's process id and that no process holds its
 socket) and, per prompt, whether recall fell back to keyword search; the forwarder's lines (each pass and refusal,
 with class, launch-relative index and Bash property names) and the run's count of turns nobody sent, with those after
-a lapse's onset counted separately (section 7).
+a lapse's onset counted separately (section 7). For arm 2 also: the harness's own record, written outside the box,
+of the first-session marker's state at the end of setup; the three
+paths the daemon setting is derived from (present or absent, and a content hash of each present one), before and
+after the setup session (section 14); and for every exam the daemon stop's outcome, the box's oom_kill count at
+session start and end, and the session's exit status, with, for a daemon already gone at stop, the interval (last
+exchange answered with semantic recall, first exchange answered by the keyword fallback], read from ENGRAM's own
+event log and called an interval.
 
 Efficiency, per question and per conversation, the same instruments in both arms, from the harness log
 and the transcript: wall seconds; input tokens labelled "whole prompt per call" (Ollama's Anthropic-compatible endpoint
@@ -571,10 +594,11 @@ Consequence, a stated bound: run-to-run noise within a cell is not measured.
 An event is a harness fault only if the student cannot cause it; anything the student can cause is counted and
 reported, never flagged, re-run or excluded. (Amended 2026-11-20, design owner, after the security seat showed a
 student could make the bridge write an endpoint-failure line by sending a large body the endpoint rejects early.) A
-run is excluded from the primary only for a FLAGGED harness fault: the post-compaction check fails; the student
-process dies; a timeout (any one turn the proctor sends, in either arm, running past 3,600 s: reading, the forced
-/compact, answering, and arm 2's setup turns alike); the ENGRAM first session does not complete (arm 2); the session's
-tool list differs from section 7's; a scored run with no wrapper launch line in the wrapper log (SANDBOX_LOG, section
+run is excluded from the primary only for a FLAGGED harness fault: the student process dies; a timeout (any one
+turn the proctor sends, in either arm, running past 3,600 s: reading, the forced /compact, answering, and arm 2's
+setup turns alike; the scored launcher passes this value explicitly and records it, since the pilot sessions ran
+at the reader's own default of 1,800 s);
+a scored run with no wrapper launch line in the wrapper log (SANDBOX_LOG, section
 7); the model endpoint was never reachable in the run, as decided by the wrapper's `log-verdict` (the one place this
 rule lives): flagged only when the run's wrapper log holds a connect-failed line and no first-request marker, the line
 the bridge writes once per launch after its first send that moves bytes upstream (a missing wrapper log is already the
@@ -602,18 +626,65 @@ it cannot succeed (section 7), and the four network counts are reported per arm.
 7); only the endpoint verdict above flags a run. Each flagged run may be re-run once, with the reason logged before
 the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A refusal by the
 model-endpoint forwarder is never a flag; section 7 states its rule: a refusal on a launch's first request stops the
-launch before any exam begins (OPEN list), a later isolated refusal refuses that request only, and a pervasive lapse
+launch before any exam begins (below), a later isolated refusal refuses that request only, and a pervasive lapse
 MARKS the run, which stays in the primary analysis, counted against the arm, and halts further launches. A
-book-closed run in
-which the student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
-report and reported as it stands, never re-run (section 13).
+book-closed run in which the student opens its own transcript is NOT a harness fault: it is the student's
+behaviour, flagged in the report and reported as it stands, never re-run (section 13).
+
+Rulings of 2026-11-22 (the design owner; the rules on a lost recall daemon and on daemon files changed by the arm
+follow the security seat's reads):
+
+- Two flags in the list above, the student process dying and a timeout, are events the student can cause from
+  inside the box. How they are treated is on the OPEN list; until it is ruled, they stay flags as written.
+- Not flags, because the student can cause them. The post-compaction record (section 8). ENGRAM's first session not
+  completing (arm 2): the exam runs with ENGRAM as the student left it; the state at the end of setup is recorded
+  (section 12), reported per exam, and those exams are in the contrast set. A student's non-use of ENGRAM in a
+  scored run is never an exclusion; it is part of the result.
+- The tool list. The OFF set is enforced in the harness's own arguments, written by the launcher outside the
+  student's reach, and verified from the session's first record before the first turn (section 7). A mismatch
+  there is a harness defect the student cannot cause: not a run.
+- In the scored launcher, every flag is triggered by a record the harness writes, never by an exit status alone;
+  the exit status is recorded as corroboration. This is a requirement, not a description of the code today (the
+  student process dying is read today from the end of its output); the missing lines are on the OPEN list.
+- A lost recall daemon never triggers a re-run by itself. An exam whose daemon was already gone at stop is kept,
+  whatever the cause, reported with the keyword-fallback count, and is in the contrast set. Stated cost: a genuine
+  cap kill of the daemon while the student survives is not re-run; that exam runs partly on the keyword fallback.
+  The alternative would give the arm one discard per cell whenever it wanted one.
+- A launch stopped before any exam material reached the student is not a run. When its cause is outside what the
+  student can change, it is retried without spending the re-run, each stop logged with its cause; after three such
+  stops for one cell the study lead stops and reports to the design owner, since a cell that cannot start is a
+  setup defect. For arm 2 the retry reuses the prepared home only if it is byte-identical to its snapshot after the
+  first session; otherwise the home is rebuilt and the first session redone. A daemon-setting mismatch is never
+  retried into three: the next rule classes it at its first refusal, and only its 'wrong before the setup session'
+  outcome counts toward the three stops.
+- Daemon files changed by the arm (arm 2). Setup records the three paths the daemon setting is derived from, read-
+  only, never clearing or repairing, before and after the setup session (section 12). If the exam launch refuses
+  with a daemon-setting mismatch, those records decide. Wrong before the setup session: the harness built the home
+  wrong; not a run; fix, rebuild, redo setup; it counts toward the three stops above. Right before and changed
+  during the setup session: the arm did it (the student, or ENGRAM's own tools under it; the box has no other
+  writer). That is behaviour: no retry, no re-run, no exclusion. The exam itself is then launched once more (the
+  exam, not the permitted re-run) with the arm's
+  statement set to 'none' by the harness, with a record naming the cause ('recall daemon files changed during
+  setup'), the before and after records, and that the statement was changed by rule; it runs as the arm left
+  itself, and its score counts in the primary. If no student turn can then be sent, it is scored as an exam with
+  no answers, counted, and reported by name. Such exams are reported by name and are in the contrast set.
+- Which run counts. For each conversation and arm, the primary uses the first run that completes without a flag.
+  A run that completed without a flag is never run again. A re-run exists only after a flag, once, with the reason
+  logged before it starts. Flags are mechanical and are decided before any answer of that run is read. Book-closed
+  runs never enter the primary.
+- Pairing. After the one permitted re-run, if either arm's run of a conversation is still excluded, that
+  conversation leaves the paired primary for both arms. The surviving arm's score appears in the per-conversation
+  table, marked, and in no contrast. The report states, per dropped conversation, which arm was flagged and why.
+  Stated bound: arm 2 runs a setup session before its exam, and those turns count toward the timeout flag, so
+  dropping is not symmetric by construction. Arm 2's other extra machinery (the first session's completion, the
+  recall daemon) puts exams in the contrast set instead (section 11). The counts per arm, of dropped conversations
+  and of contrast-set members, make both visible.
 
 A failed automatic compaction during reading (the summary the harness makes when the window fills does not complete;
-distinct from the post-compaction check above, which is the leak check on the forced /compact after the last
-exchange, section 8) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this
+distinct from the post-compaction record of section 8, the measure taken on the forced /compact after the last
+exchange) is not a harness fault: the exam continues and counts (rule B; the project lead delegated this
 rule, and the design owner and the study lead chose it on 2026-11-21). Every such event is named in the run's log
-and in the report, with its exchange. The primary contrast is also reported a second time without the conversations
-in which either arm's exam had one (dropped for both arms, so the pairing holds), next to the primary result.
+and in the report, with its exchange. Those conversations are members of the contrast set (section 11).
 Measured before registration: 1 failure in 129 automatic compactions across every reading run on this setup (Claude
 Code 2.1.325 to 2.1.328; exact 95% interval 0.02% to 4.2% per compaction). A long exam makes dozens of compactions,
 so at the measured rate some scored exams would have one; at the interval's low end, none would.
@@ -632,7 +703,14 @@ the transcript. It cannot
 separate ENGRAM's storage from the model's choice or ability to reach it; it runs Claude Code in print
 mode, where ENGRAM's PostCompact hook left no visible trace in practice, unlike interactive use; it does
 not measure memory across days or sessions; and with one sample per cell and 17 scored conversations it
-detects only moderate effects.
+detects only moderate effects. ENGRAM's recall daemon is started by the harness with the release's own launch
+command, so the release's service-manager path is not exercised by this study (the security seat: no objection,
+2026-11-22). Carried with it: with the daemon started inside the box under the student's own user id, its liveness
+is an observation and not a seal. The dry-box probe of 2026-11-22 measured that a student which ends its own daemon
+leaves the supervisor logging only 'already-gone' and the launch module returning not-flagged, so no record may
+read 'the recall daemon was up throughout' as evidence of anything. After a compaction the harness
+re-reads recently edited files, so arm 1's notes come back unasked (and arm 2's, if it keeps any). The brief
+coaches both arms to watch for changes of mind and contradictions, which BEAM scores directly.
 
 ## 16. Budget (estimates from practice, never measured at scale)
 
@@ -640,50 +718,71 @@ About 143 exchanges per conversation. Arm 1 at about 5 to 25 s per exchange: rou
 conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conversation, plus about
 7 to 16 min of first-session setup. The book-closed second runs (3 of 17 conversations, both arms) add about 18%.
 
-## OPEN before registration
+## OPEN items, by phase
 
-- The entry gate met (section 5).
-- The exam line (with its book-closed variant) and both instruction texts frozen with their sha256
+### Before the freeze (the registered hashes wait on these)
+
+- The exam line (with its book-closed variant, section 4) and both instruction texts frozen with their sha256
   (texts and counts in section 4; the lean profile ships once engram#4802 merges).
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - The student wrapper (section 7) merged with its colleague read, its launch line carrying the wrapper file's own
   sha256 (section 14); until then the shell's network is not closed.
-- Isolation: whether arm 2 needs its own OS user for ENGRAM's recall service to run as for a real user.
-- Judge named after the cost pilot; licence handling for published transcripts.
+- Judge named after the cost pilot.
 - How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
-- Arm 3 design (training cases by seed; exam content kept out of the agent's own graph).
 - Judge blinding made mechanical: answers can carry arm tells (ENGRAM node ids, tool names, a notes-file
   path), so they are stripped or normalised before judging, and the rule is stated here.
-- No interim scores: nothing is judged until every scored run is complete.
-- Pairing when one arm's run of a conversation is flagged: whether the conversation leaves the paired
-  analysis for both arms, stated before any run.
-- Which run of a repeated cell counts (the variance repeats in section 13 and any permitted re-run).
-- A student's non-use of ENGRAM in a scored run is never an exclusion; it is part of the result.
-- Two more bounds for section 15: after a compaction the harness re-reads recently edited files, so
-  arm 1's notes come back unasked (and arm 2's, if it keeps any); and the brief coaches both arms to
-  watch for changes of mind and contradictions, which BEAM scores directly.
 - How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
   judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
   that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
   judging bias on 100K conversation 1).
-- What a scored exam does when the student itself turns its next launch into a daemon stop (the arm's home is
-  writable by the student, so it can remove what the launch derives the daemon setting from). Setup verifies, read-only
-  and never clearing, the three paths the setting is derived from before each launch. Starting text (the security
-  seat's): a daemon already gone at stop is a fault exactly when the session was to have the daemon throughout.
+- The post-compaction record's counting rule (section 8): proposed by the study lead, read by the design owner.
+- The record of ENGRAM's first session at the end of setup (section 12): what the harness writes outside the box,
+  and the setup's round count and its value.
+- How section 14 treats the student process dying and a turn running past the timeout. Both can be caused from inside
+  the box. Not ruled (2026-11-22); the design owner first wants four facts: whether a session can be continued after
+  its process ends and what the continued session's first request carries; whether a running turn can be interrupted
+  from outside in the reader's mode; whether the run's own timestamps separate a slow endpoint from a long tool call;
+  and how often each event happened in every run so far. Until ruled, both stay flags as section 14 states them.
+- The scored launcher merged with its reads: the forwarder's per-request check and its cells, the dry-box cell of
+  section 7, the recall daemon's after-session record (section 12), and a line the harness writes for each flag of
+  section 14 (today 'the student process dies' is read from the end of the student's output, not from such a line).
+- The ENGRAM commit the ENGRAM arm runs, named here by its pre-release tag (section 3).
+- A stopped launch whose cause the arm could have written during setup, other than the daemon-setting mismatch
+  section 14 already classes (the case that can be named: a first-request forwarder refusal in arm 2). Not ruled. The
+  question is whether a file in the student's home (a settings file's environment block, user or project level) can
+  change the three switches of section 7 or bring the shell's background option back against the environment the
+  harness sets. One dry-box cell answers it, its expectations and command read by the security seat first. If it can,
+  the forwarder still refuses, so the barrier holds; what changes is the class of that refusal (the arm's behaviour,
+  not a harness fault) and section 7's words 'a harness fault counted against the arm'. The design owner rules after
+  the cell, with the security seat.
+
+### After the freeze, before registration
+
+- The entry gate met (section 5) on exactly the frozen setup.
+
+### Before judging (after every scored run, before any answer is judged)
+
 - The review load of ADJUSTED Event Ordering (a third item kind in the score-review tool, built after the project
   lead's word on that tool; a prerequisite of the review phase, not of the scored runs, since the match tables are
   stored at scoring; level B's new judge calls need the judge callable at review time): measured in the pilot on Event
   Ordering items, run A's two answers first.
-- How section 14 treats a launch stopped before any exam begins (no student turn sent: whether it is retried, and
-  whether that spends the run's one re-run) and a recall daemon lost during an exam (any prompt whose recall falls
-  back to keyword search), stated before any scored run.
-- The forwarder cannot tell a forged request from the harness's own: the student has a shell and can send requests to
-  it. A per-launch credential would close this (the world-credential work); the freeze does not wait on it (the
-  security seat did not object, 2026-11-22), and it comes later as a dated amendment.
 - Event Ordering in the score-review engine: that engine takes one rubric score per rubric line, from 0 to 1, for every
   question, while Event Ordering is scored pair by pair (decision log 2026-11-21) and its ADJUSTED score is the upstream
   procedure on an adjusted item list (decision log 2026-11-22). What an Event Ordering item's rubric lines and level
   are in that engine, answered before the review phase, with the ADJUSTED load item above.
+
+### Before any transcript is published
+
+- Licence handling for published transcripts. The dataset's licence was read on 2026-11-19 (CC BY-SA 4.0:
+  redistribution allowed with attribution and share-alike) and an attribution file was added to the study folder
+  (the study record's tuning log, entry 'Public-repository custody', 2026-11-19); this closes when that record
+  reaches main.
+
+### Stated limits the freeze does not wait on
+
+- The forwarder cannot tell a forged request from the harness's own: the student has a shell and can send requests to
+  it. A per-launch credential would close this (the world-credential work); the freeze does not wait on it (the
+  security seat did not object, 2026-11-22), and it comes later as a dated amendment.
 
 ## Deviations log
 
