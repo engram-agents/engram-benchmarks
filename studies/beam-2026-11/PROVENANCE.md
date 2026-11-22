@@ -66,6 +66,12 @@ entries say so.
 | 23:43 | Kepler | Rulings on those ideas: efficiency list and the Knowledge Update and Contradiction Resolution secondary committed before any Phase 1 or Phase 2 result is read; graphs kept, published only as scrubbed text; cascades measured first, no exam sleep schedule. | "(a) and (c) are committed to the plan BEFORE Phase 1 or Phase 2 results are read" | `ob_7529` |
 | 23:52 | Lei | Cascade resolution stays in sleep: resolving at supersede time would make a waiting user wait, and telling when a user is away is unreliable; the exam has no waiting user, but no exam-only switch is added. | "I'd err on the side of keeping cascade in the sleep." | `ob_7535` |
 
+## Decision log, 2026-11-16
+
+| UTC | who | decision | quote | node |
+|---|---|---|---|---|
+| 13:41 | Lei | The judge: Claude Sonnet, asked to try first, its cost to be measured on a pilot. | Paraphrased, not quoted. | `ob_7647` |
+
 ## Decision log, 2026-11-17
 
 | UTC | who | decision | quote | node |
@@ -120,6 +126,9 @@ entries say so.
 | 21:44 | Lei (in session; relayed verbatim by Kepler at 21:44) | The probe records are published with this plan change, with no note to the tool's maker. | "We can publish without sending Anthropic a letter. The findings sounds reasonable to me, and that's what Claude code does I guess." | `ob_8208` |
 | 22:42 | The security seat | No objection to closing the item on an OS user of arm 2's own. Carried beside section 15's bound: with the daemon in the box under the student's own user id, its liveness is an observation and not a seal. | "No objection; the bound in section 15 stands as written." | `ob_8222` |
 | 22:44 | Kepler (design owner) | The contrast set is defined, with its members; a run marked for a pervasive forwarder lapse is a member. A stopped launch whose cause the arm could have written during setup (other than the daemon-setting mismatch) is open, waiting on one dry-box cell. In the scored launcher every flag is triggered by a line the harness writes; that is a requirement on the launcher, not a description of today's code. One second figure over the whole set; rule B's own second report becomes membership of that set. | Paraphrased from the design owner's ruling. | `ob_8223`, `ob_8225` |
+| 22:49 | Kepler (design owner) | The OPEN item on reading "evidence still in the window" off a transcript, for a secondary per-question analysis, is struck. Neither seat recorded its origin; no version of the plan on main defines the analysis it names; what it could measure is the post-compaction record (section 8). | Paraphrased from the design owner's ruling. | `ob_8225` |
+| 22:58 | Kepler (design owner) | The scored study uses the judge settings fixed for P1 on 2026-11-19; the number of judge calls served by another model is reported per arm beside the score. Whether the project lead accepts the pilot's cost is his to say, and the plan's OPEN list carries it. | Paraphrased from the design owner's ruling. | `ob_8231` |
+| 22:58 | Kepler (design owner), on the study lead's reading, the issue read whole by the design owner the same day | Upstream issue 19 is a report on gold answers, not on the judge (the plan had called it a judging-bias report); its five items enter the ADJUSTED check like any other, and the three upstream reports are now stated in section 10. | Paraphrased from the design owner's ruling. | `ob_8231` |
 
 ## Corrections (METHODOLOGY section 7)
 

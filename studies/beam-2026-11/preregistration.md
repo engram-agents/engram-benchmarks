@@ -333,8 +333,14 @@ Two judges, named by the one thing that differs between them (the project lead's
   the benchmark's released evaluation code does. In this study it is run only in the known-answer
   check, never on scored benchmark items.
 
-- Judge: one modern model, the same for every arm, with the paper's rubrics unchanged, named here before
-  the first scored run after a cost pilot. The judge is never told the arm.
+- Judge: Claude Sonnet, which the project lead asked to try first on 2026-11-16, its cost to be measured on a pilot;
+  the pilot ran the same day. Every judge call pins the model id `claude-sonnet-5-5`, through the first-party API, at
+  effort low, one call per rubric item, with no temperature setting: the settings the design owner fixed for P1's
+  grading on 2026-11-19 (tuning log, entry "Judge settings, fixed now", which reaches main with the study record).
+  The same for every arm, with the paper's rubrics unchanged. Every call records the model that served it; a call
+  served by another model is reported, not dropped, and the number of such calls is reported per arm beside the
+  score (the judge is never told the arm, so they should fall evenly; the count lets a reader see that they did). A
+  refusal or an unparseable reply is recorded with an empty score and reported. The judge is never told the arm.
 - Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper (published at ICLR 2026,
   per the paper's own header) and its released code
   clearly contradict each other (the paper states something at a location we can cite, and the code does
@@ -408,6 +414,14 @@ Two judges, named by the one thing that differs between them (the project lead's
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue rather
   than reported again; only a finding not already reported is raised as a new issue. Every finding, whether credited,
   corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
+- Upstream issue 19 (opened 2026-10-12, unanswered as of 2026-11-22) concerns gold answers, not the judge. According
+  to the report, five gold answers of 100K conversation 1, a scored conversation here, conflict with the conversation
+  text: two abstention questions (1 and 2) whose gold says the information is absent while the conversation contains
+  it, and three questions (7, 19 and 20) where the conversation holds two valid values and the rubric accepts one. The
+  report comes from a team evaluating its own memory system on that conversation, and gives that system's score
+  before and after its corrections. The OFFICIAL score keeps these golds as shipped. For ADJUSTED, each is "confirmed
+  wrong" only after the first-hand check this section requires, and if confirmed it is credited to the issue's
+  reporter in the per-item change log.
 - Two steps of the review phase are hand steps until the tool enforces them, each with a named witness recorded in the
   review log: (1) phase 2 receives its items in a random order with no set label shown; the study lead shuffles and
   hands out the packets, and the design owner checks that no set label travelled with them; (2) "report --unblind" is
@@ -727,14 +741,10 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - The student wrapper (section 7) merged with its colleague read, its launch line carrying the wrapper file's own
   sha256 (section 14); until then the shell's network is not closed.
-- Judge named after the cost pilot.
-- How "evidence still in the window" is read off a transcript, for the secondary per-question analysis.
+- The project lead's word on the judge's cost (the pilot's figure went to him on 2026-11-16 and was not answered;
+  asked again 2026-11-22). Until then section 10 says only what happened.
 - Judge blinding made mechanical: answers can carry arm tells (ENGRAM node ids, tool names, a notes-file
   path), so they are stripped or normalised before judging, and the rule is stated here.
-- How three upstream scoring reports bear on our judge, stated before the first scored run: issue 15 (the
-  judge prompt never receives the question; the treatment is set in section 10), issue 8 (an int() conversion
-  that drops 0.5 partial credit; our judge parses scores as floats) and issue 19 (a report of systematic
-  judging bias on 100K conversation 1).
 - The post-compaction record's counting rule (section 8): proposed by the study lead, read by the design owner.
 - The record of ENGRAM's first session at the end of setup (section 12): what the harness writes outside the box,
   and the setup's round count and its value.
