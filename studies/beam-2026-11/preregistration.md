@@ -215,7 +215,7 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   turn); a nonzero count means a request reached the model without passing the check, and it halts launches like a
   pervasive lapse. Cost, stated: a genuine lapse silences the model for the rest of that exam, and the arm carries the
   unanswered questions in the primary analysis. It is a harness fault counted against the arm, uniformly, because the
-  alternative is a re-run a student could reach; the flag and the count of turns nobody sent let a reader see the
+  alternative is a re-run a student could reach; the mark and the count of turns nobody sent let a reader see the
   penalty came from the harness. Limit (OPEN list): the forwarder cannot tell a forged request from the harness's own.
   Before the freeze, the scored launcher's own dry-box cell, in the launcher's real arguments and environment (the
   twelve-name OFF set, the three switches, the auto-background variables unset), no model: both routes (the model's
@@ -232,7 +232,8 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   and the dated correction at the end of RESULT.md). Every cell:
   Claude Code 2.1.328 only (the runs before this rule also used 2.1.325 and 2.1.327, which were not measured), print
   mode, one host, a private network namespace, a scripted model (so whether the student would form these calls is not
-  measured), a stand-in MCP tool in place of ENGRAM's.
+  measured), a stand-in MCP tool in place of ENGRAM's. In the table's last column, the eight characters after the
+  line range are the first eight hex digits of the sha256 of those lines of the published RESULT.md.
 
   | cell | configuration | the model asks for a background shell | a 150 s foreground command | sub-agent | RESULT.md section |
   |---|---|---|---|---|---|
