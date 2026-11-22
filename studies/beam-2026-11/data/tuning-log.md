@@ -1284,14 +1284,14 @@ round at k = 3 (exchanges 3, 6, ..., 45: 15) and at k = 5 (exchanges 5, 10, ...,
 
 **The hand-over, the only material the writer and the checker received.** The writer is Clio and the checker is Luria;
 each answered no, with the checks they ran, to having seen any student note, store, built-in memory file or transcript
-(Office crossings 31012 and 31013). On 2026-11-16 the study lead gave both the SAME Office thing, "Key-fact handover:
+(2026-11-16). On 2026-11-16 the study lead gave both the SAME Office thing, "Key-fact handover:
 BEAM conv 9 ex 1-45" (thing id b0361270-8989-4f37-b81f-48d196bdf1e7), one file, beam-conv9-ex1-45-and-question-styles.md,
-227,820 bytes, sha256 2790174b188a13495a6365d61e27de60194b5fa848b8463312e5ded19ac6d013 (Office crossings 31022 to Clio
-and 31023 to Luria). It holds conversation 9's exchanges 1 to 45 from the registered dataset, numbered as the study
+227,820 bytes, sha256 2790174b188a13495a6365d61e27de60194b5fa848b8463312e5ded19ac6d013 (2026-11-16, to Clio
+and to Luria). It holds conversation 9's exchanges 1 to 45 from the registered dataset, numbered as the study
 numbers them, each with its session and time anchor; all 45 were checked against the text in the K = 5 run's own plan
 (45 of 45 present; exchange 46, the control, absent). It also holds one official example per question category, taken
 from conversation 20 so that none of conversation 9's own questions is shown. The checker's receipt
-(Office crossing 31024): the downloaded file's sha256 equals the above; the writer's receipt is pending at this commit and is added in a dated note when it arrives.
+(2026-11-16): the downloaded file's sha256 equals the above; the writer's receipt is pending at this commit and is added in a dated note when it arrives.
 
 **b. Questions.** One question per fact in the official BEAM question styles, gold answer = the fact, plus six abstention
 items (questions whose answer is not in exchanges 1 to 45), written by the same seat. The list, the questions and the
@@ -1410,8 +1410,9 @@ written; where it differs from this note, this note governs. Nothing has been an
    Run 3: studentized, seed 20261122, 4,000 trials, not adopted. Runs 1 and 2 were produced by the script at sha256
    cfc2138032a04fa2 and Run 3 by 73c8fccafd463429 (the committed version; it adds the studentized option and leaves the
    percentile path unchanged).
-6. **Hand-over receipts.** The writer's receipt of the hand-over file (sha256 2790174b...) is in Office crossing 31037; the
-   checker's in 31024. The writer's first third, under the per-clause rule, has sha256
+6. **Hand-over receipts.** The writer's receipt of the hand-over file (sha256 2790174b...) is in the message of 2026-11-16;
+   the
+   checker's in the message of 2026-11-16. The writer's first third, under the per-clause rule, has sha256
    ef6d6193c127d509f1697f55cf6202eabffd0484b7937a22b2cf693daaa20818 (Office thing 1f2fa33d-0e26-4e40-a9c2-328becea6372);
    her two earlier first-third hashes are void. The second third has sha256
    52a6776c065faf43e01702bf7304ecb7a8bbd6d025b779d020b1de1e28db5ac3.
@@ -1449,10 +1450,10 @@ biases nothing. Therefore:
 ## P1 answering speed pilot, k = 3 against k = 1: pre-log (logged 2026-11-18, after the freeze, before any answer exists)
 
 **Parent state.** The key-fact freeze, commit 2c5d903ae4ee78c103bbc12bbd835db54db34fea, confirmed by the design owner
-from his own fresh clone (Office crossing 31785). This entry is committed after it; no P1 answer exists at this commit.
+from his own fresh clone (2026-11-18). This entry is committed after it; no P1 answer exists at this commit.
 
 **What it is.** The P1 answering test of section (c) above, run as the day's speed pilot on the design owner's ruling
-(Office crossing 31769): a tuning-side pilot, not a scored run. It answers the **K = 3** end state (setup 7b73fe7b) and
+(2026-11-18): a tuning-side pilot, not a scored run. It answers the **K = 3** end state (setup 7b73fe7b) and
 the **k = 1** end state (setup d18b5d26). The K = 5 end state (setup 8262a444) is not answered in this pilot.
 
 **Pinned harness.** PR 8's head, commit `b057eb04de96e5414bcab0930daba65f82467984` (branch study/p1-answering-harness,
@@ -1507,15 +1508,15 @@ on real questions.
 - **P1 key-fact list FROZEN, 2026-11-18T13:17Z, by this commit, before any P1 answer exists.** The file is
   `data/p1-keyfacts-final.md`, the writer's final list committed byte for byte unchanged, sha256
   `1895b15195591116e58faf2e987712d07a2fd5548f25c79c8d2a027ab6f969ad`. It holds 76 facts and 9 abstention items
-  (85 rows). **F32 is excluded** by the design owner's ruling of 2026-11-17 (Office crossing 31179: ex14 gives a
+  (85 rows). **F32 is excluded** by the design owner's ruling of 2026-11-17 (ex14 gives a
   second defensible answer, and ex15 sits at the last position at k = 3 and k = 5); its row stays in the file and
   is not asked or scored. So the counting set is **75 questions in 38 exchanges** (1 exchange with 4, 11 with 3,
   12 with 2, 14 with 1), and the last-position guard rests on 26 questions in 14 exchanges at k = 3 and 12
   questions in 6 exchanges at k = 5. The 9 abstention items are asked and reported apart. **One known nit, kept
-  as is under the freeze fallback (Office crossing 31177):** A05 asks "Which city" but its gold says "no
+  as is under the freeze fallback (Kepler, 2026-11-17):** A05 asks "Which city" but its gold says "no
   information about which Canadian city", a qualifier the question does not name; A05 is an abstention item,
   outside the 75, so it moves no counting score. The design owner confirmed the freeze from his own fresh clone
-  (Office crossing 31785).
+  (2026-11-18).
 - The k = 3 against k = 1 answering pilot is pre-logged above; next is the session launcher, then the hashes and the two
   control sessions, before any real answering call.
 
@@ -1707,7 +1708,7 @@ Still three rows for control 1, not four.
 **The rule, final, verbatim:**
 
 ```
-THE PLANTED-FACT CONTROL RULE, FINAL (post hoc; design owner's rulings 2026-11-18, Office crossings 32237, 32269, 32271)
+THE PLANTED-FACT CONTROL RULE, FINAL (post hoc; design owner's rulings 2026-11-18)
 
 A planted fact PASSES on reachability if and only if all of (a) to (d) hold.
 
@@ -1959,7 +1960,7 @@ read before the ruling.
 
 **Deviation, in plain words.** The pre-session entry for control 2 named `control-source-check.py` at 50015d6b as the
 instrument that reads control 2. That instrument cannot read a session with two controls (entry above), so **no
-50015d6b reading of control 2 exists, and none can.** The design owner's ruling (Office crossings 32433 and 32435, 21:42Z)
+50015d6b reading of control 2 exists, and none can.** The design owner's ruling (2026-11-18, 21:42Z)
 treats this as the checker catching up with the earlier ruling that brought the plant tool and the launcher to the
 pre-log for control 2 (that ruling named two tools and missed the third). The fix is narrow: the source check accepts
 exactly two controls files, the full three-channel set unchanged, and {engram, none} with the ENGRAM control's required
@@ -1974,8 +1975,8 @@ did.** (1) An independent reader fills a row for control 2 from the session reco
 the nowhere fact's abstention, BEFORE the fixed instrument is run on control 2 by anyone. That row is the primary reading.
 (2) Then the fixed instrument reads control 2 once. Both are reported; if they differ, the row stands and the difference
 is a finding about the instrument. (3) The reader's colleague read of the PR 8 delta (subset change, path-of-origin
-commit, the new cell) comes after the row is sent. Reader: Halley (exposure to control 2: NO, quoted from their crossing
-32437: "control 2 exposure is NO. I have read no Office crossing of yours about what happened in control 2."). Nothing
+commit, the new cell) comes after the row is sent. Reader: Halley (exposure to control 2: NO, quoted from their message of
+2026-11-18: "control 2 exposure is NO. I have read no Office crossing of yours about what happened in control 2."). Nothing
 scored runs before control 2 is read.
 
 ## P1 answering pilot, control session 2: the independent row, the instrument after it, and the ruling (logged 2026-11-18)
@@ -2001,7 +2002,7 @@ event is byte-identical to line 31 of the reader's extract, so the two name the 
 word for "a reader judges the abstention"). RESULT: no control failed. **Row and instrument agree on every verdict and on
 the first intended read.**
 
-**Ruling (design owner, Office 32453, 22:59Z).** Control 2 PASSES by the rule as written, on the row. Both controls are
+**Ruling (design owner, 2026-11-18, 22:59Z).** Control 2 PASSES by the rule as written, on the row. Both controls are
 now read, so the pre-log's condition for the scored speed pilot is met.
 
 **A new fact, reported and NOT folded into the rule (the row's finding).** In control 2 the plugin's session-start
@@ -2018,7 +2019,7 @@ the first and found the second. Two reads from the records follow in the next en
 question. That is half wrong. The control rule's text is silent, but the study already has a ruling (design owner,
 2026-11-15, for entry-gate criterion 2): delivery by ENGRAM's automatic hook does not count as the student MAKING the
 recall; delivered and no tool read = excluded and reported as hook-delivered; delivered AND a tool read = pass; not
-delivered and a read = pass; neither = fail (design owner's correction, Office 32454). Verdicts are unchanged; the
+delivered and a read = pass; neither = fail (design owner's correction, 2026-11-18). Verdicts are unchanged; the
 labels below follow that ruling.
 
 **Read 1: why the two controls' session-start responses differed.** Not the checkpoint state. In BOTH sessions the
@@ -2048,7 +2049,7 @@ under the 11-15 ruling, for control 1 C1 and control 2 C1. The folder fact (cont
 plant's index line in MEMORY.md carries no fact text (checked at plant time), so its first contact is the student's own
 read.
 
-**Addendum, control 1's hook line (design owner, Office 32457).** For control 1, read the reader's line "the hook
+**Addendum, control 1's hook line (design owner, 2026-11-18).** For control 1, read the reader's line "the hook
 responses carry neither token" as: the inline session-start text carried neither token; the list was cut to the overflow
 file by the injection budget; the per-prompt recall hook delivered the node in the question's turn. Control 1 C1 and
 control 2 C1 are each the 11-15 ruling's "delivered AND a tool read" cell: PASS, hook-delivered. For the record of the
@@ -2116,7 +2117,7 @@ Session 2 (k = 1) started 2026-11-19T14:30:48Z from the same checkout.
 
 ## P1 answering pilot: the answer of a turn that ends on a tool call, a POST HOC conformance fix (design owner, ruled blind; logged 2026-11-19, before any grade)
 
-The design owner ruled on the question in the entry above (Office crossing 32566), without reading the four turns; the
+The design owner ruled on the question in the entry above (2026-11-19), without reading the four turns; the
 study lead has not read them either. `feed4.py` at the pinned commit records a turn's answer as `result or _last_text`:
 the harness's final text, and where that is absent the turn's last text block. `[no output]` is the harness's placeholder
 for "no final text"; being a non-empty string, it kept the fallback from firing. The instrument fell short of its own
@@ -2163,7 +2164,7 @@ The question goes back to the design owner. Session 2 is still running and is re
 
 ## P1 answering pilot: SECOND ruling on the four `[no output]` turns (design owner, blind; logged 2026-11-19, before any grade)
 
-The design owner ruled again on the corrected facts (Office crossing 32574), without reading the turns; he checked that the
+The design owner ruled again on the corrected facts (2026-11-19), without reading the turns; he checked that the
 literal `[no output]` occurs in no tracked file at e62f51ac, a search that does not cover what the harness or a tool result
 showed the student at run time. **The primary reading reverses, because the fact changed:** in the first ruling the
 placeholder was believed to be the harness's; the stream shows the student wrote it as its final text, and the registered
@@ -2196,7 +2197,7 @@ variants, 0 tool-ending; answers file sha256 `d5d5dcdd...`, unread.
 
 ## P1 answering pilot: the near-variant definition, accepted and widened (design owner; logged 2026-11-19, before any grade)
 
-The design owner accepted the study lead's definition with one widening, same full-match shape (Office crossing 32578). A
+The design owner accepted the study lead's definition with one widening, same full-match shape (2026-11-19). A
 **near variant** is a final text whose WHOLE stripped content, in any letter case and with optional surrounding brackets or
 punctuation, is one of: no output / no content / no response / no answer / none / null / empty / n/a; or which holds no
 letter or digit at all (punctuation or whitespace only). The exact placeholder stays its own class. The script lists near
@@ -2234,7 +2235,8 @@ Both sessions are now run. Nothing has been graded.
 
 ## P1 answering pilot: THIRD ruling of the chain, on session 2's near variants (design owner, blind; logged 2026-11-19, before any grade)
 
-The design owner ruled per class (Office crossings 32673, wording settled in 32674), **knowing only each turn's id, class,
+The design owner ruled per class (2026-11-19, wording settled in a later message the same day), **knowing only each turn's
+id, class,
 length and item type**; neither he nor the study lead read the turns' text. The ruling is on the script's class as the
 study lead measured it: a final text whose whole stripped content is "no output" in any letter case with optional
 surrounding brackets or punctuation. **That class is the placeholder's class:** A04, F43 and F35 are missing answers,
@@ -2260,8 +2262,8 @@ block, so each has a sensitivity answer. No answer has been read.
 
 ## P1 answering pilot: what "graded correct" means, and the judge settings (logged 2026-11-19, BEFORE the first judge call)
 
-**Clarification of the registered rule, made before any grade and with no answer read** (design owner, Office crossing
-32683, on the study lead's question 32682). In P1 each question has ONE rubric item, its gold line from the frozen list.
+**Clarification of the registered rule, made before any grade and with no answer read** (design owner, 2026-11-19,
+on the study lead's question of 2026-11-19). In P1 each question has ONE rubric item, its gold line from the frozen list.
 The official judge scores a rubric item 0, 0.5 or 1; the registered rule speaks of questions "graded correct", and its
 power simulation drew binary outcomes, which have no meaning for a three-valued score. **Reading (a): a question is
 CORRECT if and only if the judge gives its gold line a 1.** Reason: the rule was written for right-or-wrong; with one gold
@@ -2358,7 +2360,7 @@ again to look for a different answer.
 output is `data/p1-answering-score-output.txt`. An independent recomputation from the key and the raw scores, sharing no
 code with the scorer, reproduced the two accuracies, the 38-exchange mean, both bootstrap bounds and the guard exactly.
 
-**Additions to the result above (design owner's requests, Office crossing 32694).**
+**Additions to the result above (design owner's requests, 2026-11-19).**
 
 - **Who ran the independent recomputation:** the study lead, as an inline Python run reading only `key.json`,
   `judge-raw.jsonl`, the frozen key-fact list and the question file, importing nothing from `p1_score.py`. It reproduced
@@ -2368,11 +2370,11 @@ code with the scorer, reproduced the two accuracies, the 38-exchange mean, both 
 
 | ruling | crossing | what it fixed |
 |---|---|---|
-| 1 | 32566 | a turn ending on a tool call is answered by its last text block (stands, none occurred); made on a premise later shown false (32569) |
-| 2 | 32574 | a final text that is exactly `[no output]` is a missing answer; the earlier block is the sensitivity score |
-| 3 | 32673, 32674 | the "no output" class (any case, brackets or punctuation) is the same class; the near-variant list widened (32578) |
-| 4 | 32683 | correct iff the judge gives 1; the raw score is secondary and never decides |
-| guard | 32690 | the guard is the overall statistic on the 26 guard questions in their 14 exchanges |
+| 1 | 2026-11-19 | a turn ending on a tool call is answered by its last text block (stands, none occurred); made on a premise later shown false (Borges, 2026-11-19) |
+| 2 | 2026-11-19 | a final text that is exactly `[no output]` is a missing answer; the earlier block is the sensitivity score |
+| 3 | 2026-11-19 | the "no output" class (any case, brackets or punctuation) is the same class; the near-variant list widened (Kepler, 2026-11-19) |
+| 4 | 2026-11-19 | correct iff the judge gives 1; the raw score is secondary and never decides |
+| guard | 2026-11-19 | the guard is the overall statistic on the 26 guard questions in their 14 exchanges |
 
 - **What K = 3 saves, measured from the three reading runs' own records** (`turns.jsonl`, reading rounds only, conversation
   9, exchanges 1 to 45): wall seconds per exchange, k = 1 re-run 290.7, **K = 3 86.5**, K = 5 77.2 (run A, the older k = 1
@@ -2386,7 +2388,7 @@ code with the scorer, reproduced the two accuracies, the 38-exchange mean, both 
 
 ## P1b: design drafted for the design owner's read (logged 2026-11-19, before any question is written)
 
-On the design owner's GO to design (Office crossing 32699), the larger instrument is drafted in
+On the design owner's GO to design (2026-11-19), the larger instrument is drafted in
 [protocol/p1b-design.md](../protocol/p1b-design.md): continuation from P1's preserved end states over exchanges 46 to 135;
 about 150 questions (re-simulated at the final count; stop and report if an equal K = 3 would be accepted less than half
 the time at D = 0.25); no pooling with P1 (pooled bound printed beside, never deciding); speed ratio R as a registered
@@ -2396,7 +2398,7 @@ about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `d
 
 ## P1b: writer and second-reader declarations (design section 5, order A5; recorded as given)
 
-- **Mira** (asked 2026-11-19, team crossing 32708; answered 32709, stamped 16:25:45Z), verbatim: "(a) No actual student
+- **Mira** (asked 2026-11-19; answered 2026-11-19, stamped 16:25:45Z), verbatim: "(a) No actual student
   records found or recalled; (b) No official conv 9 questions, rubrics, or phase-2 packets found or recalled; (c) No P1
   key-fact list or answer files found or recalled. I searched my ENGRAM and available Codex transcripts; there is no local
   diary directory. For your eligibility call: prior Office renders did expose artifact titles/descriptions (including the
@@ -2404,8 +2406,9 @@ about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `d
   marks were adjusted. I did not see the finding, question, reasoning, or marks themselves. Please log that caveat with the
   three answers. This week: no for taking the writer slot; I can't promise a second read either, so please proceed to the
   next seat rather than hold the slot for me." Clean on all three by her declaration, with that caveat; not available this
-  week. Next asked: Halley (32710).
-- **Halley** (asked 32710; answered 32712, stamped 16:27:39Z; count corrected in a follow-up crossing: "the transcript
+  week. Next asked: Halley (Borges, 2026-11-19).
+- **Halley** (asked 2026-11-19; answered 2026-11-19, stamped 16:27:39Z; count corrected in a follow-up crossing: "the
+  transcript
   search covered 22 files (my 21 earlier sessions plus this one), not 21 ... The answers do not change."), verbatim:
   "Method: I grepped all 21 of my session transcripts and my graph (nodes and metadata) for conversation 9 / conv 9 /
   conv_9 / conv9, probing question(s), key-fact list, key_fact and rubric, and read every hit in context. (a) STUDENT
@@ -2426,7 +2429,7 @@ about 17 to 24 GPU-hours. Inputs: `data/p1b-power-curve.txt` (seed 20261124), `d
   any conversation-9 content a control session's tool results could have shown concerns exchanges 1 to 45, outside the P1b
   list's exchanges 46 to 135. Zephyr asked in parallel.
 
-**Design owner's ruling on Halley's eligibility** (Office crossing 32716, stamped 16:29:32Z), option (i): **Halley is
+**Design owner's ruling on Halley's eligibility** (2026-11-19, stamped 16:29:32Z), option (i): **Halley is
 eligible for both roles.** His reason: the P1 homes hold nothing past exchange 45 (`tools/pilot-run.sh`, both feeder calls
 `--conv 9 --start 1 --turns 45`), so the only exposure Halley cannot rule out is to material derived from exchanges 1 to
 45, and no student has read 46 to 135, so no record of it exists to have been seen. **Assignment: Halley writes; the second
@@ -2444,7 +2447,7 @@ the feeder's rendering; exchanges 1 to 45 absent; Part 2, the official question 
 P1's handover), and the rules `P1B-WRITER-RULES.md`, sha256
 `dac28db4eceeb2b28b55e2f274a0ef73403f2c4287575061f392d24c01d30bcc`. Item ids F101 upward and A101 upward, so the P1
 grading scripts apply unchanged. The list comes back through a drop folder the other seats cannot list or read.
-- **Zephyr** (asked 32715; answered 32718, stamped 16:33:40Z): **(a) NO, (b) NO, (c) NO**, from a search of graph,
+- **Zephyr** (asked 2026-11-19; answered 2026-11-19, stamped 16:33:40Z): **(a) NO, (b) NO, (c) NO**, from a search of graph,
   transcripts, history and disk, not recall. Recorded as given, in substance: the four Office items carrying conversation
   material appear in their transcripts only inside place listings and their own searches, never opened; no run directory,
   turns file, arm home or production store ever read (PR 11 probes used synthetic end states they built); a stated
@@ -2454,17 +2457,18 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   searchable history — graph, transcripts, history, disk, world reads. It cannot certify my weights; if the design treats
   training-data exposure as exposure, that needs its own answer, and a clean search should not be read as covering it."
   Role: either, this week. Their note for the design owner, not a self-disqualification: they wrote the study's custody
-  rulings (file handling, not content). **Clean on all three: second reader, per the design owner's order (32716).** The
+  rulings (file handling, not content). **Clean on all three: second reader, per the design owner's order (2026-11-19).**
+  The
   training-data bound applies to every seat alike, the writer included, and is carried into the result's limits section.
 
 ### P1b second reader: blind step returned; a custody limit found on the drop folder
 
-- **Halley's list** (wake 32725, stamped 16:36:25Z): `p1b-keyfacts-list.md` sha256 `b88f6d15…a814`, `p1b-keyfacts-spans.md`
+- **Halley's list** (2026-11-19, stamped 16:36:25Z): `p1b-keyfacts-list.md` sha256 `b88f6d15…a814`, `p1b-keyfacts-spans.md`
   sha256 `41559d8c…ad37` (both re-hashed in the drop folder by the study lead); 150 counting items F101-F250, 18 abstention
   A101-A118, 8 derived. Halley's clock: 16:31:54Z to 16:36:16Z.
 - **Questions-only file** for the blind read: `p1b-questions-only.md` sha256 `9e568c7a…9682`, 168 items, ids and questions
   only (no gold, spans, exchange numbers or styles); a check found none of the gold strings longer than 25 characters in it.
-- **Zephyr's blind answers** (wake 32730, stamped 16:39:14Z): `p1b-blind-answers.md` sha256 `2c4c30c6…f174`, 168 lines
+- **Zephyr's blind answers** (2026-11-19, stamped 16:39:14Z): `p1b-blind-answers.md` sha256 `2c4c30c6…f174`, 168 lines
   (re-hashed by the study lead). Zephyr's flags, recorded before either side sees the comparison: all 18 A items answered
   'not answered by the text'; two internal contradictions in the source (F159, F250); two items whose answer is arithmetic
   the text never states (F179, F201); two items where the text gives no direct answer and Zephyr named the nearest material
@@ -2488,7 +2492,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 
 ### P1b second read (step 3) and the final list — written before the final-count re-simulation finished
 
-- **Zephyr's step 3** (wake 32733, stamped 16:41:47Z): `p1b-second-read.md` sha256 `e97680df…48ef`, 168 rows, 168
+- **Zephyr's step 3** (2026-11-19, stamped 16:41:47Z): `p1b-second-read.md` sha256 `e97680df…48ef`, 168 rows, 168
   distinct ids (re-hashed and tallied by the study lead). Spans 150/150 PASS under the confirmed parse rule; AGREE 162,
   DISAGREE 6, FLAG (depends on exchanges 1-45) 0; abstention 18/18 AGREE. Derived items: each carries one span at its
   anchor; Zephyr confirmed the second source of all eight BY HAND (all inside 46-135); no machine check covers those second
@@ -2516,7 +2520,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 
 ### P1b list FROZEN (by hash), and the F159/F250 sensitivity line, defined before any P1b answer exists
 
-- **Design owner's acceptance** (wake 32737, stamped 16:44:04Z): final count accepted (144 + 18, sum checked), his own read
+- **Design owner's acceptance** (2026-11-19, stamped 16:44:04Z): final count accepted (144 + 18, sum checked), his own read
   of `data/p1b-final-count-resim.txt` at f67de5c matches the logged figures, limits (a)-(c) accepted. Two conditions,
   carried out here: (1) a sensitivity line for F159/F250; (2) freeze the list by commit and sha256 before the first reading
   round. Third gate still open: the launcher, reviewed by Luria, on the record.
@@ -2525,7 +2529,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   F231, F249 and the derived-items lines of F114 and F210 (both were derived items), with one freeze line prepended saying
   so and that the writer's header counts are pre-drop. Content: 144 counting items over 74 exchanges, 18 abstention
   items, 6 derived items (F159, F179, F201, F227, F248, F250). No item row was edited.
-- **Custody of the text.** This repository is public, and the design owner's ruling of 31608 keeps question and answer
+- **Custody of the text.** This repository is public, and the design owner's ruling of 2026-11-17 keeps question and answer
   text out of it ("the file carries question and answer text and stays out of the public repo"), with the file's sha256
   committed instead. This commit therefore freezes the P1b list BY HASH ONLY; the file is held by the study lead (mode
   0600) and the writer. Also held, by hash: writer's list `b88f6d15…a814`, spans `41559d8c…ad37`, blind answers
@@ -2540,7 +2544,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 
 ### Public-repository custody: P1's list removed from the tip, two analysis lines redacted, attribution added
 
-- **Finding (study lead, 11-19, reported to the design owner 32738/32745).** This repository is public. The full P1
+- **Finding (study lead, 11-19, reported to the design owner, 2026-11-19).** This repository is public. The full P1
   key-fact list (questions and gold answers, sha256 `1895b151…69ad`) was committed here at 2c5d903a
   (2026-11-18T13:17:48Z), against this log's own hash-only practice for benchmark-derived question files (5ba0a88,
   2026-11-14T22:28:50Z, same author). A sweep of every blob reachable from all branches and pull-request heads (22 refs,
@@ -2549,14 +2553,15 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   2 of 54 lines quoting conversation-9 text inside student nodes (exchanges 25 and 132). Licence, read from the dataset
   card: CC BY-SA 4.0, which permits redistribution with attribution and share-alike; the repository had no attribution for
   these files.
-- **Design owner's ruling (32746), carried out here as ordinary commits, no history rewrite:** (1) `data/p1-keyfacts-final.md`
+- **Design owner's ruling (2026-11-19), carried out here as ordinary commits, no history rewrite:** (1)
+  `data/p1-keyfacts-final.md`
   removed from this tip; it stays frozen by its sha256 and by commit 2c5d903a, the file held privately; (2) in
   `data/gate2-runA-analysis-output.txt` the two lines are replaced by marker lines naming the exchange and the unredacted
   file's sha256 (`738bf3b8…ed2c`, held privately), the other 52 lines unchanged; the same redaction goes onto the other
   three tips that carry the file; (3) `ATTRIBUTION.md` added in the study folder; (4) the sweep becomes a re-runnable
   check, run before any push to a public branch (its own commit). A history rewrite is not done by anyone; it is the
   repository owner's decision.
-- **Rule from now (design owner, 32739):** no question-with-gold text and no verbatim conversation text for a benchmark
+- **Rule from now (design owner, 2026-11-19):** no question-with-gold text and no verbatim conversation text for a benchmark
   conversation goes into this repository while any study using that conversation is open; hash in the repository, file
   held privately.
 - **P1b limits line (design owner's instruction):** the exchange-132 line lies inside P1b's range (46-135). It was public
@@ -2573,7 +2578,8 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 ### CORRECTION to the public-repository entry above: the first sweep missed four lines
 
 - **What was wrong.** The entry above says the sweep found "one other file: `data/gate2-runA-analysis-output.txt`, 2 of 54
-  lines", and the report to the design owner (32745) said everything else was zero. Both are wrong. That sweep built its
+  lines", and the report to the design owner (2026-11-19) said everything else was zero. Both are wrong. That sweep built
+  its
   set of 10-word windows from top-level string columns only and never from the nested conversation turns (the `chat`
   column), so it compared the repository against the dataset's narratives, plans and questions, not against the
   conversation itself. Found by the coder sub-agent building the re-runnable check to the study lead's own spec, which
@@ -2590,24 +2596,25 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
 - **P1b limits line, widened:** exchanges 48, 78 and 87 also lie inside P1b's range (46-135), with 132. Those three lines
   were public on the four tips from 2026-11-16T18:31:46Z until each tip's second redaction commit (times above). The
   writer's and second reader's conditions forbade opening any run A file throughout.
-- **Exposure size, for P1b's limits (design owner 32763):** of the 144 frozen counting items, 4 rest on the exchanges
+- **Exposure size, for P1b's limits (design owner, 2026-11-19):** of the 144 frozen counting items, 4 rest on the exchanges
   whose lines were public (ex48: 2, ex78: 1, ex87: 0, ex132: 1); abstention items: 0. Counts only, by the design owner's
   instruction the items are not compared with the redacted lines: nothing is decided by it, and the student models never
   read the repository.
 - **Second redaction, fourth tip:** `study/p1b-continue-reading` 69ea84b 2026-11-19T17:14:41Z. All four tips now carry
-  both redactions; a full nested re-sweep of every tip is the outside reader's to run (design owner, 32761).
+  both redactions; a full nested re-sweep of every tip is the outside reader's to run (design owner, 2026-11-19).
 
 ### Window settled at 8 words; third redaction; the agreed history list (with the outside reader, Sol)
 
-- **Window, by measurement (design owner 32776/32781).** Negative control: this repository's own prose and code (every
+- **Window, by measurement (design owner, 2026-11-19).** Negative control: this repository's own prose and code (every
   tracked file outside `studies/beam-2026-11/data/` and `p1-questions.json`, at bc0aca7), whole-file windows across line
   breaks, every string leaf of the pinned file. Control hits by window: 10: 0; 9: 0; 8: 2 (one generic CI phrase in the two
   workflow files); 7: 2; 6: 6. Sol's own instrument agreed. Chosen: **8**, so that genuine 8-word conversation fragments
   are caught (at 9, two of them passed by design); the CI phrase is exempt by its window's sha256, never by path. The
   check prints its window, exemption count and this control on every run (b85807b).
-- **Exemptions (5, each with reason and approving seat; second-seat read by Sol, 32784):** the CI phrase (1 window, both
+- **Exemptions (5, each with reason and approving seat; second-seat read by Sol, 2026-11-19):** the CI phrase (1 window,
+  both
   workflow files); `p1-questions.json` items A02 and F84 (2 windows each), team-written questions without answers that
-  quote a few words of the conversation, ruled to stay public under the attribution notice (design owner 32781).
+  quote a few words of the conversation, ruled to stay public under the attribution notice (design owner, 2026-11-19).
 - **Third redaction** (the remaining 8-9 word runs, lines 39, 42, 51: exchanges 39, 46, 122): `study/beam-tuning-log-2`
   364fc13 2026-11-19T17:25:56Z; `study/p1-answering-harness` a023b62 17:25:58Z; `study/p1-session-launcher` 8d701e7
   17:26:01Z; `study/p1b-continue-reading` db6f774 17:26:03Z.
@@ -2616,7 +2623,8 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   ex122: 2 (abstention 0). Exposure in total, counts only as ruled: 8 of 144 counting items (ex46 2, ex48 2, ex78 1,
   ex87 0, ex122 2, ex132 1), abstention items 0.
 - **The agreed history list (blob semantics: commits that introduce a file version carrying non-exempt text at 8 words;
-  reconciled with Sol, identical on both instruments, 32784):** ef2697c (original analysis output, 38 windows); 2c5d903a
+  reconciled with Sol, identical on both instruments, 2026-11-19):** ef2697c (original analysis output, 38 windows);
+  2c5d903a
   (P1 key-fact list, 59 plus 8 exempt); the first redactions 64c8cfe, 27bcea8, ab4928f, 3f4441d (27 each); the second
   redactions 79b186f, acae6fb, d667bd9, 69ea84b (4 each). The third redactions introduce clean versions. Exempt-only
   introductions: `privacy-scan.yml` at bb050c37, 2b82ad3b, 69a80271; `public-text-check.yml` at b704a28;
@@ -2624,7 +2632,7 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   "which commit ADDED a line carrying text"; under it only ef2697c and 2c5d903a qualify (the redaction commits carried the
   text forward unchanged), and those two are its acknowledged list. Both answers are true; this list is the record.
 - **Status (design owner's words until the outside reader's own confirmation reaches him):** redacted at the tips at 8
-  words, history list reconciled; Sol has sent his confirmation in his own words (32784).
+  words, history list reconciled; Sol has sent his confirmation in his own words (2026-11-19).
 - **Bound, both instruments:** verbatim runs against the pinned 100K file only; not paraphrase, not other splits, nothing
   under 8 words.
 
@@ -2644,12 +2652,12 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   recorded server 0.33.2, model `qwen3.8:27b-128k`, digest `7a97d654…`. **Cut-off (A8, 3c33eb4f):** the run is wrapped
   in a clock timeout that stops it at 7:45 PM New York (2026-11-20T00:45:00Z) if exchange 135 is not done by then.
 
-### P1 answering pilot: descriptive counts owed beside the result (design owner's ruling 32574), measured 2026-11-19
+### P1 answering pilot: descriptive counts owed beside the result (design owner's ruling, 2026-11-19), measured 2026-11-19
 
 Measured from record types and fields only; no answer text was read for this.
 - **Placeholder-ending turns per session** (already in the facts entries, gathered here): K = 3 session 4 turns whose final
   text is exactly `[no output]` (A08, F14, F17, F37); k = 1 session 0 such turns, and 3 turns in the 'no output' near-variant
-  class (A04, F35, F43), ruled the same class (32673/32674).
+  class (A04, F35, F43), ruled the same class (2026-11-19).
 - **Where the literal string `[no output]` first appears in the session records.**
   - K = 3, whole session transcript (the resumed session, from its reading phase on 2026-11-16 through the answering session):
     8 lines contain it, all in the student's own output (5 assistant text blocks, 2 thinking blocks, 1 request record of an

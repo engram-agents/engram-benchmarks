@@ -1,7 +1,8 @@
 # P1b: the larger K = 3 against k = 1 instrument, on the later exchanges (DESIGN, for the design owner's read)
 
-Status: **ACCEPTED as the design** by the design owner (Office crossing 32705, read in full at 46cfb362), with six
-additions, written in below as marked (A1 to A6); amendment diff read and GO TO BUILD given (32707), plus A7. The registered
+Status: **ACCEPTED as the design** by the design owner (2026-11-19, read in full at 46cfb362), with six
+additions, written in below as marked (A1 to A6); amendment diff read and GO TO BUILD given (2026-11-19), plus A7. The
+registered
 study stays at k = 1 meanwhile. Study lead: Borges. Key holder for P1b: Kepler.
 
 ## 0. Why, in one paragraph
@@ -37,11 +38,12 @@ open questions with one pair of runs: **is K = 3 as good** on new questions, and
     whose content hash differs from the preserved one.
   - (d) It works on a disposable copy only; the preserved original's hash is re-checked after each run (the P1 launcher's
     protected-home guard).
-- **A7. Serving setup pinned (design owner, Office crossing 32707):** both P1b readings and both answering sessions run on
+- **A7. Serving setup pinned (design owner, 2026-11-19):** both P1b readings and both answering sessions run on
   exactly the serving setup that produced P1's end states: the same model server build, model file and settings, recorded at
   each run's start. The queued serving-stack pilot changes nothing in that setup while P1b is open. If the study later
   adopts a different serving stack, R is not carried over: it is measured again there before K = 3 is used.
-- **Order of the card (design owner, 32707):** the serving-stack pilot may use the card while the list and the launcher are
+- **Order of the card (design owner, 2026-11-19):** the serving-stack pilot may use the card while the list and the launcher
+  are
   in work; once the list is checked and the launcher reviewed, P1b goes ahead of everything else named in section 7. No
   P1b run until the list is checked, the count re-simulated at 4,000 trials, and the launcher reviewed; the final count and
   its two rates go to the design owner before the first reading round.
@@ -135,7 +137,7 @@ Declarations are recorded as given.
 The tools exist: `tools/p1_answers.py`, `tools/p1_grade.py`, `tools/p1_score.py` (contract-tested, mutation-checked),
 plus the new reading-continuation mode in section 1.
 
-- **A8. Timetable and cut-off rule (design owner, Office crossing 32804, fixed before any reading round).** The card is
+- **A8. Timetable and cut-off rule (design owner, 2026-11-19, fixed before any reading round).** The card is
   used in daylight only. Lei's recorded words, as read by the design owner: 2026-10-27, "The machine has to go off around
   9 pm latest because it is bright and loud in the night and Leona is sleeping in the room"; 2026-11-16, "plan for the EOD
   around 8:30". The design owner's own bound, stricter and labelled as his: no GPU work of this study runs past 8:00 PM
@@ -151,7 +153,7 @@ plus the new reading-continuation mode in section 1.
   again. Limits line, in the design owner's words: P1 itself recorded no serving lines, so A7 rests on 'no record match
   for P1, file dates unchanged' (model file last modified 2026-11-14, server binary 2026-08-28, both before P1's reading
   runs began on 2026-11-16).
-  - **A8 amendment, 2026-11-19 (K = 3 reading only), relayed by the design owner (Office crossing 32952).** *Who:* Lei,
+  - **A8 amendment, 2026-11-19 (K = 3 reading only), relayed by the design owner (2026-11-19).** *Who:* Lei,
     the owner of the household bound the cut-off was derived from. *When:* 4:48 PM New York, before the 7:45 PM cut-off,
     with 19 of the 30 K = 3 rounds done. *What he had seen:* round counts and the projected end only; nothing about
     answers (the study lead's progress reports carry counts, error counts and a projected end, never answer text). *His
@@ -171,7 +173,7 @@ plus the new reading-continuation mode in section 1.
     `setup.txt`, all 30 reading rounds in `turns.jsonl`, the saved end state and its hashes). If Lei forfeits while the
     reading is running, the session is stopped by sending the wrapper's stop signal (TERM) to its process group. The time
     of the stop and the rounds done are then reported as the cut-off rule requires.
-- **A9. The student's Claude Code is pinned for the k = 1 reading (design owner, Office crossing 33021, 2026-11-19;
+- **A9. The student's Claude Code is pinned for the k = 1 reading (design owner, 2026-11-19;
   written before the first k = 1 round).** *What the setup file said:* the components file of setup `171fb069`, which
   both P1b readings run under, records Claude Code 2.1.327. *What actually ran,* read from each session's own
   transcript records (tuning log, entry "DEVIATION found", commit `89267b5f`): P1's readings 2.1.325; P1's controls
@@ -186,8 +188,8 @@ plus the new reading-continuation mode in section 1.
   `setup.txt` after the run, because the launcher creates and writes `setup.txt` while it runs. *Limit carried to
   P1's report:* P1's version spread (readings 2.1.325, controls 2.1.327, answering 2.1.328) is stated there as a
   limit, not smoothed.
-- **A10. Student custody: both P1b readings run exposed; nothing after them does (design owner, Office crossing 33042;
-  security judgments by Zephyr, Office crossings 33024 and 33035; 2026-11-19).** *The exposure:* the student of either
+- **A10. Student custody: both P1b readings run exposed; nothing after them does (design owner, 2026-11-19;
+  security judgments by Zephyr, 2026-11-19).** *The exposure:* the student of either
   arm runs as the study lead's OS user, with a shell and bypassed permissions, so it can read anything that user can,
   including the study lead's private files, the private key lists and the dataset with every gold answer, and it can
   reach services on the host's loopback. *What the records show:* over all 65 student transcripts on the host, no tool
@@ -210,7 +212,7 @@ plus the new reading-continuation mode in section 1.
   behind a user or host boundary, never behind a file mode on a user the student shares: a mode bit is not a seal when
   the owner's processes run the exam. *Our-side control from 2026-11-20:* each morning, the value-blind scan over every
   student transcript written since the last scan, one line to the design owner.
-- **A11. The k = 1 reading starts tonight, overnight (design owner, Office crossing 33156, 2026-11-20; written before
+- **A11. The k = 1 reading starts tonight, overnight (design owner, 2026-11-20; written before
   the first k = 1 round).** *Lei's words,* 8:04 PM New York on 2026-11-19, relayed verbatim by the design owner: "How
   about we run another away night practice tonight? I'll leave the machine on, and Borges can run through the night?
   ... Tonight we rehearse the whole routine and make sure everything will work smoothly in the week I'm away." *The
@@ -220,7 +222,7 @@ plus the new reading-continuation mode in section 1.
   tonight. A hang guard of 20 hours (about twice the projected 9.5 to 10.6 hours) stops a stuck run, and a run stopped
   by it is reported, not used. *Unchanged:* the A9 pin, verified by hand at launch and recorded; the A10 custody
   terms. It is unwrapped, as the K = 3 reading was. It is still the LAST run under the security seat's allowance (no
-  objection from Zephyr, Office crossing 33159, conditions restated there). The falsifier and the value-blind scan
+  objection from Zephyr, 2026-11-20, conditions restated there). The falsifier and the value-blind scan
   with its control run the moment it ends, before any number is used. Any out-of-home path that is not a planted
   control means the run is discarded. Nothing about the run's content, K, exchanges, end state or analysis changes.
 
