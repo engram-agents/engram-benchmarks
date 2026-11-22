@@ -1,5 +1,5 @@
 """Shared helpers for the P1 harness cells. Synthetic fixtures only: no real data, no student model, no Ollama."""
-import hashlib, json, os, shutil, stat, subprocess, sys
+import hashlib, json, os, shutil, signal, stat, subprocess, sys, tempfile, time
 import pytest
 
 TOOLS = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -129,3 +129,115 @@ LINUX_PROC = sys.platform.startswith("linux") and os.path.isdir("/proc/self")
 NEEDS_BOX_REASON = ("needs Linux, bash 4 or newer, and a working bwrap (unprivileged user namespaces), plus a systemd user "
                     "manager that can start a capped scope: the sandbox is Linux-only")
 needs_linux_wrapper = pytest.mark.skipif(not LINUX_PROC, reason=NEEDS_BOX_REASON)
+
+# Cells that need only Linux's /proc and prctl, not the wrapper's bwrap or systemd: they read /proc (descriptors, process start
+# times) or run the in-box supervisor of sandbox-forward.py, which makes its report descriptor private with prctl(PR_SET_DUMPABLE).
+# A Mac has neither /proc nor prctl, so on one the supervisor refuses (exit 5) before it writes a line. One named marker, one reason.
+NEEDS_PROC_REASON = ("needs Linux with /proc and prctl: the cell reads /proc (descriptors, process start times) or runs the in-box "
+                     "supervisor, which makes its report descriptor private with prctl(PR_SET_DUMPABLE); a Mac has neither")
+needs_linux_proc = pytest.mark.skipif(not LINUX_PROC, reason=NEEDS_PROC_REASON)
+
+# An AF_UNIX path may not exceed 107 bytes, and a Mac's $TMPDIR (/var/folders/xx/<long>/T/) plus pytest's own folders is longer than
+# that. A cell that binds or connects a socket under a directory of its own builds that directory here: a short REAL path under /tmp
+# (real, because the launch module resolves symlinks: /tmp is /private/tmp on a Mac), removed after the cell.
+_SHORT_DIRS = []
+
+
+def short_dir(prefix="b"):
+    d = os.path.realpath(tempfile.mkdtemp(prefix=prefix, dir="/tmp"))
+    _SHORT_DIRS.append(d)
+    return d
+
+
+def _argv_of(pid):
+    """The command line of `pid` as one string ('' when it cannot be read): /proc where there is one, else ps (a Mac)."""
+    try:
+        with open("/proc/%d/cmdline" % pid, "rb") as f:
+            return f.read().replace(b"\0", b" ").decode(errors="replace")
+    except OSError:
+        pass
+    try:
+        return subprocess.run(["ps", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
+    except OSError:
+        return ""
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop_stub_daemons(d):
+    """Stop every stub daemon that a cell started under directory `d`, FAILURE OR NOT: the daemon's pid file is read, and only a
+    process whose command line still names `d` is killed (a reused pid is never touched), then it is waited for. Returns the pids
+    still alive afterwards. The cells' own paths stop the daemon only when they get that far (a supervisor that cannot tell its
+    daemon is there, or a cell that fails before the stop, leaves it running, parented to init), so the teardown does it again.
+
+    Why it happens, read off sandbox-forward.py: the supervisor takes the daemon's identity from /proc/<pid>/stat (proc_start), and
+    daemon_up needs it. On a host WITHOUT /proc (a Mac; or Linux with /proc masked, the simulation) proc_start is None, so the daemon
+    reads as already gone: the readiness wait ends 'exited-early' and the stop path reports 'already-gone' WITHOUT signalling it, and the
+    daemon stays running. Production consequence: none, because the study box is Linux-only and always mounts its own /proc
+    (student-sandbox.sh, `--proc /proc`); the cells that reach this path are marked needs_linux_proc and do not run on such a host.
+    Only the pids named by the cell's own pid file are ever signalled, never a name or a pattern (the host is shared)."""
+    left = []
+    for root, _dirs, files in os.walk(d):
+        if "recall-daemon.pid" not in files:
+            continue
+        try:
+            with open(os.path.join(root, "recall-daemon.pid")) as f:
+                pid = int(f.read().strip())
+        except (OSError, ValueError):
+            continue
+        if pid > 1 and _pid_alive(pid) and d in _argv_of(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            end = time.time() + 5
+            while _pid_alive(pid) and time.time() < end:
+                time.sleep(0.05)
+            if _pid_alive(pid):
+                left.append(pid)
+    return left
+
+
+def remove_short_dirs():
+    """Stop the stub daemons under, then remove, every short dir a cell made. Returns the pids that could not be stopped."""
+    left = []
+    while _SHORT_DIRS:
+        d = _SHORT_DIRS.pop()
+        left += stop_stub_daemons(d)
+        shutil.rmtree(d, ignore_errors=True)
+    return left
+
+
+@pytest.fixture(autouse=True)
+def _short_dirs_are_removed():
+    yield
+    left = remove_short_dirs()
+    assert not left, "stub daemons of this cell are still alive after the teardown: %s" % left
+
+
+def reader_log_for(path, events=()):
+    """A launch log holding exactly the reader's own record of `events` (the form the log's reader writes: one `daemon-report seq=N
+    time=T line=<event>` per accepted event, a `dropped` marker per drop, then ONE `closed` line), so the launch module's verdict can
+    read the record it requires. `events` is the shape read_daemon_events returns: [(kind, {key: value})]. Returns the path."""
+    lines, accepted, dropped = [], 0, 0
+    for kind, f in events:
+        n = len(lines) + 1
+        if kind == "daemon-report-dropped":
+            lines.append("daemon-report seq=%d time=1700000000.500000 dropped reason=%s bytes=%s count=%s" % (n, f["reason"], f["bytes"], f["count"]))
+            dropped += 1
+        else:
+            lines.append("daemon-report seq=%d time=1700000000.500000 line=%s %s" % (n, kind, " ".join("%s=%s" % kv for kv in f.items())))
+            accepted += 1
+    lines.append("daemon-report seq=%d time=1700000000.500000 closed accepted=%d dropped=%d markers_suppressed=0 read_error=none"
+                 % (len(lines) + 1, accepted, dropped))
+    with open(str(path), "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return str(path)

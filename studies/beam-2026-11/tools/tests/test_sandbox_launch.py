@@ -77,6 +77,16 @@ line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} sc
         f"forwarder_pid={fpid} forwarder_start={fstart} bridge_sock={sock} model=h:1 "
         f"test_mode={1 if mode == 'testline' or pairs.get('SANDBOX_TEST') == '1' else 0} test_exec={1 if mode == 'testline' else 0} "
         f"cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
+# what the real wrapper writes about the daemon: `daemon_expected=` is the module's own statement as it reached the wrapper (`unstated`
+# when the wrapper was not told); `daemon=engram` only for a launch that ran with the daemon. STUB_DAEMON_EXPECTED_LINE overrides the
+# first (`-` leaves the field out); STUB_DAEMON=<term|killed|already-gone|lost> says the launch ran with a daemon and writes the
+# reader's own lines (ready, stop with that outcome, the closing line) the way the log's reader does.
+dexp = os.environ.get("STUB_DAEMON_EXPECTED_LINE", pairs.get("SANDBOX_DAEMON_EXPECTED", "unstated"))
+dmode = os.environ.get("STUB_DAEMON", "")
+if dexp != "-":
+    line += " daemon_expected=" + dexp
+if dmode:
+    line += " daemon=engram"
 if mode == "nomarker":
     line = line.replace(f"forwarder_start={fstart} ", "")
 if mode == "nounit":
@@ -86,6 +96,14 @@ body = {"ok": [line, "fwd-first-request"], "unreachable": [line, CF], "nolaunch"
         "badwrapper": [line, "fwd-first-request"], "badforwarder": [line, "fwd-first-request"],
         "plant": [line, "fwd-first-request"], "nomarker": [line, "fwd-first-request"],
         "zerostart": [line, "fwd-first-request"], "testline": [line, "fwd-first-request"], "rostate": [line, "fwd-first-request"], "nounit": [line, "fwd-first-request"], "reuse-same": [line, "fwd-first-request"], "reuse-diff": [line, "fwd-first-request"]}[mode]
+def reader(events):
+    out = ["daemon-report seq=%d time=1700000000.500000 line=%s" % (n, e) for n, e in enumerate(events, 1)]
+    return out + ["daemon-report seq=%d time=1700000000.500000 closed accepted=%d dropped=0 markers_suppressed=0 read_error=none"
+                  % (len(events) + 1, len(events))]
+if dmode:
+    ready = "daemon-ready time=1700000000.500000 pid=9 time_to_ready_s=1.5 rpt_dropped=0"
+    stop = "daemon-stop time=1700000000.600000 pid=9 outcome=%s waited_s=0.100 rpt_dropped=0" % dmode
+    body = body + reader([] if dmode == "lost" else [ready, stop])
 if log and mode != "nolaunch":
     with open(log, "a") as f:
         f.write("".join(l + "\n" for l in body))
@@ -122,7 +140,8 @@ sys.exit(st.p.wait(timeout=90))
 
 
 # What the cells' own stub reads from its environment: it receives these by name through run_feeder's test seam, never by inheritance.
-STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH")
+STUB_ENV = ("REC", "STATE_DIR", "STUB_MODE", "STUB_RC", "HELPER_PID", "STUB_UNIT", "STUB_REALSCOPE", "DRIVER_DETACH",
+            "STUB_DAEMON", "STUB_DAEMON_EXPECTED_LINE")
 
 
 class World:
@@ -169,6 +188,7 @@ class World:
         kw.setdefault("state_dir", str(self.state))
         kw.setdefault("stub_as", "feed2.py")    # the module cells' stub stands in for feed2 (its option set is the broader one)
         kw.setdefault("test_env_names", STUB_ENV)
+        kw.setdefault("daemon_expected", "none")   # the arm's statement: these cells' slots hold no arm install (a cell that builds one says "engram")
         e = self.env(STUB_MODE=mode, STUB_RC=str(rc), **(env or {}))
         return SL.run_feeder(sys.executable, str(feeder or self.stub), argv if argv is not None else self.argv(),
                              sandbox=sandbox if sandbox is not None else self.sandbox(), env=e, test_stub=True, **kw)
@@ -181,20 +201,25 @@ class World:
         assert os.listdir(self.logs) == [], "a log was created"
 
 
-@pytest.fixture
-def w(tmp_path, monkeypatch):
+def _world(root, monkeypatch):
     """The module stops and checks the launch's scope through `systemctl --user`. On a host with no systemctl (a Mac) the pure
     cells still run, against a stub systemctl that answers as an empty user manager; only the cells that need a REAL user
-    manager (real scopes and boxes) are marked `needs_box` and skip there."""
+    manager (real scopes and boxes) are marked `needs_box` and skip there. `root` is the world's scratch directory: the cells of
+    this file use pytest's tmp_path; the daemon files, which bind sockets under it, pass a short one (test_daemon_prestart.w)."""
     if shutil.which("systemctl") is None:
-        stub = install_stub_systemctl(tmp_path / "stub-systemctl-bin")
+        stub = install_stub_systemctl(root / "stub-systemctl-bin")
         monkeypatch.setenv("PATH", stub + os.pathsep + os.environ.get("PATH", ""))
-    world = World(tmp_path)
+    world = World(root)
     yield world
     # these cells leave nothing behind: any box of this cell (attributed by its scratch root, as in test_student_sandbox)
-    units, ended = TSS.stop_boxes_of(str(tmp_path))
+    units, ended = TSS.stop_boxes_of(str(root))
     TSS.CREATED_UNITS.extend(units)
     assert not ended, "processes of this cell outlived it and had to be ended: %s" % ended
+
+
+@pytest.fixture
+def w(tmp_path, monkeypatch):
+    yield from _world(tmp_path, monkeypatch)
 
 
 # ====================================================================================== H: the expected-hashes file
@@ -490,7 +515,7 @@ def test_e_the_modules_own_launch_through_the_same_real_student_reaches_the_box(
     """The companion: the same real Student, started by the module, gets the settings as `--env` pairs, passes every
     check of the real wrapper, runs the test command in the box, and the launch line is logged and verified."""
     r = SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_="true"), log_dir=str(w.logs), state_dir=str(w.state),
-                      env=w.env(), test_stub=True)
+                      env=w.env(), test_stub=True, daemon_expected="none")
     assert r.returncode == 0 and r.verdict == NOT_FLAGGED
     assert r.wrapper_sha256 == TSS.sha256_of(TSS.WRAPPER) and r.forwarder_sha256 == TSS.sha256_of(TSS.FWD)
     line = [l for l in open(r.log) if l.startswith("wrapper-launch ")]
@@ -774,7 +799,7 @@ def real_caller(w, arrow_python, exec_, detach=False):
                       'c = json.load(open(sys.argv[2]))\n'
                       'SL.run_feeder(c["py"], c["feeder"], c["argv"], sandbox=SL.Sandbox(c["settings"], c["expected"], allow_test=True),\n'
                       '              log_dir=c["log_dir"], state_dir=c["state_dir"], env=c["env"], test_stub=True,\n'
-                      '              test_env_names=("DRIVER_DETACH",))\n')
+                      '              test_env_names=("DRIVER_DETACH",), daemon_expected="none")\n')
     cj = w.d / "caller.json"
     cj.write_text(json.dumps({"py": arrow_python, "feeder": str(w.driver), "argv": w.argv(), "settings": w.settings(exec_=exec_),
                               "expected": str(w.expected), "log_dir": str(w.logs), "state_dir": str(w.state),
@@ -785,7 +810,7 @@ def real_caller(w, arrow_python, exec_, detach=False):
 def real_launch(w, arrow_python, exec_, detach=False):
     return SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(exec_=exec_), log_dir=str(w.logs),
                          state_dir=str(w.state), env=w.env(**({"DRIVER_DETACH": "1"} if detach else {})), test_stub=True,
-                         test_env_names=("DRIVER_DETACH",))
+                         test_env_names=("DRIVER_DETACH",), daemon_expected="none")
 
 
 # ---------------------------------------------------------------------------------------------------- W: the launch line
@@ -844,10 +869,29 @@ def test_k2_a_session_whose_feeder_returned_while_the_box_still_runs_is_torn_dow
     assert argv_pids(f["bridge_sock"]) == []
 
 
+def launch_wrapper_dir(fields):
+    """The wrapper directory a launch prepared, from the launch's own record of the PATH it was given: the launch line's `pid` is
+    the wrapper's process, which has become bwrap, and bwrap's argv carries `--setenv PATH <built PATH>`, whose first entry is the
+    wrapper's directory (never a glob of /tmp: other runs own other directories)."""
+    argv = open("/proc/%s/cmdline" % fields["pid"], "rb").read().split(b"\0")
+    i = next(i for i, a in enumerate(argv) if a == b"PATH" and argv[i - 1] == b"--setenv")
+    d = argv[i + 1].decode().split(os.pathsep)[0]
+    assert os.path.basename(d).startswith("sandbox-launch-"), argv
+    return d
+
+
+def remove_callers_wrapper_dir(d):
+    """The killed caller never reached run_feeder's own removal, so the cell removes the directory its caller prepared, and only
+    that one, and only if it is a launch directory of this uid."""
+    if d and os.path.basename(d).startswith("sandbox-launch-") and os.path.isdir(d) and os.stat(d).st_uid == os.getuid():
+        shutil.rmtree(d, ignore_errors=True)
+
+
 @TSS.needs_box
 @needs_arrow
 def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_until_it_is_stopped(w, arrow_python):
     caller = real_caller(w, arrow_python, "sleep 120")
+    wdir = None
     try:
         log = None
         end = time.time() + 40
@@ -857,6 +901,7 @@ def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_u
             time.sleep(0.1)
         assert log, "the session never launched"
         f = wait_fields(log)
+        wdir = launch_wrapper_dir(f)                       # read from the launch's own record, while the wrapper still runs
         caller.kill(); caller.wait(timeout=30)           # the caller's SIGKILL: no teardown of its own can run
         unit = f["scope_unit"]
         assert unit_state(unit) == "active", "the premise: the box outlived its killed caller"
@@ -866,9 +911,13 @@ def test_k1_a_killed_caller_leaves_a_session_the_next_launch_refuses_naming_it_u
         assert w.records() == []                           # nothing was started
         assert TSS._systemctl("stop", scope_of(unit)).returncode == 0
         assert w.launch().returncode == 0                  # after the stop it launches
+        remove_callers_wrapper_dir(wdir)
+        assert not os.path.exists(wdir), "the killed caller's wrapper directory is left behind"
     finally:
         if caller.poll() is None:
             caller.kill()
+        remove_callers_wrapper_dir(wdir)       # also when an assertion above failed
+        assert wdir is None or not os.path.exists(wdir)
 
 
 @needs_linux_wrapper
@@ -935,7 +984,7 @@ def test_t_a_launch_line_that_lacks_a_marker_is_a_named_stop(w):
 def test_t_runs_in_a_finally_a_feeder_that_raised_is_still_torn_down_and_the_record_closed(w):
     with pytest.raises(FileNotFoundError):
         SL.run_feeder("/nonexistent-python", str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs),
-                      state_dir=str(w.state), env=w.env(), test_stub=True)
+                      state_dir=str(w.state), env=w.env(), test_stub=True, daemon_expected="none")
     (rec,) = records_in(w.state)
     assert rec["state"] == "done" and "no launch line" in rec["note"]
 
@@ -1661,7 +1710,7 @@ def test_g_the_fixed_list_is_one_named_constant_of_absolute_directories():
 def test_g_a_caller_environment_with_no_path_launches_since_nothing_of_it_is_used(w):
     r = SL.run_feeder(sys.executable, str(w.stub), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
                       env={k: v for k, v in w.env().items() if k != "PATH"}, test_stub=True, stub_as="feed2.py",
-                      test_env_names=STUB_ENV)
+                      test_env_names=STUB_ENV, daemon_expected="none")
     assert r.returncode == 0
 
 
@@ -1686,6 +1735,48 @@ def test_g_the_refusal_says_the_fixed_directory_list_is_the_design_owners_to_cha
     assert "built PATH" in msg and later in msg
     assert "fixed list of directories is the design owner's to change" in msg
     assert "drop" not in msg
+
+
+def test_g_a_claude_in_the_feeders_own_directory_is_refused_with_the_remove_it_remedy_not_the_design_owners(w):
+    wd, own = second_claude(w.d / "wd"), second_claude(w.d / "own")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:/usr/bin:%s" % (wd, own), str(w.d), feeder_dir=own)
+    msg = str(e.value)
+    assert own in msg and "feeder's own" in msg and "remove" in msg
+    assert "design owner" not in msg
+
+
+def test_g_a_claude_in_a_fixed_list_directory_still_says_the_design_owners_to_change_with_a_feeder_dir_given(w):
+    wd, fixed, own = second_claude(w.d / "wd"), second_claude(w.d / "fixed"), w.d / "own"
+    os.makedirs(own)
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:%s" % (wd, fixed, own), str(w.d), feeder_dir=str(own))
+    msg = str(e.value)
+    assert fixed in msg and "fixed list of directories is the design owner's to change" in msg
+    assert "feeder's own" not in msg
+
+
+def test_g_both_cases_in_one_refusal_each_name_gets_its_own_remedy(w):
+    wd, fixed, own = second_claude(w.d / "wd"), second_claude(w.d / "fixed"), second_claude(w.d / "own")
+    with pytest.raises(SL.LaunchRefused) as e:
+        SL.check_no_other_claude(os.path.join(wd, "claude"), "%s:%s:%s" % (wd, fixed, own), str(w.d), feeder_dir=own)
+    msg = str(e.value)
+    assert fixed in msg and own in msg
+    assert "feeder's own" in msg and "design owner's to change" in msg
+    sentences = msg.split(". ")                          # the boundary the message joins its parts with
+    own_s = [x for x in sentences if "remove the `claude`" in x]
+    fixed_s = [x for x in sentences if "design owner's to change" in x]
+    assert len(own_s) == 1 and len(fixed_s) == 1 and own_s[0] is not fixed_s[0], sentences
+    assert own in own_s[0] and own not in fixed_s[0]     # the feeder's own directory: remove it, and not the design owner's text
+    assert fixed in fixed_s[0] and fixed not in own_s[0]  # the fixed-list directory: the design owner's text, and not remove
+
+
+def test_g_the_launch_names_the_feeders_directory_remedy_for_an_appended_claude(w):
+    second_claude(w.tools)
+    with pytest.raises(SL.LaunchRefused) as e:
+        w.launch()
+    assert "feeder's own" in str(e.value) and "design owner" not in str(e.value)
+    w.assert_nothing_started()
 
 
 def test_g_every_such_directory_is_named_and_the_wrappers_own_is_not(w):
@@ -1752,7 +1843,7 @@ def test_d_a_wrapper_that_cannot_exec_is_a_launch_stop_and_the_decoy_on_the_call
     env = w.env(PATH="%s:%s" % (decoy, os.environ["PATH"]))
     with pytest.raises(SL.LaunchStop, match="log-verdict refused") as e:     # no log at all: the wrapper never ran
         SL.run_feeder(arrow_python, str(w.driver), w.argv(), sandbox=w.sandbox(), log_dir=str(w.logs), state_dir=str(w.state),
-                      env=env, test_stub=True, stub_as="feed2.py")
+                      env=env, test_stub=True, stub_as="feed2.py", daemon_expected="none")
     r = e.value.result
     assert r.verdict is None and r.wrapper_sha256 is None                # no answer of this session is read
     assert not sentinel.exists(), "the decoy `claude` on the caller's PATH was run"
@@ -1959,3 +2050,11 @@ def test_a6_the_readme_states_the_rule():
     assert "FEEDER_ENV_PAIR_ALLOW" in text
     for name in ("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "ANTHROPIC_BASE_URL"):
         assert name in text
+
+
+def test_readme_states_the_three_launch_wording_sentences():
+    text = " ".join(open(os.path.join(TOOLS, "README.md")).read().split())
+    for phrase in ("fixed-list directory", "no caller remedy", "design owner rules a change of the fixed list",
+                   "sandbox-launch-", "the launching seat sweeps", "before a scored run",
+                   "feed4.py", "unload the model", "whether or not this run loaded it", "pay a reload"):
+        assert phrase in text, phrase

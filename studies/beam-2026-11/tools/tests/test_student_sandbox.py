@@ -50,7 +50,7 @@ def _box_usable():
 
 
 # The tool is Linux-only. Every cell that runs the wrapper (or its box) skips, with this reason, where the host cannot.
-from conftest import NEEDS_BOX_REASON   # the one reason string (conftest.py)
+from conftest import LINUX_PROC, NEEDS_BOX_REASON   # the one reason string (conftest.py); LINUX_PROC: Linux with /proc
 BOX_OK = _box_usable()
 needs_box = pytest.mark.skipif(not BOX_OK, reason=NEEDS_BOX_REASON)
 
@@ -2708,10 +2708,14 @@ def test_peer_a2_connections_past_the_cap_get_503_and_a_log_line(outer, http_stu
     held[1].close()
 
 
-def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
-    stub = http_stub()
-    log = str(tmp_path / "learn-max.log")
-    o = outer(stub, learn=True, log=log)
+def _peak_line_fields(log):
+    lines = [l for l in open(log).read().splitlines() if l.startswith("fwd-peak ")]
+    assert lines, "no peak line"
+    return dict(kv.split("=") for kv in lines[-1].split()[1:])
+
+
+def _drive_known_sequence(o):
+    """Two connections, a 500-byte and a 5000-byte body on the first, a 500-byte body on the second."""
     small = req("POST", "/v1/messages", body=b"x" * 500)
     big = req("POST", "/v1/messages", body=b"x" * 5000)
     s = o.connect()
@@ -2723,26 +2727,34 @@ def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
     s2.sendall(small)
     assert read_response(s2)[0] == 200
     time.sleep(0.5)
-    maxes = [l for l in open(log).read().splitlines() if l.startswith("fwd-learn-max ")]
-    assert maxes, "no maxima line"
-    f = dict(kv.split("=") for kv in maxes[-1].split()[1:])
-    assert int(f["request_bytes"]) == len(big), (f, len(big))
+    return len(big)
+
+
+def test_peer_a2_learn_mode_records_the_maxima(outer, http_stub, tmp_path):
+    stub = http_stub()
+    log = str(tmp_path / "learn-max.log")
+    o = outer(stub, learn=True, log=log)
+    n = _drive_known_sequence(o)
+    f = _peak_line_fields(log)
+    assert int(f["request_bytes"]) == n, (f, n)
     assert int(f["connections"]) == 2, f
-    assert int(f["total_buffered"]) == len(big), f
+    assert int(f["total_buffered"]) == n, f
     assert "SECRET" not in open(log).read()
 
 
-def test_peer_a2_enforce_mode_does_not_record_maxima(outer, http_stub, tmp_path):
+def test_peak_line_allow_list_mode_records_the_same_maxima(outer, http_stub, tmp_path):
+    """The bridge peaks are written in BOTH modes (the pilot has no learn mode): the allow-list run's last peak line
+    holds the largest request, the most concurrent connections and the most buffered bytes, counts only."""
     stub = http_stub()
-    log = str(tmp_path / "enf.log")
+    log = str(tmp_path / "allow-peak.log")
     o = outer(stub, allow=ALLOW, log=log)
-    s = o.connect()
-    s.sendall(req("POST", "/v1/messages", body=b"x" * 500))
-    assert read_response(s)[0] == 200
-    s.close()
-    time.sleep(0.6)   # the connection's own log line is written when it ends
-    text = open(log).read()
-    assert "fwd-conn " in text and "fwd-learn-max" not in text
+    n = _drive_known_sequence(o)
+    f = _peak_line_fields(log)
+    assert int(f["request_bytes"]) == n, (f, n)
+    assert int(f["connections"]) == 2, f
+    assert int(f["total_buffered"]) == n, f
+    assert set(f) == {"request_bytes", "connections", "total_buffered"}, f   # counts only
+    assert "fwd-learn-max" not in open(log).read()
 
 
 def test_peer_a2_many_small_chunks_that_add_up_past_the_cap_are_413(outer, raw_stub):
@@ -2928,7 +2940,7 @@ def test_peer_c2_a_malformed_test_cap_is_refused(cfg, fake_bwrap):
 # ---------------------------------------------------------------- round 5 (C): process and memory caps on the box itself
 # The box runs in its own systemd user scope (TasksMax, MemoryMax, MemorySwapMax=0), entered by the wrapper's own
 # exec, so the cap covers the box alone: the host uid, the host-side forwarder and the feeder are outside it. Limits are
-# SMALL here; the defaults are provisional until the pilot has measured a real run.
+# SMALL here; the defaults are provisional until a pilot run's lines have been read.
 
 FORKER = '''import os, sys, time
 # Bounded forker (never a bomb): up to 300 attempts, each child sleeps; counts successes and failures, then waits.
@@ -3645,6 +3657,65 @@ def test_r7_2_a_fork_bomb_shows_a_pids_max_event_on_the_line(cfg):
     assert int(f["pids_max_events"]) >= 1, line
 
 
+def _watch_over(tmp_path, files):
+    """A CgroupWatch pointed at a fake scope directory holding exactly `files` (name -> text): no box, no cgroup."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sandbox_forward_cgroup_under_test", FWD)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    d = tmp_path / "scope"
+    d.mkdir()
+    for name, text in files.items():
+        (d / name).write_text(text)
+    w = mod.CgroupWatch("student-sandbox-fake-0000", os.getpid())
+    w.base = str(d)
+    return w
+
+
+FAKE_SCOPE = {"memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n", "pids.events": "max 0\n",
+              "memory.peak": "123456789\n", "pids.peak": "37\n"}
+
+
+def test_peaks_the_line_carries_memory_peak_and_pids_peak(tmp_path):
+    w = _watch_over(tmp_path, FAKE_SCOPE)
+    w.tick()
+    line = w.final_line()
+    assert line.startswith("box-cgroup scope=student-sandbox-fake-0000 oom_kill=0 "), line   # the old fields, in place
+    f = dict(kv.split("=", 1) for kv in line.split()[1:])
+    assert f["memory_peak"] == "123456789" and f["pids_peak"] == "37", line
+
+
+@pytest.mark.parametrize("missing", ["memory.peak", "pids.peak"])
+def test_peaks_an_absent_peak_file_reads_unavailable_and_never_raises(tmp_path, missing):
+    files = {k: v for k, v in FAKE_SCOPE.items() if k != missing}
+    w = _watch_over(tmp_path, files)
+    w.tick()   # must not raise
+    f = dict(kv.split("=", 1) for kv in w.final_line().split()[1:])
+    other = "pids_peak" if missing == "memory.peak" else "memory_peak"
+    assert f[missing.replace(".", "_")] == "unavailable", f
+    assert f[other] != "unavailable", f           # only the missing one
+    assert f["polls"] == "1", f                    # the events were still read: the run's line is not lost
+
+
+def test_peaks_an_unreadable_peak_value_reads_unavailable(tmp_path):
+    w = _watch_over(tmp_path, dict(FAKE_SCOPE, **{"memory.peak": "not-a-number\n"}))
+    w.tick()
+    f = dict(kv.split("=", 1) for kv in w.final_line().split()[1:])
+    assert f["memory_peak"] == "unavailable" and f["pids_peak"] == "37", f
+
+
+@needs_box
+def test_peaks_a_box_run_writes_memory_peak_and_pids_peak_for_a_fresh_scope(cfg):
+    """The values are RUN peaks because the scope is fresh: its name carries this launch's wrapper pid and a random
+    suffix, and the box-cgroup line names exactly the scope the launch line named."""
+    r = cfg.run(exec_="sleep 3", SANDBOX_LOG=cfg.log)
+    assert r.returncode == 0, r.stderr
+    f, line = _box_cgroup_line(cfg)
+    assert f["scope"] == _launch_line_fields(cfg)["scope_unit"], line
+    assert re.fullmatch(r"[0-9]+", f["memory_peak"]) and int(f["memory_peak"]) > 0, line
+    assert re.fullmatch(r"[0-9]+", f["pids_peak"]) and int(f["pids_peak"]) >= 1, line
+
+
 def test_r7_2_a_forwarder_that_never_finds_the_cgroup_says_so(tmp_path):
     """Never silent: a scope that does not exist gives one line that names why."""
     sock_dir = tmp_path / "sd"
@@ -4232,7 +4303,7 @@ def test_l_s2_a_response_that_outlasts_the_timeout_is_not_cut(outer, tmp_path):
 
 # ---- L-S3: an unreaped zombie is not alive (Linux reads /proc/<pid>/stat)
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc/<pid>/stat: Linux only; elsewhere os.kill stays")
+@pytest.mark.skipif(not LINUX_PROC, reason="reads /proc/<pid>/stat: Linux with /proc only; elsewhere os.kill stays")
 def test_l_s3_a_child_that_exited_but_is_not_reaped_reads_dead():
     mod = _load_forwarder()
     p = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -5113,3 +5184,21 @@ def test_x_no_unit_created_by_this_file_is_still_active():
     """Last cell of the file: every scope the cells above were attributed (by their own scratch root, see the cfg fixture)
     is gone. Which units this run created is known from that attribution, never from a name pattern."""
     assert not [u for u in CREATED_UNITS if u in active_scope_units()]
+
+
+# ---------------------------------------------------------------- what the caps' provisional status rests on
+
+def test_the_readme_says_what_is_measured_now_and_what_the_caps_wait_for():
+    """The caps stay provisional until a pilot run's lines have been read; the README must not promise a learn-mode
+    measurement (the pilot has no learn mode) and must name what the lines carry now: the bridge peak line in both
+    modes, memory.peak and pids.peak on the box-cgroup line, and that those are run peaks because the scope is fresh."""
+    text = open(README).read()
+    assert not re.search(r"PROVISIONAL until the wrapper-cost pilot's learn mode", text), "a measurement the code cannot make"
+    assert len(re.findall(r"PROVISIONAL until a pilot run's lines have been read", text)) >= 2, "caps row and cap-hits paragraph"
+    caps_row = next(l for l in text.splitlines() if l.startswith("| Caps (no variable outside test mode)"))
+    assert "`fwd-peak`" in caps_row and "`memory_peak`" in caps_row and "`pids_peak`" in caps_row, caps_row
+    hits = next(l for l in text.splitlines() if l.startswith("Cap hits after the run."))
+    assert "`memory_peak`" in hits and "`pids_peak`" in hits and "`memory.peak`" in hits, hits
+    assert "run peaks" in hits and "fresh" in hits, hits
+    sh = open(WRAPPER).read()
+    assert "learn mode has measured" not in sh and "learn mode records the real maxima" not in sh

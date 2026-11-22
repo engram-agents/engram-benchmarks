@@ -10,7 +10,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS, install_stub_systemctl, needs_linux_wrapper
+from conftest import TOOLS, install_stub_systemctl, needs_linux_proc, needs_linux_wrapper
 
 TOOL = os.path.join(TOOLS, "p1-session.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -126,9 +126,10 @@ def emulate_wrapper(a):
     start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
     pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+    dexp = pairs.get("SANDBOX_DAEMON_EXPECTED", "unstated")   # what the real wrapper records of the arm's statement
     line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
             f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1 "
-            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
+            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296 daemon_expected={dexp}")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:
@@ -227,7 +228,7 @@ class World:
              "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
-             "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
+             "P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": "none", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
              "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
              "STUB_PATH_LOG": str(self.root / "stub-path.txt"), "STUB_ENV_LOG": str(self.root / "stub-env.json"),
              "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
@@ -697,11 +698,14 @@ def test_protected_store_hash_matches_the_in_place_method_on_an_ordinary_store(t
     assert P1S.protected_store_hash(h) == P1S.store_content_hash(os.path.join(h, ".engram", "knowledge.db"))
 
 
-def test_protected_store_hash_removes_its_temporary_copy(wal_home):
+def test_protected_store_hash_removes_its_temporary_copy(wal_home, tmp_path, monkeypatch):
+    """The call gets a PRIVATE temporary directory, so no other process on the host can add or remove entries in it."""
     import tempfile
-    before = set(os.listdir(tempfile.gettempdir()))
+    private = tmp_path / "private-tmp"
+    private.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(private))
     P1S.protected_store_hash(wal_home)
-    assert set(os.listdir(tempfile.gettempdir())) == before
+    assert os.listdir(private) == []
 
 
 def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
@@ -853,7 +857,7 @@ def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w)
 
 # ------------------------------------------------------------------ round 4: test-only hooks are gated behind P1_TEST_HOOKS=1
 HOOK_VALUES = {"P1_TEST_RAISE": "Exception", "P1_FEED4": "stub", "P1_PLANT_CONTROL": "plant", "P1_AFTER_COPY_HOOK": "hook",
-               "P1_UTC_STAMP": "20261118T000000Z", "P1_EXPECTED_PARQUET_PREFIX": "000000000000"}
+               "P1_UTC_STAMP": "20261118T000000Z", "P1_EXPECTED_PARQUET_PREFIX": "000000000000", "P1_TEST_DAEMON_EXPECTED": "none"}
 
 
 @pytest.mark.parametrize("var", sorted(HOOK_VALUES))
@@ -1337,3 +1341,64 @@ def test_e3_the_environment_the_feeder_got_is_built_and_its_names_are_in_setup_t
     assert [n for n in names if not n.startswith("STUB_")] == ["BEAM_PARQUET", "PATH"]
     (line,) = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder environment names: ")]
     assert line == "sandbox feeder environment names: " + ", ".join(names)
+
+
+# ------------------------------------------------------------------ PR 22 fold: the arm's statement and the daemon lines of setup.txt
+# p1-session runs only the ENGRAM arm, so its student launch states "engram" as a constant. A stub session's slot holds no recall
+# daemon, so every cell that runs a stub session reaches the launch module through ONE test-only route, P1_TEST_DAEMON_EXPECTED=none,
+# which World.env sets: honoured only under P1_TEST_HOOKS=1 with P1_FEED4, refused in step 1 otherwise.
+def test_k1_a_real_runs_statement_is_the_constant_engram_and_only_the_test_route_can_say_none():
+    assert P1S.DAEMON_STATEMENT == "engram"
+    route = {"P1_TEST_DAEMON_EXPECTED": "none", "P1_FEED4": "/stub"}
+    assert P1S.daemon_statement({**route, "P1_TEST_HOOKS": "1"}) == "none"
+    assert P1S.daemon_statement(route) == "engram"                                              # the hooks are not on: ignored
+    assert P1S.daemon_statement({"P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": "none"}) == "engram"   # no stub: not honoured
+    for other in ("engram", "None", "", "NONE", "yes"):
+        assert P1S.daemon_statement({**route, "P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": other}) == "engram"
+    assert P1S.daemon_statement({}) == "engram"
+
+
+def test_k1_without_the_route_the_student_run_states_engram_and_the_module_refuses_a_slot_without_the_daemon(w):
+    r = w.run(P1_TEST_DAEMON_EXPECTED=None)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "REFUSE:" in r.stdout and "daemon_expected='engram'" in r.stdout and "derives none" in r.stdout, r.stdout
+    assert not w.mark.exists(), "a stub student ran although the slot did not hold what the arm states"
+
+
+@pytest.mark.parametrize("kw", [{"P1_TEST_DAEMON_EXPECTED": "engram"}, {"P1_TEST_DAEMON_EXPECTED": "None"},
+                                {"P1_FEED4": None}], ids=["engram", "None", "no-stub"])
+def test_k1_the_route_states_only_none_and_only_for_a_stub(w, kw):
+    r = w.run(**kw)
+    assert r.returncode == 2 and "P1_TEST_DAEMON_EXPECTED" in r.stdout + r.stderr, (r.returncode, r.stdout, r.stderr)
+    assert not w.mark.exists()
+
+
+@needs_linux_proc
+def test_k2_setup_txt_records_the_daemon_lines_when_the_session_ends_normally(w):
+    r = w.run()
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox daemon expected (arm statement): none", "sandbox daemon (launch line): none",
+                 "sandbox daemon time to ready s: none", "sandbox daemon stop outcome: none", "sandbox box label: none"):
+        assert want in lines, (want, lines)
+
+
+def test_k2_setup_txt_records_the_daemon_lines_when_the_launch_stops_too(w):
+    r = w.run(STUB_SANDBOX="badwrapper")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox daemon expected (arm statement): none", "sandbox daemon (launch line): none",
+                 "sandbox daemon time to ready s: none", "sandbox daemon stop outcome: none", "sandbox box label: none"):
+        assert want in lines, (want, lines)
+
+
+def test_k2_sandbox_info_prints_what_a_daemon_launch_filled_in(w):
+    import types
+    res = P1S.SL.LaunchResult(0, log=str(w.root / "x.log"))
+    res.daemon, res.daemon_expected, res.daemon_time_to_ready_s = "engram", "engram", 3.4
+    res.daemon_stop_outcome, res.box_label = "already-gone", "the box with the recall daemon"
+    info = P1S.sandbox_info({"sandbox": types.SimpleNamespace(expected_file=str(w.expected))}, res)
+    for want in ("sandbox daemon expected (arm statement): engram", "sandbox daemon (launch line): engram",
+                 "sandbox daemon time to ready s: 3.4", "sandbox daemon stop outcome: already-gone",
+                 "sandbox box label: the box with the recall daemon"):
+        assert want in info, (want, info)
