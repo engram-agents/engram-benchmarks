@@ -16,7 +16,18 @@ missing one):
                   tools/pilot-run.sh, refused the same way). The launcher streams the file through sha256 in step 1
   P1_PROTECTED    colon-separated preserved-home paths; every entry must exist; --end-state must be one of them
 
-usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F
+THE SANDBOX (design A10): every student session this launcher starts goes through sandbox_launch.py, the one door (see
+its docstring and tools/README.md). A real run (not --dry-run) therefore also needs
+  --expect-sandbox FILE   the expected sha256 of student-sandbox.sh and sandbox-forward.py (two lines,
+                          wrapper_sha256=<64 hex> and forwarder_sha256=<64 hex>); refused in step 1 without it
+  SANDBOX_*               in the environment, one value each for the settings student-sandbox.sh requires
+                          (SANDBOX_BINARY, SANDBOX_BINARY_SHA256, SANDBOX_MODEL_HOST, SANDBOX_MODEL_PORT, SANDBOX_PROTECT,
+                          SANDBOX_MODEL_ALLOW). SANDBOX_SLOT is this launcher's slot (BEAM_ARM_HOME); a different value is
+                          refused. The module passes them to feed4.py as `--env` pairs (an exported variable never reaches
+                          the wrapper: feed4 builds the student's environment from scratch). SANDBOX_LOG, the proctor
+                          binds and the tools binds are the module's own, per launch.
+
+usage: p1-session.py --end-state PATH --session ID --label NAME --question-file F --components F --expect-sandbox FILE
                      [--plant-builtin T --plant-engram T --plant-absent T [--plant-question TEXT]] [--dry-run]
        or, for an ENGRAM-only plant (control 2):  ... [--plant-engram T --plant-absent T] [--dry-run]
 
@@ -46,8 +57,16 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
    evidence dir <rundir>/plant-evidence (outside the student's home); in engram-only mode without --builtin-fact. Its exit 3 (a protected entry changed) is exit 5;
    any other nonzero is exit 4; either way no student run.
  7 feed4.py --dump-plan with the step-8 arguments -> plan.json; it must be exactly [compact, q1..qN] in file order.
+   (Through sandbox_launch.run_feeder, unwrapped: a plan dump starts no student and creates no sandbox log.)
  8 unless --dry-run: feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --turns 0 --resume ID --force-compact
-   --question-file F --env CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C
+   --question-file F --env CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C, through sandbox_launch.run_feeder
+   (a fresh wrapper directory first on PATH, a fresh SANDBOX_LOG in <rundir>, the module's `--env` pairs added, its launch
+   records in <BEAM_RUNS_DIR>/sandbox-launches/). The module stops the session's scope and checks nothing of it remains
+   (a leftover is a STOP, below), and refuses to launch while anything of an earlier launch is alive (the count of leftovers
+   found is written to setup.txt as `sandbox leftovers found at launch: N`). A refusal
+   by the module before anything starts is exit 2; a log-verdict refusal or a launch-line hash that differs from the
+   expected value is exit 3 with a `STOP:` line, and then no answer of the session is read (steps 9's copy and delivery
+   check are skipped; steps 10 and 11 still run). `flagged` is recorded in setup.txt, not a stop.
  9 (not on --dry-run) stop slot processes; copy <slot>/.claude/projects to <rundir>/transcripts;
    answer-delivery-check.py -> delivery.txt.
 10 after-hashes.txt, same method for every protected home; ANY difference prints `changed home: <path>` and
@@ -55,9 +74,56 @@ Steps (every refusal in step 1 happens before anything is touched: no process ki
 11 setup.txt: first line the benchmarks commit id, then the sha256 of this script, feed4.py, feed.py, the question file,
    the components file, answer-delivery-check.py and plant-control.py, the plant mode on its own line (`plant mode: none`,
    `plant mode: both channels` or `plant mode: engram-only (no built-in plant)`), the FULL sha256 of BEAM_PARQUET (`<sha256>  BEAM_PARQUET`), which dataset check ran (`dataset check: registered
-   prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), start/end UTC, and each step's exit code.
-Exit codes: 0 all good; 1 delivery check failed; 2 refused; 3 copy, plan check or feed4 failed; 4 plant failed;
-5 a protected home changed (overrides every other code).
+   prefix <prefix>` or `dataset check: test-only override (P1_TEST_HOOKS)`), the sha256 of sandbox_launch.py, the sandbox lines
+   (`sandbox expected-hashes file: <name> (sha256 <sha>)`, `sandbox log: <basename>`, `sandbox verdict: <the log-verdict line,
+   verbatim>`, `sandbox launch-line wrapper_sha256: <hash>`, `sandbox launch-line forwarder_sha256: <hash>`; with --dry-run one
+   line saying no student ran), start/end UTC, and each step's exit code.
+CONTINUE READING (--continue-reading): the same launcher, steps and protected-home proof, but it feeds READING rounds instead
+of asking questions, then saves the resulting home as a new preserved end state:
+  p1-session.py --end-state PATH --session ID --label NAME --components F --continue-reading --start N --through M
+                --per-round K --save-end-state PATH --expect-store-sha256 H [--expect-serving FILE] [--dry-run]
+  Mutually exclusive with --question-file and every plant flag; --start --through --per-round --save-end-state and
+  --expect-store-sha256 are then required, and none of the continue flags is accepted without it. Feeds exchanges N..M of
+  conversation 9 through feed4.py --resume ID --start N --turns M --per-round K (feed4's --turns is an INCLUSIVE END INDEX).
+  Step 1 also refuses (exit 2): K < 1; N < 2; M < N; (N - 1) % K != 0; (M - N + 1) % K != 0; the end state's store content
+  hash (protected_store_hash) differs from --expect-store-sha256; --save-end-state, or PATH.hashes.txt, already exists, or
+  PATH, or PATH.hashes.txt, is equal to, inside or containing ANY path the launcher creates or protects (launcher_paths():
+  the run directory, or the first missing ancestor of it, the aside path, the slot, every protected home, the end state;
+  after resolving `..` and the symlinks of existing ancestors), or PATH's parent directory is missing; --expect-serving FILE differs from the
+  recorded serving lines. Then it records the serving setup (GET <BEAM_OLLAMA_URL, else the default>/api/version, and
+  /api/tags for the digest of feed4's default model) as three `serving:` lines in setup.txt; a server that does not answer, or
+  does not list the model, is exit 3 with `SERVING RECORD FAILED` and nothing touched. Optional env: BEAM_OLLAMA_URL.
+  Step 7 dumps the continue plan and a FULL run's plan (--start 1 --turns M --per-round K, no resume): the continue plan
+  must hold exactly (M - N + 1) / K reading messages carrying exchanges N..M in order, no compaction, no question, and be
+  byte-equal to the full plan's messages for those exchanges (a resume must add nothing); else exit 3, no student run.
+  Step 8 is feed4.py --arm-home <slot> --out <rundir>/run --conv 9 --resume ID --start N --turns M --per-round K --env
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072 --expect-components C (no --force-compact, no questions). Step 9's delivery check
+  is reading-delivery-check.py (answer-delivery-check.py refuses reading turns by design). After a run with feed4 exit 0
+  and the delivery check passing, the slot's CONTENTS are COPIED (cp -a, never moved) into --save-end-state, a directory made
+  at that moment with os.mkdir (no exist_ok) beside a hashes file made with O_CREAT | O_EXCL: if either exists by then
+  (step 1 ran hours earlier) the run is exit 3 with a `STOP: <path> appeared after step 1` line and nothing of the caller's
+  is touched. The copy is checked the way the next run will check it (check_end_state_links on the saved copy), hashed the
+  way the protected homes are (store content hash from a temporary copy, memory files), and the hashes go to setup.txt and
+  PATH.hashes.txt; on any failure ONLY the paths this run created are removed, with a `saved end state removed:` line. The
+  saved end state is not in the before set; steps 10 and 11 run as before, so the originals (the end state included) are
+  proved byte-equal. In this mode a step-10 failure that is not a difference (the after-hashes cannot be computed or
+  written, for example the run directory was removed) prints `AFTER-HASHES UNAVAILABLE: <reason>` and is exit 3, never
+  `PROTECTED CHANGED`; the answering mode keeps its pinned behaviour (an unprovable pass counts as every home changed).
+A FLAGGED SESSION AND ITS END STATE (design owner's ruling, option C). After a FLAGGED log-verdict in continue-reading mode the end
+state is still saved, but under the QUARANTINE name `<--save-end-state>.flagged` (hashes `.flagged.hashes.txt`, record
+`.flagged.verdict.txt`), and setup.txt says in words that the run is excluded (`saved end state QUARANTINED: ...`); the session's
+wrapper log, verdict line and transcript stay in the run directory. A clean session saves to `<--save-end-state>` with its record
+`<--save-end-state>.verdict.txt` (`sandbox verdict:`, `sandbox log:`, `run record:` lines). Every one of these paths is created
+EXCLUSIVELY (os.mkdir without exist_ok, O_CREAT | O_EXCL), recorded in c["created"] at the moment of its own create, and a
+failure removes only the paths recorded there: a path that already existed was never recorded, so it is never touched. Step 1
+refuses if any of the clean or quarantine names already exists. THE READER refuses by name and by content, before anything is
+touched (exit 2): an --end-state under a quarantine name (`*.flagged`); one whose own record (`<end state>.verdict.txt`, looked for
+beside the path as given and beside its realpath) carries a flagged verdict, so renaming a quarantined state together with its
+record does not launder it; one with no verdict line at all (a state saved by an older tool, or copied by hand: such a state needs
+a record written for it before continue-reading will start from it).
+Exit codes: 0 all good; 1 delivery check failed; 2 refused (the sandbox module's pre-launch refusals included); 3 copy, plan check,
+feed4, a sandbox STOP (log-verdict refusal, launch-line hash mismatch) or (continue-reading) the save or the after-hashes proof
+failed; 4 plant failed; 5 a protected home changed (overrides every other code).
 
 A protected home's store is never opened with sqlite: it is hashed from a byte copy of knowledge.db, -wal and -shm in a
 temporary directory (protected_store_hash), because even a read-only sqlite connection writes -shm read marks. The memory
@@ -65,30 +131,58 @@ folders are only read. Only the disposable slot copy is hashed in place.
 
 TEST-ONLY HOOKS (never set in a real run; each is documented in tests/test_p1_session.py). Setting any of them without
 P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never silently change a real run:
-  P1_FEED4            run this script in place of feed4.py (the plan dump and the run)
+  P1_FEED4            run this script in place of feed4.py (the plan dump and the run). The stub goes through the same
+                      sandbox_launch.run_feeder as feed4.py would, wrapped, with every pre-launch and post-session check
+                      live; a stub that starts no student must write the log line the wrapper would (a test stub does).
+                      The student run's feeder gets only the environment the module builds; the stub also receives the
+                      caller's STUB_* variables (and no other), so a stub can be steered by a test
   P1_PLANT_CONTROL    run this script in place of plant-control.py
   P1_UTC_STAMP        a fixed stamp for the aside path
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
   P1_EXPECTED_PARQUET_PREFIX  the sha256 prefix BEAM_PARQUET must have, in place of the registered one (setup.txt says so)
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
+  P1_TEST_DAEMON_EXPECTED  `none` only, and only with P1_FEED4: the student run states daemon_expected="none" to the launch module
+                      instead of the constant "engram" (a stub session's slot holds no recall daemon, so the launch module would
+                      refuse the constant). Any other value, or no P1_FEED4, is refused in step 1
 """
-import argparse, datetime, hashlib, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
+import argparse, datetime, hashlib, http.client, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
+import importlib.util
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The one door through which a student session starts. Loaded by path from beside this file (not through sys.path, which
+# `-I` and the deployed layout do not promise).
+_SL_SPEC = importlib.util.spec_from_file_location("sandbox_launch", os.path.join(HERE, "sandbox_launch.py"))
+SL = importlib.util.module_from_spec(_SL_SPEC)
+_SL_SPEC.loader.exec_module(SL)
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
 TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE",
-              "P1_EXPECTED_PARQUET_PREFIX")
+              "P1_EXPECTED_PARQUET_PREFIX", "P1_TEST_DAEMON_EXPECTED")
 # The registered dataset's sha256 prefix: studies/beam-2026-11/PROVENANCE.md ("parquet sha256 prefix") and the reading
 # runs' own check in tools/pilot-run.sh. A test reads PROVENANCE.md and requires this constant to equal it.
 REGISTERED_PARQUET_PREFIX = "c0519be25907"
+# The ARM's statement of whether its student runs with the recall daemon, which the launch module compares with what the slot holds.
+# p1-session runs only the ENGRAM arm (it refuses an end state without .engram/knowledge.db), so the statement is a CONSTANT: no
+# option and no environment variable of a real run can change it. (The arm without the daemon is not run by this tool.)
+DAEMON_STATEMENT = "engram"
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
+# The model server feed4.py talks to (feed.py's OLLAMA_URL) and the model it runs when --model is not given (feed4.py's
+# --model default); the continue-reading mode records the server's version and this model's digest. A test reads
+# feed4.py and requires SERVING_MODEL to equal its default.
+OLLAMA_DEFAULT = "http://localhost:11434"  # privacy-scan: allow (Ollama's documented default endpoint, as in feed.py)
+SERVING_MODEL = "qwen3.8:27b-128k"
+CONTINUE_ONLY = ("start", "through", "per_round", "save_end_state", "expect_store_sha256", "expect_serving")
 PLANT_SETS = ("the valid plant sets are --plant-builtin --plant-engram --plant-absent (both channels), or exactly "
               "--plant-engram --plant-absent (engram-only)")
 
 
 class Refusal(Exception):
     pass
+
+
+class ServingFailed(Exception):
+    """The model server did not give the serving record (exit 3, before anything is touched)."""
 
 
 # --------------------------------------------------------------------------------------------- the store content hash
@@ -199,6 +293,47 @@ def under(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+# The ONE place that says which paths this launcher creates, moves, writes into or protects for an invocation. Everything
+# a caller chooses (--save-end-state, and the PATH.hashes.txt beside it) must be disjoint from every one of them; the
+# naming rules of the run directory and the aside path live here too, so step 1 and the checks cannot drift apart. A test
+# binds this set to what a real dry run creates (a path main() starts creating without being listed here goes red).
+CREATED_ROLES = ("run directory", "aside path", "slot")
+
+
+def run_dir_path(runs, label):
+    return os.path.join(runs, f"p1-{label}")
+
+
+def aside_path(slot, label, stamp):
+    return f"{slot}.aside-{label}-{stamp}"
+
+
+def launcher_paths(slot, runs, label, stamp, end, prot):
+    """[(role, realpath)]: the paths created (CREATED_ROLES: the run directory, or the first missing ancestor of it when
+    BEAM_RUNS_DIR does not exist yet, since os.makedirs creates the whole chain; the aside path an existing slot is moved
+    to; the slot recreated by the copy) and the paths protected (every protected home, the end state among them), each
+    resolved with os.path.realpath. Anything the launcher writes under them (plan dumps, run output, transcripts,
+    setup.txt, plant evidence) is inside the run directory or the slot. The temporary directories of protected_store_hash
+    are random names made by tempfile.mkdtemp (exclusive by construction) and are not listed."""
+    top = os.path.abspath(run_dir_path(runs, label))
+    while not os.path.lexists(os.path.dirname(top)):
+        top = os.path.dirname(top)
+    out = [("run directory", os.path.realpath(top)), ("aside path", os.path.realpath(aside_path(slot, label, stamp))),
+           ("slot", os.path.realpath(slot))]
+    out += [("protected home", os.path.realpath(p)) for p in prot]
+    out.append(("end state", os.path.realpath(end)))
+    return out
+
+
+def refuse_overlap(what, path, paths):
+    """Refusal unless `path`, after resolving `..` and the symlinks of its existing ancestors, is disjoint from every
+    path in `paths`: not equal to, not inside, not containing any of them."""
+    real = os.path.realpath(path)
+    for role, p in paths:
+        if under(real, p) or under(p, real):
+            raise Refusal(f"{what} {path} is equal to, inside, or containing the {role} {p}")
+
+
 def slot_pids(slot):
     needles = {slot.rstrip(os.sep) + "/.engram/", os.path.realpath(slot).rstrip(os.sep) + "/.engram/"}
     r = subprocess.run(["ps", "-u", str(os.getuid()), "-ww", "-o", "pid=,command="], capture_output=True, text=True)
@@ -284,6 +419,165 @@ def check_end_state_links(end, prot):
     return outside
 
 
+def fetch_json(url):
+    with urllib.request.urlopen(url, timeout=15) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def serving_record(env):
+    """The serving setup the run will use (design A7): the model server's version (GET <url>/api/version, the URL feed4.py
+    uses: BEAM_OLLAMA_URL, else the default), the model name feed4.py runs by default, and that model's digest (GET
+    <url>/api/tags, the entry whose name equals it). Three `serving: ...` lines. A server that does not answer, or that
+    does not list the model, is ServingFailed, never a silent skip."""
+    base = (env.get("BEAM_OLLAMA_URL") or OLLAMA_DEFAULT).rstrip("/")
+    try:
+        version = fetch_json(base + "/api/version")["version"]
+        models = fetch_json(base + "/api/tags")["models"]
+        digest = next((m["digest"] for m in models if m.get("name") == SERVING_MODEL), None)
+    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ServingFailed(f"cannot read the model server at {base}: {type(e).__name__}: {e}")
+    if not isinstance(version, str) or not version:
+        raise ServingFailed(f"the model server at {base} gave no version string")
+    if not isinstance(digest, str) or not digest:
+        raise ServingFailed(f"the model {SERVING_MODEL} is not listed (with a digest) by {base}/api/tags")
+    return [f"serving: ollama version {version}", f"serving: model {SERVING_MODEL}", f"serving: model digest {digest}"]
+
+
+QUARANTINE_SUFFIX = ".flagged"
+VERDICT_SUFFIX = ".verdict.txt"
+
+
+PRE_MODULE_VERDICT = "none (pre-module state, never wrapped)"   # the line mark-pre-module-start.py writes
+# The one line a session run with --pilot-pre-module-start (whether or not its start was pre-module) adds to the verdict
+# record it saves: `pilot start: state_sha256=<the start's store hash>`. The hash is provenance for a human reader; no reader
+# checks it. A reader refuses ANY record carrying a line with this prefix, unconditionally and by name (a pilot's saved end
+# state is never a start: no flag readmits it, so there is no second generation and no inheritance rule).
+PILOT_START_PREFIX = "pilot start:"
+
+
+def end_state_verdict_problem(path, allow_pre_module_start=False):
+    """The continue-reading reader's check of an end state, BY NAME AND BY CONTENT (design owner's ruling on F5, option C).
+    Returns the reason to refuse, or None. The DEFAULT call (no allowance: what any scored launcher uses) refuses the
+    `none (pre-module ...)` line; only p1-session.py's `--pilot-pre-module-start` passes the allowance. See
+    _end_state_verdict for the rules."""
+    return _end_state_verdict(path, allow_pre_module_start)[0]
+
+
+def _end_state_verdict(path, allow_pre_module_start):
+    """(reason to refuse | None, the record's state_sha256 when a pre-module line was accepted | None).
+    The end state's own record is the file `<path>.verdict.txt` beside it (the layout `save_end_state` writes: the hashes
+    file is `<path>.hashes.txt`); it holds the line `sandbox verdict: <the session's log-verdict line>`. Refused: (a) a
+    quarantine name (`*.flagged`); (b) a record whose verdict is flagged (so renaming a quarantined state together with its
+    record does not launder it); (c) no record, or no verdict line in it (a state saved by an older tool, or copied by
+    hand); (d) the pre-module line without the allowance, or with it when the record has no single `state_sha256=` line,
+    or the state's store content hash (protected_store_hash, the same helper: the knowledge.db tables only, not memory
+    files, .claude/ or hooks) differs from it (a store changed after marking is not the store that was named), or the record holds any other verdict line beside it. The record is looked
+    for beside the path as given and beside its realpath."""
+    for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
+        if os.path.basename(cand).endswith(QUARANTINE_SUFFIX):
+            return (f"the end state {cand} is under a quarantine name ({QUARANTINE_SUFFIX}): it was saved by a FLAGGED "
+                    "session, and an excluded run's end state is never read as a start"), None
+    verdicts, recs = [], {}
+    for cand in dict.fromkeys([os.path.abspath(path), os.path.realpath(path)]):
+        rec = cand + VERDICT_SUFFIX
+        try:
+            lines = open(rec, encoding="utf-8").read().splitlines()
+        except OSError:
+            continue
+        recs[rec] = lines
+        verdicts += [(rec, l[len("sandbox verdict: "):]) for l in lines if l.startswith("sandbox verdict: ")]
+    for rec, lines in recs.items():
+        if any(l.startswith(PILOT_START_PREFIX) for l in lines):
+            return (f"the end state {path} was saved by a PILOT session: its record {rec} carries a `{PILOT_START_PREFIX}` "
+                    "line, and a pilot's saved end state is never read as a start (no flag readmits it)"), None
+    if not verdicts:
+        return (f"the end state {path} has no verdict line: there is no record {os.path.abspath(path)}{VERDICT_SUFFIX} "
+                "holding `sandbox verdict: ...` (a state saved by an older tool, or copied by hand, is refused)"), None
+    accepted = None
+    for rec, v in verdicts:
+        if v.startswith("flagged"):
+            return f"the end state {path} has a FLAGGED verdict in its own record {rec} ({v}): an excluded run's end state is never read as a start", None
+        if v == PRE_MODULE_VERDICT:
+            if not allow_pre_module_start:
+                return (f"the end state {path} is a pre-module state ({PRE_MODULE_VERDICT}) in its record {rec}: it is "
+                        "allowed only as a PILOT start, with --pilot-pre-module-start; a scored run never starts from one"), None
+            if any(x != PRE_MODULE_VERDICT for _, x in verdicts):
+                return f"the record {rec} of the end state {path} holds a pre-module line beside another verdict line", None
+            hashes = [l[len("state_sha256="):] for l in recs[rec] if l.startswith("state_sha256=")]
+            if len(hashes) != 1:
+                return f"the pre-module record {rec} must hold exactly one `state_sha256=` line (found {len(hashes)})", None
+            got = protected_store_hash(path)[0]
+            if got != hashes[0]:
+                return (f"the end state {path}'s store changed after marking: its knowledge.db store content hash is {got}, "
+                        f"the record {rec} named {hashes[0]} (the hash covers the knowledge.db tables only; memory files, "
+                        ".claude/ and hooks are not covered)"), None
+            accepted = hashes[0]
+            continue
+        if v != "not-flagged":
+            return f"the end state {path} has an unrecognised verdict {v!r} in its record {rec}", None
+    return None, accepted
+
+
+def continue_step1(a, env, end, paths):
+    """The continue-reading refusals (exit 2, before anything is touched), then the serving record (ServingFailed = exit 3,
+    also before anything is touched). Returns the fields the later steps need."""
+    why, pre_module_sha = _end_state_verdict(a.end_state, bool(getattr(a, "pilot_pre_module_start", False)))
+    if why:
+        raise Refusal(why)
+    if a.per_round < 1:
+        raise Refusal(f"--per-round must be at least 1 (got {a.per_round})")
+    if a.start < 2:
+        raise Refusal(f"--start must be at least 2 (got {a.start}): exchange 1 carries the brief, which only a full run sends")
+    if a.through < a.start:
+        raise Refusal(f"--through must not be below start (--through {a.through}, --start {a.start})")
+    if (a.start - 1) % a.per_round:
+        raise Refusal(f"--start {a.start} is not on a round boundary: (start - 1) must be a multiple of --per-round {a.per_round}")
+    if (a.through - a.start + 1) % a.per_round:
+        raise Refusal(f"exchanges {a.start}..{a.through} would end in a partial last round at --per-round {a.per_round}: "
+                      "(through - start + 1) must be a multiple of --per-round")
+    got = protected_store_hash(end)[0]
+    if got != a.expect_store_sha256:
+        raise Refusal(f"the end state's store content hash {got} differs from --expect-store-sha256 {a.expect_store_sha256}")
+    save = os.path.abspath(a.save_end_state)
+    hashes = save + ".hashes.txt"
+    if os.path.lexists(save):
+        raise Refusal(f"--save-end-state {save} already exists (a saved end state is never overwritten)")
+    if os.path.lexists(hashes):
+        raise Refusal(f"the hashes file {hashes} already exists (it is written beside --save-end-state and never overwritten)")
+    for extra in (save + VERDICT_SUFFIX, save + QUARANTINE_SUFFIX, save + QUARANTINE_SUFFIX + ".hashes.txt",
+                  save + QUARANTINE_SUFFIX + VERDICT_SUFFIX):
+        if os.path.lexists(extra):   # a flagged session saves under the quarantine name: that name must be free too
+            raise Refusal(f"{extra} already exists (the end state's record and its quarantine name are never overwritten)")
+    refuse_overlap("--save-end-state", save, paths)  # the save path and the hashes path against EVERY path the launcher makes or protects
+    refuse_overlap("the hashes file", hashes, paths)
+    refuse_overlap("the verdict record", save + VERDICT_SUFFIX, paths)
+    refuse_overlap("the quarantine name", save + QUARANTINE_SUFFIX, paths)
+    refuse_overlap("the quarantine hashes file", save + QUARANTINE_SUFFIX + ".hashes.txt", paths)    # every path a flagged save creates
+    refuse_overlap("the quarantine verdict record", save + QUARANTINE_SUFFIX + VERDICT_SUFFIX, paths)
+    if not os.path.isdir(os.path.dirname(save)):
+        raise Refusal(f"the parent directory of --save-end-state {save} does not exist (the copy would fail after the run)")
+    expect_serving = None
+    if a.expect_serving is not None:
+        try:
+            expect_serving = [l for l in open(a.expect_serving, encoding="utf-8").read().splitlines() if l.strip()]
+        except OSError as e:
+            raise Refusal(f"--expect-serving {a.expect_serving} cannot be read: {e}")
+    serving = serving_record(env)
+    if expect_serving is not None and expect_serving != serving:
+        raise Refusal(f"the recorded serving setup differs from --expect-serving {a.expect_serving}\n  recorded: {serving}\n  expected: {expect_serving}")
+    return {"save": save, "hashes": hashes, "verdict_rec": save + VERDICT_SUFFIX, "serving": serving,
+            "pre_module_sha": pre_module_sha}
+
+
+def daemon_statement(env):
+    """The statement passed to the launch module for the student run: DAEMON_STATEMENT, always, in a real run. The ONE exception is
+    a test route, honoured only under the test hooks (P1_TEST_HOOKS=1 with P1_FEED4 set; step 1 refuses both otherwise): a stub session
+    has no recall daemon in its slot, so a test states `none` through P1_TEST_DAEMON_EXPECTED=none. No other value is read."""
+    if env.get("P1_TEST_HOOKS") == "1" and env.get("P1_FEED4") and env.get("P1_TEST_DAEMON_EXPECTED") == "none":
+        return "none"
+    return DAEMON_STATEMENT
+
+
 def step1(a):
     env = os.environ
     for v in REQUIRED_ENV:
@@ -295,6 +589,9 @@ def step1(a):
         if env.get(hook) and env.get("P1_TEST_HOOKS") != "1":
             raise Refusal(f"{hook} is a test-only hook and is refused unless P1_TEST_HOOKS=1 is also set "
                           "(a stray variable must never change a real run)")
+    if env.get("P1_TEST_DAEMON_EXPECTED") and (env["P1_TEST_DAEMON_EXPECTED"] != "none" or not env.get("P1_FEED4")):
+        raise Refusal(f"P1_TEST_DAEMON_EXPECTED={env['P1_TEST_DAEMON_EXPECTED']!r} is refused: the route states only `none`, and only "
+                      "for a stub session (P1_FEED4 set); a real run's statement is the constant `engram`")
     parquet_sha = file_sha256(env["BEAM_PARQUET"])
     want = expected_parquet_prefix(env)
     if not parquet_sha.startswith(want):
@@ -324,7 +621,7 @@ def step1(a):
             raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to, inside, or containing the protected path {p}")
     if under(runs_real, slot_real):
         raise Refusal(f"BEAM_RUNS_DIR {env['BEAM_RUNS_DIR']} is equal to or inside the slot {slot}")
-    rundir = os.path.join(env["BEAM_RUNS_DIR"], f"p1-{a.label}")
+    rundir = run_dir_path(env["BEAM_RUNS_DIR"], a.label)
     if os.path.lexists(rundir):
         raise Refusal(f"the run directory {rundir} exists (run directories are never reused)")
     if not os.path.isfile(os.path.join(end, ".engram", "knowledge.db")):
@@ -332,9 +629,12 @@ def step1(a):
     if not os.path.isdir(os.path.join(end, ".claude")):
         raise Refusal("the end state has no .claude/ folder")
     outside = check_end_state_links(end, prot)
-    if not os.path.isfile(a.question_file):
-        raise Refusal(f"the question file {a.question_file} is missing")
-    qids = load_questions(a.question_file)
+    if a.continue_reading:
+        qids = []
+    else:
+        if not os.path.isfile(a.question_file):
+            raise Refusal(f"the question file {a.question_file} is missing")
+        qids = load_questions(a.question_file)
     if not os.path.isfile(a.components):
         raise Refusal(f"the components file {a.components} is missing")
     facts = (a.plant_builtin, a.plant_engram, a.plant_absent)
@@ -356,22 +656,165 @@ def step1(a):
     for hook in ("P1_FEED4", "P1_PLANT_CONTROL", "P1_AFTER_COPY_HOOK"):
         if env.get(hook) and not os.path.isfile(env[hook]):
             raise Refusal(f"{hook} is set to a file that does not exist")
-    for need in ("feed4.py", "feed.py", "answer-delivery-check.py", "plant-control.py"):
+    for need in ("feed4.py", "feed.py", "answer-delivery-check.py", "plant-control.py") + (
+            ("reading-delivery-check.py",) if a.continue_reading else ()):
         if not os.path.isfile(os.path.join(HERE, need)):
             raise Refusal(f"{need} is missing beside this script")
     stamp = env.get("P1_UTC_STAMP") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    aside = f"{slot}.aside-{a.label}-{stamp}"
+    aside = aside_path(slot, a.label, stamp)
     if os.path.lexists(slot) and os.path.lexists(aside):
         raise Refusal(f"the aside path {aside} already exists")
-    return {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
-            "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"]}
+    c = {"outside_links": outside, "protected": prot, "end": end, "slot": slot, "rundir": rundir, "qids": qids, "plant": plant, "plant_mode": plant_mode,
+         "parquet_sha256": parquet_sha, "aside": aside, "py": env["BEAM_PY"], "created": [], "sandbox": None}
+    if a.continue_reading:
+        c.update(continue_step1(a, env, end, launcher_paths(slot, env["BEAM_RUNS_DIR"], a.label, stamp, end, prot)))
+    if not a.dry_run:   # a dry run starts no student: no sandbox input is needed (a plan dump runs unwrapped)
+        c["sandbox"] = sandbox_input(a, env, slot_real, c)
+    return c
+
+
+def sandbox_input(a, env, slot_real, c):
+    """Step 1: the expected-hashes file and the SANDBOX_* settings, checked before anything is touched (exit 2)."""
+    if not a.expect_sandbox:
+        raise Refusal("--expect-sandbox FILE is required for a real run (the expected sha256 of student-sandbox.sh and "
+                      "sandbox-forward.py; a dry run needs none)")
+    settings = {k: v for k, v in env.items() if k.startswith("SANDBOX_")}
+    if "SANDBOX_SLOT" in settings and os.path.realpath(settings["SANDBOX_SLOT"]) != slot_real:
+        raise Refusal(f"SANDBOX_SLOT {settings['SANDBOX_SLOT']} is not the slot {c['slot']} (BEAM_ARM_HOME)")
+    settings["SANDBOX_SLOT"] = c["slot"]
+    try:
+        # a test-mode SANDBOX_* setting (SANDBOX_TEST, SANDBOX_TEST_EXEC, the cap knobs...) reaches the module only under the existing
+        # P1_TEST_HOOKS=1 rule; in a real run the module refuses it, named, before anything starts
+        sandbox = SL.Sandbox(settings, a.expect_sandbox, allow_test=env.get("P1_TEST_HOOKS") == "1")
+        SL.check_model_url(SL.model_url(feed4_args(a, c, os.path.join(c["rundir"], "run")), env),
+                           sandbox.settings["SANDBOX_MODEL_PORT"])
+    except SL.LaunchRefused as e:
+        raise Refusal(str(e))
+    return sandbox
 
 
 # ----------------------------------------------------------------------------------------------------------- the run
 def feed4_args(a, c, out):
+    if a.continue_reading:
+        return ["--arm-home", c["slot"], "--out", out, "--conv", "9", "--resume", a.session, "--start", str(a.start),
+                "--turns", str(a.through), "--per-round", str(a.per_round), "--env", WINDOW, "--expect-components", a.components]
     return ["--arm-home", c["slot"], "--out", out, "--conv", "9", "--turns", "0", "--resume", a.session,
             "--force-compact", "--question-file", a.question_file, "--env", WINDOW,
             "--expect-components", a.components]
+
+
+def check_continue_plan(cont, full, a):
+    """None if the continue plan is right, else the reason. --turns is feed4's INCLUSIVE END INDEX, so the plan must hold
+    exactly (through - start + 1) / per-round reading messages carrying exchanges start..through in order, no compaction and
+    no question, and each must be byte-equal to the message a FULL run (same per-round, from exchange 1, no resume) sends
+    for the same exchanges (design A1 b): a resume must add nothing."""
+    N, M, K = a.start, a.through, a.per_round
+    if not (isinstance(cont, list) and all(isinstance(m, dict) for m in cont)):
+        return "the continue plan is not a list of messages"
+    for m in cont:
+        if m.get("kind") != "exchange":
+            return f"the continue plan holds a {m.get('kind')!r} message (only reading messages are allowed: no compaction, no question)"
+    if len(cont) != (M - N + 1) // K:
+        return f"the continue plan has {len(cont)} messages, expected {(M - N + 1) // K}"
+    want = [list(range(N + i * K, N + (i + 1) * K)) for i in range((M - N + 1) // K)]
+    if [m.get("exchanges") for m in cont] != want:
+        return f"the continue plan's exchanges are {[m.get('exchanges') for m in cont]}, expected {want}"
+    if not (isinstance(full, list) and all(isinstance(m, dict) for m in full)):
+        return "the full-run plan is not a list of messages"
+    ref = full[(N - 1) // K: M // K]
+    if cont != ref:
+        return f"the continue plan is not byte-equal to the full run's messages for exchanges {N}..{M} (a resume must add nothing)"
+    return None
+
+
+def remove_saved(c):
+    """Remove what THIS run created at the save path and the hashes path (c["created"], recorded at the moment of each
+    exclusive create), saying so. A path this run did not create is never removed, whatever its name."""
+    gone = False
+    for path in c.get("created", []):
+        if os.path.lexists(path):
+            shutil.rmtree(path) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
+            gone = True
+    c["created"] = []
+    if gone:
+        c["saved_removed"] = f"saved end state removed: {c['save']}"
+        print(c["saved_removed"])
+
+
+def save_end_state(a, c, steps):
+    """C6: copy (cp -a, never a move) the slot's contents to --save-end-state, hash the copy the way the protected homes are
+    hashed, write the hashes to PATH.hashes.txt and keep the lines for setup.txt. Both paths are created EXCLUSIVELY here
+    (os.mkdir without exist_ok; O_CREAT | O_EXCL), because step 1 ran hours earlier and a caller-chosen path may exist
+    now: if either does, exit 3 and nothing of the caller's is touched. Any later failure removes only what this run
+    created (c["created"])."""
+    step = "9b save the end state"
+    flagged = bool(c.get("flagged_verdict"))
+    if flagged:   # (C): saved, but under the quarantine name; every path moves together
+        c["save"] = c["save"] + QUARANTINE_SUFFIX
+        c["hashes"] = c["save"] + ".hashes.txt"
+        c["verdict_rec"] = c["save"] + VERDICT_SUFFIX
+    left = slot_pids(c["slot"])  # quiescence: the stop step's grace period has passed; a live slot process could still write
+    if left:
+        steps.append((step, 3))
+        print(f"STOP: slot process(es) {left} still running after the stop step's grace period; nothing saved")
+        return 3
+    hashes_file = verdict_file = None
+
+    def fail(code, msg):
+        steps.append((step, code)); print(msg)
+        for f in (hashes_file, verdict_file):
+            if f is not None:
+                f.close()
+        remove_saved(c)
+        return 3
+
+    try:
+        os.mkdir(c["save"], 0o700); c["created"].append(c["save"])   # explicit restrictive mode, not the umask default
+        hashes_file = os.fdopen(os.open(c["hashes"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
+        c["created"].append(c["hashes"])
+        verdict_file = os.fdopen(os.open(c["verdict_rec"], os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666), "w")
+        c["created"].append(c["verdict_rec"])
+    except FileExistsError as e:
+        return fail(3, f"STOP: {e.filename} appeared after step 1 (it exists now); this run never overwrites or removes a path "
+                       "it did not create; nothing saved")
+    except OSError as e:
+        return fail(3, f"STOP: cannot create the save path or its hashes file ({type(e).__name__}: {e}); nothing saved")
+    try:
+        r = subprocess.run(["cp", "-a", "--", os.path.join(c["slot"], "."), c["save"]])  # the slot's CONTENTS into the directory made above
+        if r.returncode:
+            return fail(r.returncode, "STOP: copying the slot to --save-end-state failed")
+        os.chmod(c["save"], 0o700)   # cp -a copied the slot's own mode onto the directory made above: set the restrictive mode again
+        marker = os.path.join(c["save"], ".disposable-copy")  # a preserved end state is not a disposable copy
+        if os.path.lexists(marker):
+            os.unlink(marker)
+        want, got = protected_store_hash(c["slot"]), protected_store_hash(c["save"])
+        if got[0] != want[0]:
+            return fail(3, f"STOP: the saved copy's store differs from the slot's\n  slot:  sha256={want[0]} tables={want[1]} rows={want[2]}"
+                           f"\n  saved: sha256={got[0]} tables={got[1]} rows={got[2]}")
+        check_end_state_links(c["save"], c["protected"])  # the check the NEXT run's step 1 will make on this end state
+        rec = home_record(c["save"])
+        hashes_file.write(rec); hashes_file.close()
+        info = c.get("sandbox_info") or []
+        verdict_file.write("".join(l + "\n" for l in info if l.startswith(("sandbox verdict: ", "sandbox log: "))))
+        if getattr(a, "pilot_pre_module_start", False):   # whether or not the start was pre-module; provenance for a human reader
+            verdict_file.write(f"{PILOT_START_PREFIX} state_sha256={a.expect_store_sha256}\n")
+        verdict_file.write(f"run record: {os.path.join(os.path.basename(c['rundir']), 'setup.txt')}\n")
+        verdict_file.close()
+    except Refusal as e:
+        return fail(3, f"STOP: the saved end state would be refused by the next run ({e})")
+    except Exception as e:  # noqa: BLE001
+        return fail(3, f"STOP: hashing the saved end state failed ({type(e).__name__}: {e})")
+    c["saved_lines"] = [f"saved end state: {c['save']}", "saved end state: .disposable-copy marker removed (the slot keeps its own)"] + rec.splitlines()
+    c["saved_lines"].append(f"saved end state verdict record: {c['verdict_rec']}")
+    if flagged:
+        c["saved_lines"].append(
+            f"saved end state QUARANTINED: {c['save']}: the session's sandbox verdict was FLAGGED (the model endpoint was "
+            "unreachable and nothing reached it), so this run is excluded and its end state is kept only under the "
+            f"quarantine name {QUARANTINE_SUFFIX}; continue-reading refuses it by that name and by the flagged verdict in "
+            f"{os.path.basename(c['verdict_rec'])}. The session's wrapper log, verdict line and transcript stay in the run directory.")
+    print("".join(l + "\n" for l in c["saved_lines"]), end="")
+    steps.append((step, 0))
+    return 0
 
 
 def work(a, c, steps):
@@ -424,75 +867,199 @@ def work(a, c, steps):
         steps.append(("6 plant", 0))
     plan_path = os.path.join(rundir, "plan.json")
     with open(plan_path, "w") as f:
-        pr = subprocess.run([py, "-I", feed4, *feed4_args(a, c, os.path.join(rundir, "plan-dump")), "--dump-plan"],
-                            stdout=f).returncode
+        pr = SL.run_feeder(py, feed4, [*feed4_args(a, c, os.path.join(rundir, "plan-dump")), "--dump-plan"],
+                           stdout=f, test_stub=bool(os.environ.get("P1_FEED4"))).returncode
     if pr:
         steps.append(("7 plan dump", pr)); print(f"STOP: the plan dump exited {pr}"); return 3
-    try:
-        plan = json.load(open(plan_path))
-        ok = (isinstance(plan, list) and len(plan) == 1 + len(c["qids"]) and plan[0].get("kind") == "compact"
-              and [p.get("kind") for p in plan[1:]] == ["question"] * len(c["qids"])
-              and [p.get("id") for p in plan[1:]] == c["qids"])
-    except (OSError, ValueError, AttributeError):
-        ok = False
-    if not ok:
-        steps.append(("7 plan check", 3)); print("STOP: the plan is not exactly [compact, q1..qN] in the question file's order"); return 3
+    if a.continue_reading:
+        full_path = os.path.join(rundir, "plan-full.json")
+        with open(full_path, "w") as f:  # a FULL run's plan for the same K, from exchange 1, no resume: the comparison
+            pr = SL.run_feeder(py, feed4, ["--arm-home", slot, "--out", os.path.join(rundir, "plan-dump-full"),
+                                           "--conv", "9", "--start", "1", "--turns", str(a.through), "--per-round", str(a.per_round),
+                                           "--expect-components", a.components, "--dump-plan"], stdout=f,
+                               test_stub=bool(os.environ.get("P1_FEED4"))).returncode
+        if pr:
+            steps.append(("7 plan dump", pr)); print(f"STOP: the full-run plan dump exited {pr}"); return 3
+        try:
+            why = check_continue_plan(json.load(open(plan_path)), json.load(open(full_path)), a)
+        except (OSError, ValueError) as e:
+            why = f"a plan dump is not readable JSON ({e})"
+        if why:
+            steps.append(("7 plan check", 3)); print(f"STOP: the continue plan is wrong: {why}"); return 3
+        ok = True
+    else:
+        try:
+            plan = json.load(open(plan_path))
+            ok = (isinstance(plan, list) and len(plan) == 1 + len(c["qids"]) and plan[0].get("kind") == "compact"
+                  and [p.get("kind") for p in plan[1:]] == ["question"] * len(c["qids"])
+                  and [p.get("id") for p in plan[1:]] == c["qids"])
+        except (OSError, ValueError, AttributeError):
+            ok = False
+        if not ok:
+            steps.append(("7 plan check", 3)); print("STOP: the plan is not exactly [compact, q1..qN] in the question file's order"); return 3
     steps.append(("7 plan check", 0))
     if a.dry_run:
         steps.append(("8 student run", "skipped (--dry-run)")); steps.append(("9 after the run", "skipped (--dry-run)"))
         return 0
-    frc = subprocess.run([py, "-I", feed4, *feed4_args(a, c, os.path.join(rundir, "run"))]).returncode
+    try:
+        res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir, state_dir=os.path.join(os.environ["BEAM_RUNS_DIR"], "sandbox-launches"),
+                            daemon_expected=daemon_statement(os.environ),
+                            test_stub=bool(os.environ.get("P1_FEED4")),
+                            test_env_names=[k for k in os.environ if k.startswith("STUB_")] if os.environ.get("P1_FEED4") else ())
+    except SL.LaunchRefused as e:   # before anything started: nothing of the session exists
+        steps.append(("8 student run", "refused by the sandbox launch module"))
+        print(f"REFUSE: {e}"); c["sandbox_leftovers"] = e.leftover_count
+        return 2
+    except SL.LaunchStop as e:      # the session ran, and none of its answers is read or handed on
+        res = e.result
+        c["sandbox_info"] = sandbox_info(c, res)
+        steps.append(("8 student run", res.returncode))
+        print(f"STOP: sandbox launch module: {e}")
+        stop_slot_processes(slot)
+        return 3
+    frc = res.returncode
+    c["sandbox_info"] = sandbox_info(c, res)
     steps.append(("8 student run", frc))
     stop_slot_processes(slot)
     proj = os.path.join(slot, ".claude", "projects")
     if os.path.isdir(proj):
         shutil.copytree(proj, os.path.join(rundir, "transcripts"), symlinks=True)
     with open(os.path.join(rundir, "delivery.txt"), "w") as f:
-        drc = subprocess.run([py, "-I", os.path.join(HERE, "answer-delivery-check.py"), "--turns",
-                              os.path.join(rundir, "run", "turns.jsonl"), "--questions", a.question_file,
-                              "--session", a.session], stdout=f, stderr=subprocess.STDOUT).returncode
+        if a.continue_reading:  # answer-delivery-check.py refuses reading turns by design, so reading has its own check
+            drc = subprocess.run([py, "-I", os.path.join(HERE, "reading-delivery-check.py"), "--turns",
+                                  os.path.join(rundir, "run", "turns.jsonl"), "--plan", plan_path, "--events",
+                                  os.path.join(rundir, "run", "events.jsonl"), "--session", a.session],
+                                 stdout=f, stderr=subprocess.STDOUT).returncode
+        else:
+            drc = subprocess.run([py, "-I", os.path.join(HERE, "answer-delivery-check.py"), "--turns",
+                                  os.path.join(rundir, "run", "turns.jsonl"), "--questions", a.question_file,
+                                  "--session", a.session], stdout=f, stderr=subprocess.STDOUT).returncode
     print(open(os.path.join(rundir, "delivery.txt")).read(), end="")
     steps.append(("9 after the run (delivery check)", drc))
+    if a.continue_reading and not frc and not drc:
+        c["flagged_verdict"] = str(res.verdict or "").startswith("flagged")
+        return save_end_state(a, c, steps)
     return 3 if frc else (1 if drc else 0)
 
 
+def _none(v):
+    """A value for a setup.txt line: None is printed as the word `none`, never left blank or as Python's None."""
+    return "none" if v is None else v
+
+
+def sandbox_info(c, res):
+    """The sandbox lines of setup.txt for one session: the log's basename, the verdict line verbatim (None when
+    log-verdict refused), and the two hashes the launch line carried."""
+    sb = c["sandbox"]
+    return [f"sandbox expected-hashes file: {os.path.basename(sb.expected_file)} (sha256 {file_sha256(sb.expected_file)})",
+            f"sandbox log: {os.path.basename(res.log) if res.log else 'none'}",
+            f"sandbox verdict: {res.verdict if res.verdict is not None else 'none (log-verdict refused or did not run)'}",
+            f"sandbox launch-line wrapper_sha256: {res.wrapper_sha256 or 'none'}",
+            f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}",
+            f"sandbox launch-line test_mode: {res.test_mode}", f"sandbox launch-line test_exec: {res.test_exec}",
+            # the recall daemon: what the arm stated, what the launch line says it got, and what the daemon did (K2: recorded, not judged here)
+            f"sandbox daemon expected (arm statement): {_none(res.daemon_expected)}",
+            f"sandbox daemon (launch line): {_none(res.daemon)}",
+            f"sandbox daemon time to ready s: {_none(res.daemon_time_to_ready_s)}",
+            f"sandbox daemon stop outcome: {_none(res.daemon_stop_outcome)}",
+            f"sandbox box label: {_none(res.box_label)}",
+            f"sandbox feeder PATH: {res.feeder_path}",
+            f"sandbox feeder environment names: {', '.join(res.feeder_env_names or [])}",
+            *[f"sandbox launch-line {k}: {v}" for k, v in sorted(res.caps.items())]]
+
+
 def write_setup(a, c, steps, start, rc):
+    cont = getattr(a, "continue_reading", False)  # a bare namespace from an older caller has no such field
     r = subprocess.run(["git", "-C", HERE, "rev-parse", "HEAD"], capture_output=True, text=True)
     lines = [r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "unknown (no git commit id)"]
+    qfile = [] if cont else [(os.path.basename(a.question_file), a.question_file)]  # no question file when continuing
     for label, path in (("p1-session.py", os.path.abspath(__file__)), ("feed4.py", os.path.join(HERE, "feed4.py")),
-                        ("feed.py", os.path.join(HERE, "feed.py")), (os.path.basename(a.question_file), a.question_file),
+                        ("feed.py", os.path.join(HERE, "feed.py")), *qfile,
                         (os.path.basename(a.components), a.components),
                         ("answer-delivery-check.py", os.path.join(HERE, "answer-delivery-check.py")),
                         ("plant-control.py", os.path.join(HERE, "plant-control.py"))):
         lines.append(f"{file_sha256(path)}  {label}")
+    if cont:
+        lines.append(f"{file_sha256(os.path.join(HERE, 'reading-delivery-check.py'))}  reading-delivery-check.py")
     for hook, label in (("P1_FEED4", "feed4 override"), ("P1_PLANT_CONTROL", "plant-control override")):
         if os.environ.get(hook):
             lines.append(f"{file_sha256(os.environ[hook])}  {label} ({hook}): {os.path.basename(os.environ[hook])}")
+    lines.append(f"{file_sha256(os.path.join(HERE, 'sandbox_launch.py'))}  sandbox_launch.py")
     lines.append(f"plant mode: {c['plant_mode']}")
     lines.append(f"{c['parquet_sha256']}  BEAM_PARQUET")
     lines.append(dataset_check_line(os.environ))
+    if cont:
+        lines.append("mode: continue-reading")
+        lines.append(f"continue range: exchanges {a.start}..{a.through} at per-round {a.per_round}")
+        lines.append(f"expect-store-sha256: {a.expect_store_sha256} (matched the end state)")
+        lines += c["serving"]
+        if getattr(a, "pilot_pre_module_start", False):   # the flag itself, whether or not the state is pre-module (round 5)
+            lines.append("pilot flag passed: --pilot-pre-module-start")
+        if c.get("pre_module_sha"):
+            lines += ["pilot, pre-module start", f"pre-module start state_sha256: {c['pre_module_sha']}"]
+        if a.expect_serving is not None:
+            lines.append(f"{file_sha256(a.expect_serving)}  expect-serving file {os.path.basename(a.expect_serving)} (matched)")
+    if c.get("sandbox_info"):
+        lines += c["sandbox_info"]
+    elif getattr(a, "dry_run", False):
+        lines.append("sandbox: not used (--dry-run starts no student; the plan dumps run unwrapped)")
+    else:
+        lines.append("sandbox: no student session was launched")
+        if c.get("sandbox_leftovers"):
+            lines.append(f"sandbox leftovers found at launch: {c['sandbox_leftovers']}")
     lines.append(f"start {start}")
     lines.append(f"end {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
     lines += [f"step {name}: exit {code}" for name, code in steps]
+    if cont:
+        lines += c.get("saved_lines", [])
+        if c.get("saved_removed"):
+            lines.append(c["saved_removed"])
     lines.append(f"final exit {rc}")
     with open(os.path.join(c["rundir"], "setup.txt"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0], allow_abbrev=False)  # no prefix of a flag stands for it
     ap.add_argument("--end-state", required=True); ap.add_argument("--session", required=True)
-    ap.add_argument("--label", required=True); ap.add_argument("--question-file", required=True)
+    ap.add_argument("--label", required=True); ap.add_argument("--question-file")  # required unless --continue-reading
     ap.add_argument("--components", required=True)
     ap.add_argument("--plant-builtin"); ap.add_argument("--plant-engram"); ap.add_argument("--plant-absent")
     ap.add_argument("--plant-question"); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--expect-sandbox", help="the expected sha256 of student-sandbox.sh and sandbox-forward.py (required for a real run)")
+    ap.add_argument("--continue-reading", action="store_true")
+    ap.add_argument("--pilot-pre-module-start", action="store_true",
+                    help="PILOTS ONLY: allow --end-state to be a pre-module state marked by mark-pre-module-start.py")
+    ap.add_argument("--start", type=int); ap.add_argument("--through", type=int); ap.add_argument("--per-round", type=int)
+    ap.add_argument("--save-end-state"); ap.add_argument("--expect-store-sha256"); ap.add_argument("--expect-serving")
     a = ap.parse_args(argv)
+    if a.continue_reading:
+        for flag, val in (("--question-file", a.question_file), ("--plant-builtin", a.plant_builtin),
+                          ("--plant-engram", a.plant_engram), ("--plant-absent", a.plant_absent),
+                          ("--plant-question", a.plant_question)):
+            if val is not None:
+                ap.error(f"--continue-reading cannot be combined with {flag}")
+        for flag, val in (("--start", a.start), ("--through", a.through), ("--per-round", a.per_round),
+                          ("--save-end-state", a.save_end_state), ("--expect-store-sha256", a.expect_store_sha256)):
+            if val is None:
+                ap.error(f"--continue-reading requires {flag}")
+    else:
+        if a.pilot_pre_module_start:
+            ap.error("--pilot-pre-module-start is only valid with --continue-reading")
+        if a.question_file is None:
+            ap.error("the following arguments are required: --question-file")
+        for name in CONTINUE_ONLY:
+            if getattr(a, name) is not None:
+                ap.error(f"--{name.replace('_', '-')} is only valid with --continue-reading")
     start = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     steps = []
     try:
         c = step1(a)
         before = records(c["protected"], tolerant=False)
         c["before_store"] = protected_store_hash(c["end"])
+    except ServingFailed as e:  # nothing has been touched yet: the serving record is read in step 1
+        print(f"SERVING RECORD FAILED: {e}", file=sys.stderr)
+        return 3
     except (Refusal, sqlite3.Error, OSError) as e:  # nothing has been touched yet: an unreadable input is a refusal
         print(f"REFUSE: {e}", file=sys.stderr)
         return 2
@@ -513,22 +1080,38 @@ def main(argv=None):
         rc = 3
     # Steps 10 and 11 on EVERY exit path after the run directory exists. Each guards its own failure so that a failure
     # in one never skips the other and never replaces exit 5.
-    changed = []
+    changed, unavailable = [], None
     try:
         after = records(c["protected"], tolerant=True)
+        changed = changed_homes(before, after)
         with open(os.path.join(c["rundir"], "after-hashes.txt"), "w") as f:
             f.write("".join(after[h] for h in c["protected"]))
-        changed = changed_homes(before, after)
         steps.append(("10 after-hashes", 5 if changed else 0))
     except BaseException as e:  # noqa: BLE001
-        print(f"ERROR: the after-hash step failed ({type(e).__name__}: {e}); treating the protected homes as changed",
-              file=sys.stderr)
-        changed = list(before); steps.append(("10 after-hashes", "failed"))
+        if a.continue_reading:
+            # A failure to compute or write the proof is not a difference in a protected home: it gets its own line and the
+            # launcher's own exit 3, and only a real difference found by the comparison is "PROTECTED CHANGED" (exit 5).
+            unavailable = f"{type(e).__name__}: {e}"
+            steps.append(("10 after-hashes", 5 if changed else 3))
+        else:  # the answering mode stays byte-for-byte as pinned: an unprovable pass is treated as every home changed
+            print(f"ERROR: the after-hash step failed ({type(e).__name__}: {e}); treating the protected homes as changed",
+                  file=sys.stderr)
+            changed = list(before); steps.append(("10 after-hashes", "failed"))
+    if unavailable is not None:
+        print(f"AFTER-HASHES UNAVAILABLE: {unavailable}; the protected homes could not be re-checked "
+              "(this is not a finding that anything changed)")
+        if not changed and rc in (0, 1):
+            rc = 3
     if changed:
         for h in changed:
             print(f"changed home: {h}")
         print(f"PROTECTED CHANGED: {len(changed)} home(s)")
         rc = 5
+    if rc and a.continue_reading and c["created"]:  # a saved end state exists only after a fully good run; only what this run created is removed
+        try:
+            remove_saved(c)
+        except BaseException as e:  # noqa: BLE001
+            print(f"ERROR: the saved end state {c['save']} could not be removed ({type(e).__name__}: {e})", file=sys.stderr)
     try:
         write_setup(a, c, steps, start, rc)
     except BaseException as e:  # noqa: BLE001

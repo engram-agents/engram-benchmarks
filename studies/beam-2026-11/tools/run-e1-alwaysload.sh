@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
+echo "RETIRED: run-e1-alwaysload.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
 # E1 (decided 2026-11-14, see PROVENANCE.md, decision log: make ENGRAM usable first): ENGRAM arm with the plugin's MCP server set to alwaysLoad,
 # so no ENGRAM tool is deferred behind ToolSearch. Format v2, sandbox only (no product change).
 set -u

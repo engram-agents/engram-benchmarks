@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# RETIRED-LAUNCHER: starts a student outside the sandbox launch module (A10)
+echo "RETIRED: run-e2-core.sh starts a student outside the sandbox launch module (A10); run p1-session.py (it goes through sandbox_launch.py)" >&2; exit 2
 # E2: only the six core ENGRAM tools carry _meta anthropic/alwaysLoad (sandbox patch of the installed server.py);
 # every other ENGRAM tool stays deferred behind ToolSearch. Format v2, sandbox only (no product change).
 set -u

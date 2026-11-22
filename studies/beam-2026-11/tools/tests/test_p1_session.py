@@ -10,7 +10,7 @@ Test-only hooks the tool honours (they are documented in the tool's docstring an
 Every one of them is refused (exit 2) unless P1_TEST_HOOKS=1 is also set; the cells set it through World.env."""
 import hashlib, importlib.util, json, os, re, shutil, sqlite3, subprocess, sys
 import pytest
-from conftest import TOOLS
+from conftest import TOOLS, install_stub_systemctl, needs_linux_proc, needs_linux_wrapper
 
 TOOL = os.path.join(TOOLS, "p1-session.py")
 SESSION = "11111111-2222-3333-4444-555555555555"
@@ -81,10 +81,66 @@ def sha(path):
 
 STUB_FEED4 = r'''
 import json, os, sqlite3, sys
+
+# What the module appends to a feeder's argv for a student session: `--env SANDBOX_*=...` pairs. The cells that pin "the
+# caller's arguments" see the argv WITHOUT them (the pairs are recorded separately, in STUB_SBX_LOG, and pinned by the
+# sandbox cells below).
+def caller_argv(a):
+    out, i = [], 0
+    while i < len(a):
+        if a[i] == "--env" and i + 1 < len(a) and a[i + 1].startswith("SANDBOX_"):
+            i += 2
+            continue
+        out.append(a[i]); i += 1
+    return out
+
+
+def emulate_wrapper(a):
+    """A stub starts no student, so it writes what the real wrapper would log: ONE launch line carrying the sha256 of the
+    `claude` and sandbox-forward.py that sit first on its PATH (the files the module prepared), plus the marker. The
+    module's pre-launch and post-session checks run for real on it. STUB_SANDBOX picks a variant."""
+    import hashlib
+    pairs = {}
+    for i, x in enumerate(a):
+        if x == "--env":
+            k, _, v = a[i + 1].partition("="); pairs[k] = v
+    if os.environ.get("STUB_SBX_LOG"):
+        with open(os.environ["STUB_SBX_LOG"], "a") as f:
+            f.write(json.dumps(pairs) + "\n")
+    if os.environ.get("STUB_PATH_LOG"):   # the PATH this feeder was actually handed
+        with open(os.environ["STUB_PATH_LOG"], "a") as f:
+            f.write(os.environ["PATH"] + "\n")
+    if os.environ.get("STUB_ENV_LOG"):    # the NAMES of the environment it was handed (the initial block)
+        with open(os.environ["STUB_ENV_LOG"], "a") as f:
+            f.write(json.dumps(sorted(kv.split("=", 1)[0] for kv in open("/proc/self/environ", "rb").read().decode().split("\0") if "=" in kv)) + "\n")
+    log = pairs.get("SANDBOX_LOG")
+    mode = os.environ.get("STUB_SANDBOX", "ok")
+    if not log or mode == "nolaunch":
+        return
+    first = os.environ["PATH"].split(":")[0]
+    sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+    W, F = sha(os.path.join(first, "claude")), sha(os.path.join(first, "sandbox-forward.py"))
+    if mode == "badwrapper":
+        W = "0" * 64
+    me = os.getpid()   # the stub stands in for the forwarder too: it is gone when the module looks (its start time is real)
+    start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
+    sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
+    pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+    dexp = pairs.get("SANDBOX_DAEMON_EXPECTED", "unstated")   # what the real wrapper records of the arm's statement
+    line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
+            f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1 "
+            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296 daemon_expected={dexp}")
+    CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
+    body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
+    with open(log, "a") as f:
+        f.write("".join(l + "\n" for l in body))
+
 a = sys.argv[1:]
 def arg(n): return a[a.index(n) + 1]
 with open(os.environ["STUB_ARGV"], "a") as f:
-    f.write(json.dumps(a) + "\n")
+    f.write(json.dumps(caller_argv(a)) + "\n")
+if os.environ.get("STUB_RAW"):
+    open(os.environ["STUB_RAW"], "a").write(json.dumps(a) + "\n")
 qs = json.load(open(arg("--question-file")))
 sess = arg("--resume")
 if "--dump-plan" in a:
@@ -101,6 +157,7 @@ if "--dump-plan" in a:
     sys.exit(0)
 with open(os.environ["STUB_MARK"], "a") as f:
     f.write("student run\n")
+emulate_wrapper(a)
 out = arg("--out"); os.makedirs(out, exist_ok=True)
 rows = [{"i": 1, "kind": "compact", "session_id": sess, "is_error": False}]
 asked = qs[:-1] if os.environ.get("STUB_SKIPQ") else qs
@@ -151,15 +208,33 @@ class World:
         self.hook = root / "corrupt-hook.py"; self.hook.write_text(CORRUPT_HOOK)
         self.mark = root / "student-ran.txt"
         self.argv_log = root / "stub-argv.jsonl"
+        self.sbx_log = root / "stub-sandbox-pairs.jsonl"
+        # the launch module asks `systemctl --user` to stop and list scopes: on a host with no systemd (a Mac) the cells run against
+        # a stand-in that answers as an empty user manager, so they keep running there
+        self.path = os.environ["PATH"]
+        if shutil.which("systemctl") is None:
+            self.path = install_stub_systemctl(root / "stub-systemctl-bin") + os.pathsep + self.path
+        self.unit_prefix = "p1sbxt%s-" % os.urandom(3).hex()   # this world's own scope-name prefix (hermetic cells)
+        # the sandbox input of a real run: the expected hashes are those of the files in this tree, the settings are
+        # placeholders (a stub starts no student, so nothing executes them) with the port of feed.py's default model URL
+        self.expected = root / "sandbox-expected.txt"
+        self.expected.write_text("wrapper_sha256=%s\nforwarder_sha256=%s\n" % (
+            sha(os.path.join(TOOLS, "student-sandbox.sh")), sha(os.path.join(TOOLS, "sandbox-forward.py"))))
         self.plant_log = root / "plant-log.json"
         self.proc = None
 
     def env(self, **over):
-        e = {"PATH": os.environ["PATH"], "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
+        e = {"PATH": self.path, "BEAM_PY": sys.executable, "BEAM_ARM_HOME": str(self.slot),
              "BEAM_RUNS_DIR": str(self.runs), "BEAM_PARQUET": str(self.parquet), "P1_PROTECTED": f"{self.pres}:{self.pres2}",
              "P1_FEED4": str(self.stub), "P1_PLANT_CONTROL": str(self.plant), "P1_UTC_STAMP": STAMP,
              "P1_EXPECTED_PARQUET_PREFIX": self.parquet_prefix,
-             "P1_TEST_HOOKS": "1", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log)}
+             "P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": "none", "STUB_MARK": str(self.mark), "STUB_ARGV": str(self.argv_log), "STUB_PLANT_LOG": str(self.plant_log),
+             "STUB_SBX_LOG": str(self.sbx_log), "STUB_RAW": str(self.root / "stub-raw.jsonl"),
+             "STUB_PATH_LOG": str(self.root / "stub-path.txt"), "STUB_ENV_LOG": str(self.root / "stub-env.json"),
+             "SANDBOX_BINARY": "/placeholder/claude", "SANDBOX_BINARY_SHA256": "b" * 64, "SANDBOX_MODEL_HOST": "127.0.0.1",
+             "SANDBOX_MODEL_PORT": "11434", "SANDBOX_MODEL_ALLOW": "POST /v1/messages", "SANDBOX_PROTECT": str(self.pres),
+             # test mode and this run's own scope-name prefix: the before-launch scan sees only this run's units (hermetic)
+             "SANDBOX_TEST": "1", "SANDBOX_TEST_UNIT_PREFIX": self.unit_prefix}
         e.update({k: v for k, v in over.items() if v is not None})
         for k, v in over.items():
             if v is None:
@@ -168,9 +243,11 @@ class World:
 
     def run(self, *extra, label="t1", end=None, drop=(), **envover):
         args = ["--end-state", str(end or self.pres), "--session", SESSION, "--label", label,
-                "--question-file", str(self.qfile), "--components", str(self.comps)]
+                "--question-file", str(self.qfile), "--components", str(self.comps), "--expect-sandbox", str(self.expected)]
         for a in extra:
-            if isinstance(a, tuple):  # ("--question-file", path) replaces the default
+            if isinstance(a, tuple) and a[1] is None:  # ("--expect-sandbox", None) leaves the flag out
+                i = args.index(a[0]); del args[i:i + 2]
+            elif isinstance(a, tuple):  # ("--question-file", path) replaces the default
                 args[args.index(a[0]) + 1] = a[1]
             else:
                 args.append(a)
@@ -196,6 +273,7 @@ class World:
         assert self.snapshot() == before, "something under the slot, the protected homes or the root changed"
         assert not (self.runs / f"p1-{label}").exists() and os.listdir(self.runs) == []
         assert not self.mark.exists() and not self.argv_log.exists() and not self.plant_log.exists()
+        assert not self.sbx_log.exists()
         assert self.proc is None or self.proc.poll() is None, "the fake slot process was killed by a refusal"
 
 
@@ -322,6 +400,7 @@ def test_refuses_when_the_aside_path_already_exists(w):
 
 
 # ------------------------------------------------------------------ the happy path and its artifacts
+@needs_linux_wrapper
 def test_clean_run_exits_0_and_writes_every_artifact(w):
     r = w.run()
     assert r.returncode == 0, (r.stdout, r.stderr)
@@ -347,6 +426,7 @@ def test_clean_run_exits_0_and_writes_every_artifact(w):
     assert [x for x in dump[0] if x not in ("--dump-plan",)][:2] == ["--arm-home", str(w.slot)]
 
 
+@needs_linux_wrapper
 def test_before_hashes_cover_every_protected_home_by_the_store_hash_and_the_memory_files(w):
     assert w.run().returncode == 0
     text = (w.runs / "p1-t1" / "before-hashes.txt").read_text()
@@ -359,6 +439,7 @@ def test_before_hashes_cover_every_protected_home_by_the_store_hash_and_the_memo
     assert "3 files" in text and "0 files" in text
 
 
+@needs_linux_wrapper
 def test_setup_txt_first_line_is_the_commit_then_the_hashes_and_exit_codes(w):
     assert w.run().returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -371,12 +452,14 @@ def test_setup_txt_first_line_is_the_commit_then_the_hashes_and_exit_codes(w):
     assert "start" in body and "end" in body and "exit" in body
 
 
+@needs_linux_wrapper
 def test_the_fake_slot_process_is_stopped_before_the_copy(w):
     proc = w.start_fake_process()
     assert w.run().returncode == 0
     assert proc.wait(timeout=10) is not None
 
 
+@needs_linux_wrapper
 def test_a_pre_existing_slot_is_moved_aside_never_deleted(w):
     old = tree(w.slot)
     assert w.run().returncode == 0
@@ -384,6 +467,7 @@ def test_a_pre_existing_slot_is_moved_aside_never_deleted(w):
     assert tree(aside) == old and (aside / "old.txt").read_text() == "what the slot held before\n"
 
 
+@needs_linux_wrapper
 def test_an_absent_slot_is_fine_and_nothing_is_moved(w):
     shutil.rmtree(w.slot)
     assert w.run().returncode == 0
@@ -403,6 +487,7 @@ def changed_homes_printed(stdout):
     return [l[len("changed home: "):] for l in stdout.splitlines() if l.startswith("changed home: ")]
 
 
+@needs_linux_wrapper
 def test_a_write_into_a_protected_store_is_exit_5_and_names_the_home(w):
     target = os.path.join(w.pres2, ".engram", "knowledge.db")
     r = w.run(STUB_ACTION="protected", STUB_TARGET=target)
@@ -411,6 +496,7 @@ def test_a_write_into_a_protected_store_is_exit_5_and_names_the_home(w):
     assert changed_homes_printed(r.stdout) == [os.path.realpath(w.pres2)]
 
 
+@needs_linux_wrapper
 def test_a_write_into_the_slot_only_is_exit_0(w):
     r = w.run(STUB_ACTION="slot")
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -420,6 +506,7 @@ def test_a_write_into_the_slot_only_is_exit_0(w):
     c.close()
 
 
+@needs_linux_wrapper
 def test_a_change_to_a_protected_memory_file_is_exit_5(w):
     """The memory-folder hashes are part of the compare, not only the store."""
     victim = os.path.join(w.pres, ".claude", "projects", "-p", "memory", "a.md")
@@ -431,6 +518,7 @@ def test_a_change_to_a_protected_memory_file_is_exit_5(w):
     assert changed_homes_printed(r.stdout) == [os.path.realpath(w.pres)]
 
 
+@needs_linux_wrapper
 def test_exit_5_overrides_a_feed4_failure(w):
     target = os.path.join(w.pres2, ".engram", "knowledge.db")
     r = w.run(STUB_ACTION="protected", STUB_TARGET=target, STUB_RC="1")
@@ -455,12 +543,14 @@ def test_a_plan_that_is_not_compact_then_the_questions_in_order_is_exit_3(w, mod
     assert not w.mark.exists()
 
 
+@needs_linux_wrapper
 def test_feed4_nonzero_is_exit_3(w):
     r = w.run(STUB_RC="1")
     assert r.returncode == 3 and w.mark.exists()
     assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
 
 
+@needs_linux_wrapper
 def test_a_failed_delivery_check_is_exit_1(w):
     r = w.run(STUB_SKIPQ="1")
     assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
@@ -471,6 +561,7 @@ def test_a_failed_delivery_check_is_exit_1(w):
 PLANT = ["--plant-builtin", "BuiltinFactAA", "--plant-engram", "EngramFactBB", "--plant-absent", "AbsentFactCC"]
 
 
+@needs_linux_wrapper
 def test_plant_runs_plant_control_with_the_slots_venv_python_and_the_run_evidence_dir(w):
     r = w.run(*PLANT, "--plant-question", "What is it?")
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -484,6 +575,7 @@ def test_plant_runs_plant_control_with_the_slots_venv_python_and_the_run_evidenc
     assert log["prot"] == f"{w.pres}:{w.pres2}"
 
 
+@needs_linux_wrapper
 def test_plant_without_a_question_passes_no_question_flag(w):
     assert w.run(*PLANT).returncode == 0
     assert "--question" not in json.loads(w.plant_log.read_text())["argv"]
@@ -606,11 +698,14 @@ def test_protected_store_hash_matches_the_in_place_method_on_an_ordinary_store(t
     assert P1S.protected_store_hash(h) == P1S.store_content_hash(os.path.join(h, ".engram", "knowledge.db"))
 
 
-def test_protected_store_hash_removes_its_temporary_copy(wal_home):
+def test_protected_store_hash_removes_its_temporary_copy(wal_home, tmp_path, monkeypatch):
+    """The call gets a PRIVATE temporary directory, so no other process on the host can add or remove entries in it."""
     import tempfile
-    before = set(os.listdir(tempfile.gettempdir()))
+    private = tmp_path / "private-tmp"
+    private.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(private))
     P1S.protected_store_hash(wal_home)
-    assert set(os.listdir(tempfile.gettempdir())) == before
+    assert os.listdir(private) == []
 
 
 def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
@@ -622,6 +717,7 @@ def test_the_whole_before_record_of_a_protected_home_writes_nothing(wal_home):
     assert bytes_and_mtimes(wal_home) == before
 
 
+@needs_linux_wrapper
 def test_the_launcher_leaves_a_wal_mode_protected_home_untouched_bytes_and_mtimes(w):
     keeper = sqlite3.connect(os.path.join(w.pres, ".engram", "knowledge.db"))
     try:
@@ -668,6 +764,7 @@ def test_an_interruption_alone_still_writes_the_after_artifacts_and_does_not_exi
     assert (w.runs / "p1-t1" / "after-hashes.txt").exists() and (w.runs / "p1-t1" / "setup.txt").exists()
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     """setup.txt is made a directory by the hook, so writing it raises; the protected change still decides the code."""
     blocker = w.runs / "p1-t1" / "setup.txt"
@@ -677,6 +774,7 @@ def test_a_setup_txt_write_failure_never_replaces_exit_5(w):
     assert "PROTECTED CHANGED" in r.stdout and "setup.txt" in r.stderr
 
 
+@needs_linux_wrapper
 def test_a_setup_txt_write_failure_alone_is_reported_on_stderr(w):
     blocker = w.runs / "p1-t1" / "setup.txt"
     hook = w.root / "block-setup.py"; hook.write_text(f"import os\nos.makedirs({str(blocker)!r})\n")
@@ -701,6 +799,7 @@ def test_refuses_an_absolute_symlink_back_into_the_end_state_itself(w):
     refusal(w, expect="symlink")
 
 
+@needs_linux_wrapper
 def test_a_relative_symlink_that_stays_inside_the_end_state_is_fine(w):
     os.symlink("projects", os.path.join(w.pres, ".claude", "rel-link"))  # like a venv's lib64 -> lib
     r = w.run()
@@ -708,6 +807,7 @@ def test_a_relative_symlink_that_stays_inside_the_end_state_is_fine(w):
     assert os.readlink(str(w.slot / ".claude" / "rel-link")) == "projects"
 
 
+@needs_linux_wrapper
 def test_a_symlink_to_an_unrelated_outside_path_proceeds_and_the_count_is_printed(w):
     outside = w.root / "unrelated-outside"; outside.mkdir()
     os.symlink(str(outside), os.path.join(w.pres, "work", "link-out"))
@@ -732,6 +832,7 @@ def test_refuses_a_chain_of_relative_links_whose_second_hop_leaves_the_end_state
     refusal(w, expect="symlink")
 
 
+@needs_linux_wrapper
 def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine(w):
     """work/up -> ../.claude/projects climbs one level but never above the end state's own root."""
     os.symlink("../.claude/projects", os.path.join(w.pres, "work", "up"))
@@ -741,6 +842,7 @@ def test_a_relative_link_that_climbs_and_comes_back_inside_the_end_state_is_fine
 
 
 # ------------------------------------------------------------------ round 4: the after-hash pass itself failing
+@needs_linux_wrapper
 def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w):
     """No protected home changed, but the proof could not be written (after-hashes.txt is made a directory), so the
     launcher must not claim the homes are fine."""
@@ -755,7 +857,7 @@ def test_a_failing_after_hash_pass_is_exit_5_with_every_protected_home_listed(w)
 
 # ------------------------------------------------------------------ round 4: test-only hooks are gated behind P1_TEST_HOOKS=1
 HOOK_VALUES = {"P1_TEST_RAISE": "Exception", "P1_FEED4": "stub", "P1_PLANT_CONTROL": "plant", "P1_AFTER_COPY_HOOK": "hook",
-               "P1_UTC_STAMP": "20261118T000000Z", "P1_EXPECTED_PARQUET_PREFIX": "000000000000"}
+               "P1_UTC_STAMP": "20261118T000000Z", "P1_EXPECTED_PARQUET_PREFIX": "000000000000", "P1_TEST_DAEMON_EXPECTED": "none"}
 
 
 @pytest.mark.parametrize("var", sorted(HOOK_VALUES))
@@ -798,6 +900,7 @@ def test_refuses_a_relative_link_that_climbs_even_to_an_unrelated_outside_path(w
     refusal(w, expect="climb")
 
 
+@needs_linux_wrapper
 def test_a_relative_link_to_an_absolute_link_outside_that_does_not_climb_is_allowed(w):
     """The real homes' venvs: python -> python3 (relative, does not climb) where python3 -> an interpreter (absolute)."""
     b = os.path.join(w.pres, ".engram", "venv", "bin")
@@ -847,8 +950,12 @@ GOLDEN_PLAN = os.path.join(TOOLS, "tests", "golden_three_channel_plan.json")
 RECORDER = r'''
 import json, os, runpy, sys
 label, stub = {LABEL!r}, {STUB!r}
-with open(os.environ["REC_LOG"], "a") as f:
-    f.write(json.dumps({{"tool": label, "argv": sys.argv[1:], "exe": getattr(sys, "orig_argv", [sys.executable])[0],
+with open(os.environ["STUB_REC_LOG"], "a") as f:
+    argv = sys.argv[1:]
+    for i in range(len(argv) - 2, -1, -1):   # the module's own `--env SANDBOX_*` pairs are not the caller's arguments
+        if argv[i] == "--env" and argv[i + 1].startswith("SANDBOX_"):
+            del argv[i:i + 2]
+    f.write(json.dumps({{"tool": label, "argv": argv, "exe": getattr(sys, "orig_argv", [sys.executable])[0],
                         "prot": os.environ.get("P1_PROTECTED")}}) + "\n")
 runpy.run_path(stub, run_name="__main__")
 '''
@@ -875,11 +982,12 @@ def record_three_channel_run(w):
     for name, label, stub in (("rec-plant.py", "plant-control", w.plant), ("rec-feed4.py", "feed4", w.stub)):
         (w.root / name).write_text(RECORDER.format(LABEL=label, STUB=str(stub)))
     r = w.run(*PLANT, "--plant-question", "What is it?", P1_PLANT_CONTROL=str(w.root / "rec-plant.py"),
-              P1_FEED4=str(w.root / "rec-feed4.py"), REC_LOG=str(log))
+              P1_FEED4=str(w.root / "rec-feed4.py"), STUB_REC_LOG=str(log))
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     return normalized_plan_record(w, log)
 
 
+@needs_linux_wrapper
 def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_subset_change(w):
     got = record_three_channel_run(w)
     assert [g["tool"] for g in got] == ["plant-control", "feed4", "feed4"]  # plant, plan dump, student run
@@ -894,6 +1002,7 @@ def test_the_three_channel_plan_is_identical_to_the_golden_captured_before_the_s
 ENGRAM_ONLY = ["--plant-engram", "EngramFactBB", "--plant-absent", "AbsentFactCC"]
 
 
+@needs_linux_wrapper
 def test_engram_plus_absent_is_accepted_and_plant_control_is_called_without_builtin_fact_or_question(w):
     r = w.run(*ENGRAM_ONLY)
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
@@ -959,6 +1068,7 @@ def test_a_dry_run_still_plants_engram_only(w):
     (ENGRAM_ONLY, "plant mode: engram-only (no built-in plant)"),
     (PLANT, "plant mode: both channels"),
 ])
+@needs_linux_wrapper
 def test_setup_txt_records_the_plant_mode_on_its_own_line(w, plant, mode):
     assert w.run(*plant).returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -986,6 +1096,7 @@ def test_the_registered_prefix_is_the_one_stated_in_provenance_md():
     assert stated == [P1S.REGISTERED_PARQUET_PREFIX], stated
 
 
+@needs_linux_wrapper
 def test_setup_txt_says_which_dataset_check_ran_the_override(w):
     assert w.run().returncode == 0
     lines = (w.runs / "p1-t1" / "setup.txt").read_text().splitlines()
@@ -1025,6 +1136,7 @@ def test_the_real_constant_is_the_only_prefix_accepted_without_the_hook(w):
     refusal(w, expect=P1S.REGISTERED_PARQUET_PREFIX, **kw)
 
 
+@needs_linux_wrapper
 def test_a_parquet_matching_the_expected_prefix_runs_and_setup_txt_records_its_full_sha256(w):
     assert w.run().returncode == 0
     full = P1S.file_sha256(w.parquet)  # the launcher's own function
@@ -1036,3 +1148,257 @@ def test_the_docstring_names_both_plant_sets_and_beam_parquet():
     doc = " ".join(open(TOOL, encoding="utf-8").read().split('"""')[1].split())
     for phrase in ("BEAM_PARQUET", "--plant-engram --plant-absent", "engram-only"):
         assert phrase in doc, phrase
+
+
+# ------------------------------------------------------------------ the sandbox launch module (design A10; the design owner's ruling)
+# Every student session goes through sandbox_launch.py. The stub feeder stands in for feed4.py and writes the log line the
+# wrapper would (emulate_wrapper), so the module's pre-launch and post-session checks run for real; STUB_SANDBOX picks a
+# variant. How the P1_FEED4 hook interacts with the wrapper (a decision recorded in the handoff): the stub is run by the
+# module exactly as feed4.py would be, wrapped, with every check live; only the wrapper's own log line is emulated.
+SB_NAMES = ["SANDBOX_BINARY", "SANDBOX_BINARY_SHA256", "SANDBOX_MODEL_HOST", "SANDBOX_MODEL_PORT", "SANDBOX_MODEL_ALLOW",
+            "SANDBOX_PROTECT"]
+
+
+def raw_calls(w):
+    return [json.loads(l) for l in open(w.root / "stub-raw.jsonl")]
+
+
+def pairs_of(argv):
+    return {x.partition("=")[0]: x.partition("=")[2] for i, x in enumerate(argv[1:], 1) if argv[i - 1] == "--env"}
+
+
+def setup_text(w):
+    return (w.runs / "p1-t1" / "setup.txt").read_text()
+
+
+def test_sb_a_real_run_without_expect_sandbox_is_refused_in_step_1(w):
+    refusal(w, ("--expect-sandbox", None), expect="--expect-sandbox")
+
+
+def test_sb_a_dry_run_needs_no_expect_sandbox_and_says_so_in_setup_txt(w):
+    r = w.run("--dry-run", ("--expect-sandbox", None))
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "sandbox: not used (--dry-run" in setup_text(w)
+
+
+@pytest.mark.parametrize("text,word", [("", "malformed"), ("wrapper_sha256=abc\nforwarder_sha256=def\n", "malformed")])
+def test_sb_a_malformed_expected_file_is_refused_in_step_1(w, text, word):
+    w.expected.write_text(text)
+    refusal(w, expect=word)
+
+
+def test_sb_a_missing_expected_file_is_refused_in_step_1(w):
+    refusal(w, ("--expect-sandbox", str(w.root / "no-such-file")), expect="cannot be read")
+
+
+@pytest.mark.parametrize("name", SB_NAMES)
+def test_sb_a_missing_sandbox_setting_is_refused_in_step_1_naming_it(w, name):
+    refusal(w, expect=name, **{name: None})
+
+
+def test_sb_a_slot_setting_that_is_not_the_slot_is_refused(w):
+    refusal(w, expect="SANDBOX_SLOT", SANDBOX_SLOT=str(w.root / "elsewhere"))
+
+
+def test_sb_a_model_url_off_the_sandbox_port_is_refused_in_step_1(w):
+    refusal(w, expect="port", BEAM_OLLAMA_URL="http://127.0.0.1:%d" % (int(w.env()["SANDBOX_MODEL_PORT"]) + 1))
+
+
+@needs_linux_wrapper
+def test_sb_both_feed4_invocations_go_through_the_module_the_plan_dump_unwrapped_and_the_session_wrapped(w):
+    r = w.run()
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    calls = raw_calls(w)
+    dump = [c for c in calls if "--dump-plan" in c]; real = [c for c in calls if "--dump-plan" not in c]
+    assert len(dump) == 1 and len(real) == 1
+    assert not any(x.startswith("SANDBOX_") for x in dump[0])
+    pairs = pairs_of(real[0])
+    for n in SB_NAMES + ["SANDBOX_SLOT", "SANDBOX_LOG", "SANDBOX_RO_BINDS", "SANDBOX_RO_ROOT", "SANDBOX_RW_BINDS", "SANDBOX_RW_ROOT"]:
+        assert pairs.get(n), n
+    assert pairs["SANDBOX_SLOT"] == str(w.slot)
+    assert os.path.dirname(pairs["SANDBOX_LOG"]) == str(w.runs / "p1-t1")
+    assert pairs["SANDBOX_RW_ROOT"] == str(w.runs / "p1-t1" / "run") and pairs["SANDBOX_RW_BINDS"] == pairs["SANDBOX_RW_ROOT"] + "/proctor"
+
+
+@needs_linux_wrapper
+def test_sb_setup_txt_records_the_log_the_verdict_verbatim_and_the_launch_line_hashes(w):
+    assert w.run().returncode == 0
+    text = setup_text(w); lines = text.splitlines()
+    (logline,) = [l for l in lines if l.startswith("sandbox log: ")]
+    name = logline.split(": ", 1)[1]
+    assert os.path.isfile(w.runs / "p1-t1" / name) and name.startswith("sandbox-") and name.endswith(".log")
+    assert "sandbox verdict: not-flagged" in lines
+    assert f"sandbox launch-line wrapper_sha256: {sha(os.path.join(TOOLS, 'student-sandbox.sh'))}" in lines
+    assert f"sandbox launch-line forwarder_sha256: {sha(os.path.join(TOOLS, 'sandbox-forward.py'))}" in lines
+    assert f"sandbox expected-hashes file: {w.expected.name} (sha256 {sha(w.expected)})" in lines
+    assert f"{sha(os.path.join(TOOLS, 'sandbox_launch.py'))}  sandbox_launch.py" in lines
+    assert "feed4 override (P1_FEED4)" in text      # the hook is on record, and the stub was wrapped all the same
+
+
+@needs_linux_wrapper
+def test_sb_flagged_is_recorded_verbatim_not_a_stop(w):
+    r = w.run(STUB_SANDBOX="unreachable")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "sandbox verdict: flagged: endpoint unreachable, nothing reached it" in setup_text(w).splitlines()
+    assert (w.runs / "p1-t1" / "delivery.txt").exists()
+
+
+@needs_linux_wrapper
+def test_sb_a_log_verdict_refusal_is_exit_3_with_a_stop_line_and_no_answer_is_read(w):
+    r = w.run(STUB_SANDBOX="nolaunch")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    assert "STOP: sandbox launch module" in r.stdout and "log-verdict refused" in r.stdout
+    run = w.runs / "p1-t1"
+    assert not (run / "delivery.txt").exists() and not (run / "transcripts").exists()   # nothing of the session was read
+    assert (run / "after-hashes.txt").exists() and "final exit 3" in setup_text(w)       # the protected-home proof still ran
+    assert "sandbox verdict: none" in setup_text(w)
+
+
+@needs_linux_wrapper
+def test_sb_a_launch_line_hash_that_differs_is_exit_3_naming_it_and_no_answer_is_read(w):
+    r = w.run(STUB_SANDBOX="badwrapper")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    assert "STOP: sandbox launch module" in r.stdout and "wrapper_sha256" in r.stdout and "0" * 64 in r.stdout
+    assert not (w.runs / "p1-t1" / "delivery.txt").exists() and not (w.runs / "p1-t1" / "transcripts").exists()
+
+
+@pytest.mark.parametrize("which", ["wrapper", "forwarder"])
+def test_sb_a_pre_launch_hash_mismatch_refuses_before_the_student_starts(w, which):
+    w.expected.write_text("wrapper_sha256=%s\nforwarder_sha256=%s\n" % (
+        "0" * 64 if which == "wrapper" else sha(os.path.join(TOOLS, "student-sandbox.sh")),
+        "0" * 64 if which == "forwarder" else sha(os.path.join(TOOLS, "sandbox-forward.py"))))
+    r = w.run()
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert f"{which}_sha256" in r.stdout and not w.mark.exists() and not w.sbx_log.exists()
+    assert [p.name for p in (w.runs / "p1-t1").iterdir() if p.name.startswith("sandbox-")] == []   # no log was made
+
+
+@needs_linux_wrapper
+def test_sb_a_leftover_of_an_earlier_launch_refuses_the_session_and_the_count_is_recorded(w):
+    """Round 2: the launch module refuses while anything of an earlier launch is alive. p1-session gives it the state
+    directory <BEAM_RUNS_DIR>/sandbox-launches/ and records how many leftovers it found."""
+    helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        start = open("/proc/%d/stat" % helper.pid).read().rsplit(")", 1)[1].split()[19]
+        log = w.root / "earlier.log"
+        log.write_text("wrapper-launch time=1 pid=2 wrapper_sha256=%s forwarder_sha256=%s scope_unit=%s1-aa "
+                       "forwarder_pid=%d forwarder_start=%s bridge_sock=%s model=h:1\n"
+                       % ("a" * 64, "b" * 64, w.unit_prefix, helper.pid, start, w.root / "earlier.sock"))
+        state = w.runs / "sandbox-launches"; state.mkdir()
+        (state / "earlier.json").write_text(json.dumps({"log": str(log), "state": "open"}))
+        r = w.run()
+        assert r.returncode == 2, (r.stdout, r.stderr)
+        assert str(helper.pid) in r.stdout and not w.mark.exists()
+        assert "sandbox leftovers found at launch: 1" in setup_text(w).splitlines()
+    finally:
+        helper.kill(); helper.wait()
+
+
+# ---- L1 (the colleague reviewer's read): a test-mode setting reaches the module only under the existing P1_TEST_HOOKS=1 rule
+def test_l1_a_test_mode_setting_reaches_the_module_only_under_p1_test_hooks(w):
+    import types
+    a = types.SimpleNamespace(expect_sandbox=str(w.expected), continue_reading=False, session=SESSION,
+                              question_file=str(w.qfile), components=str(w.comps))
+    c = {"slot": str(w.slot), "rundir": str(w.runs / "p1-x")}
+    env, slot_real = w.env(), os.path.realpath(w.slot)
+    assert P1S.sandbox_input(a, env, slot_real, c).allow_test is True            # hooks on: a test run, said explicitly
+    no_hooks = {k: v for k, v in env.items() if k != "P1_TEST_HOOKS"}
+    with pytest.raises(P1S.Refusal, match="SANDBOX_TEST"):                       # a real run: refused, named, before anything starts
+        P1S.sandbox_input(a, no_hooks, slot_real, c)
+    real = {k: v for k, v in no_hooks.items() if not k.startswith("SANDBOX_TEST")}
+    assert P1S.sandbox_input(a, real, slot_real, c).allow_test is False
+
+
+@needs_linux_wrapper
+def test_l1_the_caps_and_the_test_flags_of_the_launch_line_are_written_to_setup_txt(w):
+    assert w.run().returncode == 0
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox launch-line cap_tasks: 1024", "sandbox launch-line cap_memory: 4294967296",
+                 "sandbox launch-line cap_tmp: 2147483648", "sandbox launch-line test_mode: 1", "sandbox launch-line test_exec: 0"):
+        assert want in lines, want
+
+
+@needs_linux_wrapper
+def test_b_setup_txt_carries_the_built_path_on_one_line_equal_to_the_path_the_feeder_was_handed(w):
+    assert w.run().returncode == 0
+    handed = (w.root / "stub-path.txt").read_text().splitlines()
+    assert len(handed) == 1                                             # the student run only: the plan dumps are unwrapped
+    lines = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder PATH: ")]
+    assert lines == ["sandbox feeder PATH: " + handed[0]]
+    first, *rest = handed[0].split(":")
+    assert rest == list(P1S.SL.FEEDER_SYSTEM_DIRS)                  # wrapper directory first, then the fixed list
+
+
+@needs_linux_wrapper
+def test_e3_the_environment_the_feeder_got_is_built_and_its_names_are_in_setup_txt(w):
+    """A5, the positive cell at the launcher: a real run's launch SUCCEEDS under the built environment; the names recorded in
+    setup.txt are the names the feeder was actually handed; they are the pinned literal's names that the caller set (here only
+    BEAM_PARQUET), PATH, and the stub's own STUB_* steering names, and a variable of the caller's that is not listed is absent."""
+    r = w.run(NODE_OPTIONS="--no-warnings", BASH_ENV="/nonexistent/rc")
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    (names,) = [json.loads(l) for l in (w.root / "stub-env.json").read_text().splitlines()]
+    assert "NODE_OPTIONS" not in names and "BASH_ENV" not in names
+    assert [n for n in names if not n.startswith("STUB_")] == ["BEAM_PARQUET", "PATH"]
+    (line,) = [l for l in setup_text(w).splitlines() if l.startswith("sandbox feeder environment names: ")]
+    assert line == "sandbox feeder environment names: " + ", ".join(names)
+
+
+# ------------------------------------------------------------------ PR 22 fold: the arm's statement and the daemon lines of setup.txt
+# p1-session runs only the ENGRAM arm, so its student launch states "engram" as a constant. A stub session's slot holds no recall
+# daemon, so every cell that runs a stub session reaches the launch module through ONE test-only route, P1_TEST_DAEMON_EXPECTED=none,
+# which World.env sets: honoured only under P1_TEST_HOOKS=1 with P1_FEED4, refused in step 1 otherwise.
+def test_k1_a_real_runs_statement_is_the_constant_engram_and_only_the_test_route_can_say_none():
+    assert P1S.DAEMON_STATEMENT == "engram"
+    route = {"P1_TEST_DAEMON_EXPECTED": "none", "P1_FEED4": "/stub"}
+    assert P1S.daemon_statement({**route, "P1_TEST_HOOKS": "1"}) == "none"
+    assert P1S.daemon_statement(route) == "engram"                                              # the hooks are not on: ignored
+    assert P1S.daemon_statement({"P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": "none"}) == "engram"   # no stub: not honoured
+    for other in ("engram", "None", "", "NONE", "yes"):
+        assert P1S.daemon_statement({**route, "P1_TEST_HOOKS": "1", "P1_TEST_DAEMON_EXPECTED": other}) == "engram"
+    assert P1S.daemon_statement({}) == "engram"
+
+
+def test_k1_without_the_route_the_student_run_states_engram_and_the_module_refuses_a_slot_without_the_daemon(w):
+    r = w.run(P1_TEST_DAEMON_EXPECTED=None)
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert "REFUSE:" in r.stdout and "daemon_expected='engram'" in r.stdout and "derives none" in r.stdout, r.stdout
+    assert not w.mark.exists(), "a stub student ran although the slot did not hold what the arm states"
+
+
+@pytest.mark.parametrize("kw", [{"P1_TEST_DAEMON_EXPECTED": "engram"}, {"P1_TEST_DAEMON_EXPECTED": "None"},
+                                {"P1_FEED4": None}], ids=["engram", "None", "no-stub"])
+def test_k1_the_route_states_only_none_and_only_for_a_stub(w, kw):
+    r = w.run(**kw)
+    assert r.returncode == 2 and "P1_TEST_DAEMON_EXPECTED" in r.stdout + r.stderr, (r.returncode, r.stdout, r.stderr)
+    assert not w.mark.exists()
+
+
+@needs_linux_proc
+def test_k2_setup_txt_records_the_daemon_lines_when_the_session_ends_normally(w):
+    r = w.run()
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox daemon expected (arm statement): none", "sandbox daemon (launch line): none",
+                 "sandbox daemon time to ready s: none", "sandbox daemon stop outcome: none", "sandbox box label: none"):
+        assert want in lines, (want, lines)
+
+
+def test_k2_setup_txt_records_the_daemon_lines_when_the_launch_stops_too(w):
+    r = w.run(STUB_SANDBOX="badwrapper")
+    assert r.returncode == 3, (r.stdout, r.stderr)
+    lines = setup_text(w).splitlines()
+    for want in ("sandbox daemon expected (arm statement): none", "sandbox daemon (launch line): none",
+                 "sandbox daemon time to ready s: none", "sandbox daemon stop outcome: none", "sandbox box label: none"):
+        assert want in lines, (want, lines)
+
+
+def test_k2_sandbox_info_prints_what_a_daemon_launch_filled_in(w):
+    import types
+    res = P1S.SL.LaunchResult(0, log=str(w.root / "x.log"))
+    res.daemon, res.daemon_expected, res.daemon_time_to_ready_s = "engram", "engram", 3.4
+    res.daemon_stop_outcome, res.box_label = "already-gone", "the box with the recall daemon"
+    info = P1S.sandbox_info({"sandbox": types.SimpleNamespace(expected_file=str(w.expected))}, res)
+    for want in ("sandbox daemon expected (arm statement): engram", "sandbox daemon (launch line): engram",
+                 "sandbox daemon time to ready s: 3.4", "sandbox daemon stop outcome: already-gone",
+                 "sandbox box label: the box with the recall daemon"):
+        assert want in info, (want, info)
