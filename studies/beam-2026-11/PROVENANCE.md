@@ -106,6 +106,7 @@ entries say so.
 | UTC | who | decision | quote | node |
 |---|---|---|---|---|
 | 16:03 | Kepler (design owner) | For scored runs, the launch module's own after-session record states the recall daemon's process id and that no process still holds its socket; a manual sweep, accepted for the pilot, does not carry it. | Paraphrased from the design owner's message. | `ob_8147` |
+| 18:30 | Kepler (design owner); the project lead told 2026-11-22, about 18:31 UTC, in session | ADJUSTED Event Ordering is the upstream procedure, matching and arithmetic, run on the adjusted item list. The design owner's statement to the project lead on 2026-11-21 ('dropping lines changes only the table') was incomplete: removing or joining a line frees events and creates pairs never asked. Added: judge rows for pairs never asked, with the same judge and prompt, each pair asked at most once, level A's calls made in the official scoring pass. OFFICIAL and the arithmetic are unchanged. Level A's rule is defined: a line with no letter, once whitespace is removed, is dropped. Told, not yet approved. | Paraphrased from the design owner's ruling. | `ob_8154` |
 
 ## Corrections (METHODOLOGY section 7)
 
