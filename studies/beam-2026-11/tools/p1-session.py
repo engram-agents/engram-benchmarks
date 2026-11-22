@@ -141,6 +141,9 @@ P1_TEST_HOOKS=1 is refused in step 1 (exit 2), so a stray variable can never sil
   P1_AFTER_COPY_HOOK  `BEAM_PY -I HOOK SLOT`, run between the copy and the copy-fidelity check
   P1_EXPECTED_PARQUET_PREFIX  the sha256 prefix BEAM_PARQUET must have, in place of the registered one (setup.txt says so)
   P1_TEST_RAISE       KeyboardInterrupt | SystemExit | Exception: raised once, just after the copy has been verified
+  P1_TEST_DAEMON_EXPECTED  `none` only, and only with P1_FEED4: the student run states daemon_expected="none" to the launch module
+                      instead of the constant "engram" (a stub session's slot holds no recall daemon, so the launch module would
+                      refuse the constant). Any other value, or no P1_FEED4, is refused in step 1
 """
 import argparse, datetime, hashlib, http.client, json, os, re, shutil, sqlite3, subprocess, sys, tempfile, time, traceback
 import importlib.util
@@ -154,10 +157,14 @@ SL = importlib.util.module_from_spec(_SL_SPEC)
 _SL_SPEC.loader.exec_module(SL)
 REQUIRED_ENV = ("BEAM_PY", "BEAM_ARM_HOME", "BEAM_RUNS_DIR", "BEAM_PARQUET", "P1_PROTECTED")
 TEST_HOOKS = ("P1_FEED4", "P1_PLANT_CONTROL", "P1_UTC_STAMP", "P1_AFTER_COPY_HOOK", "P1_TEST_RAISE",
-              "P1_EXPECTED_PARQUET_PREFIX")
+              "P1_EXPECTED_PARQUET_PREFIX", "P1_TEST_DAEMON_EXPECTED")
 # The registered dataset's sha256 prefix: studies/beam-2026-11/PROVENANCE.md ("parquet sha256 prefix") and the reading
 # runs' own check in tools/pilot-run.sh. A test reads PROVENANCE.md and requires this constant to equal it.
 REGISTERED_PARQUET_PREFIX = "c0519be25907"
+# The ARM's statement of whether its student runs with the recall daemon, which the launch module compares with what the slot holds.
+# p1-session runs only the ENGRAM arm (it refuses an end state without .engram/knowledge.db), so the statement is a CONSTANT: no
+# option and no environment variable of a real run can change it. (The arm without the daemon is not run by this tool.)
+DAEMON_STATEMENT = "engram"
 LABEL = re.compile(r"[A-Za-z0-9._-]+")
 WINDOW = "CLAUDE_CODE_MAX_CONTEXT_TOKENS=131072"
 # The model server feed4.py talks to (feed.py's OLLAMA_URL) and the model it runs when --model is not given (feed4.py's
@@ -562,6 +569,15 @@ def continue_step1(a, env, end, paths):
             "pre_module_sha": pre_module_sha}
 
 
+def daemon_statement(env):
+    """The statement passed to the launch module for the student run: DAEMON_STATEMENT, always, in a real run. The ONE exception is
+    a test route, honoured only under the test hooks (P1_TEST_HOOKS=1 with P1_FEED4 set; step 1 refuses both otherwise): a stub session
+    has no recall daemon in its slot, so a test states `none` through P1_TEST_DAEMON_EXPECTED=none. No other value is read."""
+    if env.get("P1_TEST_HOOKS") == "1" and env.get("P1_FEED4") and env.get("P1_TEST_DAEMON_EXPECTED") == "none":
+        return "none"
+    return DAEMON_STATEMENT
+
+
 def step1(a):
     env = os.environ
     for v in REQUIRED_ENV:
@@ -573,6 +589,9 @@ def step1(a):
         if env.get(hook) and env.get("P1_TEST_HOOKS") != "1":
             raise Refusal(f"{hook} is a test-only hook and is refused unless P1_TEST_HOOKS=1 is also set "
                           "(a stray variable must never change a real run)")
+    if env.get("P1_TEST_DAEMON_EXPECTED") and (env["P1_TEST_DAEMON_EXPECTED"] != "none" or not env.get("P1_FEED4")):
+        raise Refusal(f"P1_TEST_DAEMON_EXPECTED={env['P1_TEST_DAEMON_EXPECTED']!r} is refused: the route states only `none`, and only "
+                      "for a stub session (P1_FEED4 set); a real run's statement is the constant `engram`")
     parquet_sha = file_sha256(env["BEAM_PARQUET"])
     want = expected_parquet_prefix(env)
     if not parquet_sha.startswith(want):
@@ -884,6 +903,7 @@ def work(a, c, steps):
         return 0
     try:
         res = SL.run_feeder(py, feed4, feed4_args(a, c, os.path.join(rundir, "run")), sandbox=c["sandbox"], log_dir=rundir, state_dir=os.path.join(os.environ["BEAM_RUNS_DIR"], "sandbox-launches"),
+                            daemon_expected=daemon_statement(os.environ),
                             test_stub=bool(os.environ.get("P1_FEED4")),
                             test_env_names=[k for k in os.environ if k.startswith("STUB_")] if os.environ.get("P1_FEED4") else ())
     except SL.LaunchRefused as e:   # before anything started: nothing of the session exists
@@ -922,6 +942,11 @@ def work(a, c, steps):
     return 3 if frc else (1 if drc else 0)
 
 
+def _none(v):
+    """A value for a setup.txt line: None is printed as the word `none`, never left blank or as Python's None."""
+    return "none" if v is None else v
+
+
 def sandbox_info(c, res):
     """The sandbox lines of setup.txt for one session: the log's basename, the verdict line verbatim (None when
     log-verdict refused), and the two hashes the launch line carried."""
@@ -932,6 +957,12 @@ def sandbox_info(c, res):
             f"sandbox launch-line wrapper_sha256: {res.wrapper_sha256 or 'none'}",
             f"sandbox launch-line forwarder_sha256: {res.forwarder_sha256 or 'none'}",
             f"sandbox launch-line test_mode: {res.test_mode}", f"sandbox launch-line test_exec: {res.test_exec}",
+            # the recall daemon: what the arm stated, what the launch line says it got, and what the daemon did (K2: recorded, not judged here)
+            f"sandbox daemon expected (arm statement): {_none(res.daemon_expected)}",
+            f"sandbox daemon (launch line): {_none(res.daemon)}",
+            f"sandbox daemon time to ready s: {_none(res.daemon_time_to_ready_s)}",
+            f"sandbox daemon stop outcome: {_none(res.daemon_stop_outcome)}",
+            f"sandbox box label: {_none(res.box_label)}",
             f"sandbox feeder PATH: {res.feeder_path}",
             f"sandbox feeder environment names: {', '.join(res.feeder_env_names or [])}",
             *[f"sandbox launch-line {k}: {v}" for k, v in sorted(res.caps.items())]]

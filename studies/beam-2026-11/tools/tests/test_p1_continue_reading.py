@@ -56,9 +56,10 @@ def emulate_wrapper(a):
     start = open("/proc/%d/stat" % me).read().rsplit(")", 1)[1].split()[19]
     sock = os.path.join(os.path.dirname(log), "bridge-%d.sock" % me)
     pfx = pairs.get("SANDBOX_TEST_UNIT_PREFIX", "student-sandbox-")
+    dexp = pairs.get("SANDBOX_DAEMON_EXPECTED", "unstated")   # what the real wrapper records of the arm's statement
     line = (f"wrapper-launch time=1 pid=2 wrapper_sha256={W} forwarder_sha256={F} scope_unit={pfx}{me}-{me:x} "
             f"forwarder_pid={me} forwarder_start={start} bridge_sock={sock} model=h:1 "
-            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296")
+            f"test_mode=1 test_exec=0 cap_tmp=2147483648 cap_tasks=1024 cap_memory=4294967296 daemon_expected={dexp}")
     CF = "fwd-fault method=POST path=/x status=502 bytes_read=0 kind=upstream reason=connect-failed detail=refused"
     body = [line, CF] if mode == "unreachable" else [line, "fwd-first-request"]
     with open(log, "a") as f:
