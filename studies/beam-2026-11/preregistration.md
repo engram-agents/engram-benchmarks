@@ -165,24 +165,28 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   set): the switches are what protect the run. The background switch changes HOW a sub-agent runs (in the foreground
   instead of asynchronously), not WHETHER it can: in cell S a sub-agent ran with the switches on and wrote outside the
   student's home. Sub-agents are closed by the OFF set alone, and nothing in this plan reads "background disabled" as
-  a statement about sub-agents. The skills missing from the session's first record (loop, workflow-authoring) are
-  second signs for the cron and workflow switches only, never for the background switch.
+  a statement about sub-agents. The skills missing from the session's first record in cells D and S (loop,
+  workflow-authoring, deep-research; all three present in cell U) are second signs that the switches reached the
+  run; no cell set one switch alone, so which switch removes which skill is not measured. The background switch's
+  own sign is the shell's schema with no background option, which the forwarder checks on every request (below).
   Default and measurement, kept apart. On 2.1.328 in print mode the 120-second move to the background is the default
-  (cell U: the past runs' arguments and environment, with the probe's scripted model and a stand-in MCP tool); it was
-  open in the configuration every run before this rule used, and no occurrence of it was found in them, to the table's
-  bound (PROVENANCE, Corrections, 2026-11-22). The shell's sleep guard, an observation on 2.1.328 and not a guarantee.
+  (cell U: the past runs' arguments and environment, with the probe's scripted model and a stand-in MCP tool); on
+  that version it was open in the configuration every run before this rule used, and no occurrence of it was found
+  in them, to the table's bound (2.1.328 only; those runs also used 2.1.325 and 2.1.327, not measured; PROVENANCE,
+  Corrections, 2026-11-22). The shell's sleep guard, an observation on 2.1.328 and not a guarantee.
   Measured, one pair: a bare sleep of 150 seconds was refused with the background option available (cell B4) and ran
   with it disabled (cell D). Read from the binary, not measured: the guard matches only a first command segment that
-  is a bare sleep over 25 seconds; whether the refusal depends on the background feature is not established. In the
-  scored configuration (background disabled) the guard did not refuse it: the bare sleep ran until the shell's
-  120-second kill (cell D). The 120 seconds are only the default (a call may ask for up to 600), and short commands
+  is a bare sleep over 25 seconds; whether the refusal depends on the background feature is not established. With
+  the three switches set (cell D, which also had the enabling variable set) the guard did not refuse it: the bare
+  sleep ran until the shell's 120-second kill; no cell ran a bare sleep in the scored configuration (cell S's long
+  command was not one). The 120 seconds are only the default (a call may ask for up to 600), and short commands
   chain, so nothing here stops a student stalling a turn; section 14's turn-timeout rule is neither weakened nor
   settled by it.
   The proctor's reader. It matches each result to the turn it sent, so the result of a turn nobody sent can never be
   read as the answer to the next question, and it bounds its own wait, so a silent harness cannot stall it past the
   turn timeout; what a timed-out turn then means is section 14's rule. (The readers used before this rule returned the
-  first result after a send; no occurrence of a turn nobody sent was found in those runs, to the table's bound,
-  PROVENANCE, Corrections, 2026-11-22.)
+  first result after a send; no occurrence of a turn nobody sent was found in those runs, to the table's bound:
+  2.1.328 only, and those runs also used 2.1.325 and 2.1.327; PROVENANCE, Corrections, 2026-11-22.)
   Checked on every request, not once per run. The model-endpoint forwarder parses a copy of every request body (bounded
   size and nesting depth, never evaluated, never logged) and forwards the original bytes unmodified. It refuses a
   request whose body does not parse (invalid UTF-8 and duplicate keys included), has no tools list, has no Bash tool,
@@ -596,7 +600,11 @@ lead's registered timetable of 2026-11-19, a private working file, sha256
 costs re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a fault:
 it cannot succeed (section 7), and the four network counts are reported per arm. Upstream lines are counted (section
 7); only the endpoint verdict above flags a run. Each flagged run may be re-run once, with the reason logged before
-the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A book-closed run in
+the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A refusal by the
+model-endpoint forwarder is never a flag; section 7 states its rule: a refusal on a launch's first request stops the
+launch before any exam begins (OPEN list), a later isolated refusal refuses that request only, and a pervasive lapse
+MARKS the run, which stays in the primary analysis, counted against the arm, and halts further launches. A
+book-closed run in
 which the student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
 report and reported as it stands, never re-run (section 13).
 
