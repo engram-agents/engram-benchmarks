@@ -467,28 +467,29 @@ rule lives): flagged only when the run's wrapper log holds a connect-failed line
 the bridge writes once per launch after its first send that moves bytes upstream (a missing wrapper log is already the
 fault above: no launch line). The run's wrapper log is one file per launch, and `log-verdict` refuses any log holding
 other than exactly one wrapper-launch line, so one launch's marker can never hide another launch's unreachable
-endpoint (design owner; required before the first scored run). An endpoint that dies DURING a run (connect-failed
-after the marker) is never an automatic re-run or exclusion: the study lead reports it with the endpoint's own log and
-the co-load sampler, and the design owner decides re-run or keep before anyone has read that run's answers; the
-decision and its reason are reported, and the same rule holds for both arms. The guard is per scored run: the exam
-session's own launch line counts, and arm 2's setup session, which also runs inside the wrapper, logs its own. The
-launch line that counts carries the sha256 of the wrapper file itself, logged per run, so it shows which wrapper ran,
-not only that one did; a scored run found outside the wrapper is reported to the security seat before any re-run. The
-timeout value is about 3.2 times the longest turn measured in tuning: over all 38 tuning turn records (tuning log,
-"Per-turn maxima over every tuning turn record", 2026-11-20), the longest turn of any kind is 1,108.8 s (reading three
-exchanges per turn, a tuning setting not used in scored runs; run p1-p1b-k3, started 2026-11-19). The longest of each
-kind this timeout covers: reading one exchange per turn 1,075.3 s (run K1-conv9); arm 2 setup 983.2 s; answering 524.8
-s (run A); the forced /compact 166.6 s. Conversation 9 has 135 exchanges, so the pace past exchange 135 is unmeasured,
-and scored conversations run to 196 (exchanges counted with the reader's own `feed.exchanges()` on the 100K file: the
-17 scored conversations have 94 to 196 each, 2,409 in all; the eight longer than 135 are conversations 10: 172, 11:
-194, 12: 196, 13: 155, 16: 161, 17: 143, 18: 181 and 19: 164; from the study lead's registered timetable of
-2026-11-19, a private working file, sha256 60cf1a810f72ac8e8f6a5201f1b551ee84098f1039ed88d0a5f96b281c95afdf). Too low
-a value flags slow but healthy runs and costs re-runs; too high a value costs at most an hour of a real hang. A
-blocked shell network attempt is not a fault: it cannot succeed (section 7), and the four network counts are reported
-per arm. Upstream lines are counted (section 7); only the endpoint verdict above flags a run. Each flagged run may be
-re-run once, with the reason logged before the re-run; a second failure stays excluded. A wrong or empty answer is
-never a harness fault. A book-closed run in which the student opens its own transcript is NOT a harness fault: it is
-the student's behaviour, flagged in the report and reported as it stands, never re-run (section 13).
+endpoint (design owner, 2026-11-20; required before the first scored run). An endpoint that dies DURING a run
+(connect-failed after the marker) is never an automatic re-run or exclusion: the study lead reports it with the
+endpoint's own log and the co-load sampler, and the design owner decides re-run or keep before anyone has read that
+run's answers; the decision and its reason are reported, and the same rule holds for both arms. The guard is per
+scored run: the exam session's own launch line counts, and arm 2's setup session, which also runs inside the wrapper,
+logs its own. The launch line that counts carries the sha256 of the wrapper file itself, logged per run, so it shows
+which wrapper ran, not only that one did; a scored run found outside the wrapper is reported to the security seat
+before any re-run. The timeout value is about 3.2 times the longest turn measured in tuning: over all 38 tuning turn
+records (tuning log, "Per-turn maxima over every tuning turn record", 2026-11-20), the longest turn of any kind is
+1,108.8 s (reading three exchanges per turn, a tuning setting not used in scored runs; run p1-p1b-k3, started
+2026-11-19). The longest of each kind this timeout covers: reading one exchange per turn 1,075.3 s (run K1-conv9); arm
+2 setup 983.2 s; answering 524.8 s (run A); the forced /compact 166.6 s. Conversation 9 has 135 exchanges, so the pace
+past exchange 135 is unmeasured, and scored conversations run to 196 (exchanges counted with the reader's own
+`feed.exchanges()` on the 100K file: the 17 scored conversations have 94 to 196 each, 2,409 in all; the eight longer
+than 135 are conversations 10: 172, 11: 194, 12: 196, 13: 155, 16: 161, 17: 143, 18: 181 and 19: 164; from the study
+lead's registered timetable of 2026-11-19, a private working file, sha256
+60cf1a810f72ac8e8f6a5201f1b551ee84098f1039ed88d0a5f96b281c95afdf). Too low a value flags slow but healthy runs and
+costs re-runs; too high a value costs at most an hour of a real hang. A blocked shell network attempt is not a fault:
+it cannot succeed (section 7), and the four network counts are reported per arm. Upstream lines are counted (section
+7); only the endpoint verdict above flags a run. Each flagged run may be re-run once, with the reason logged before
+the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A book-closed run in
+which the student opens its own transcript is NOT a harness fault: it is the student's behaviour, flagged in the
+report and reported as it stands, never re-run (section 13).
 
 A failed automatic compaction during reading (the summary the harness makes when the window fills does not complete;
 distinct from the post-compaction check above, which is the leak check on the forced /compact after the last
