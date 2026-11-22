@@ -750,8 +750,10 @@ def test_p10_the_shipped_list_is_well_formed(tool, monkeypatch, capsys):
 EX = "tools/public-text-check-exempt-windows.txt"
 APPROVED = "approved: test seat (ref 1)"
 BOUND = ("window 8 words; exemptions {n} (by content hash); acknowledged history {m}; negative control: this "
-         "repository's own prose and code, measured on study/beam-tuning-log-2 at bc0aca7, 2026-11-19: "
-         "2 windows at 8 words (both exempt), 0 at 9")
+         "repository's own prose and code (every tracked file outside "
+         "studies/beam-2026-11/data/), measured on the merge of study/beam-tuning-log-2 3f0904ee "
+         "with main 8e6d522b, 2026-11-22: at 8 words every in-scope hit is a hash-exempted window; "
+         "4 lines at 9, 2 at 10, 2 at 12, all web boilerplate in tools/review-page")
 
 
 def wsha(text):

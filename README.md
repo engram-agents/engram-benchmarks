@@ -29,6 +29,7 @@ breaks one.
    People appear only as the authors of design decisions, quoted for the decision itself.
 3. **No credentials and no operational state.** No tokens, keys or receipts; nothing about which
    machine runs which service, rollout status, or the team's internal channels.
+   Exception, recorded 2026-11-22: eleven files keep internal team-message numbers. Eight are files whose content hash is cited elsewhere as a witness, so editing them would break the citation (`p1_answers.py`, `p1_grade.py`, `p1_score.py`, their three tests, `analyze-gate2.redacted.py`, `gate2-controls.redacted.py`); three are records of a blinded procedure whose value is that nobody edited them afterwards (`score-review-pilot-runA.md`, `runA-seat-sol.md`, `coload-sampler-change-controls.txt`). No other file may carry them.
 4. **Benchmark data is referenced, not copied.** Datasets are named by their public source and a
    content hash; their files are not redistributed here. Transcripts that contain benchmark text are
    published only after a scrub and under the dataset's licence (see each study's PROVENANCE.md).
@@ -55,7 +56,7 @@ The scan cannot catch rule 2 or rule 5; review does.
 while a study using that conversation is open; commit the file's sha256 and hold the file privately.
 `tools/public-text-check.py` enforces this on every pull request and push (CI) and is run locally before every push to
 a public branch, in file mode and over the commits being pushed (`--history <range>`), with the pinned dataset.
-Exception: none; the check never prints what it matched.
+Exception: none beyond the hash-listed windows below and the notice in studies/beam-2026-11/ATTRIBUTION.md; the check never prints what it matched.
 A run of 8 words shared with the dataset counts as a hit; the few windows listed by hash in
 `tools/public-text-check-exempt-windows.txt` (each with a reason and an approver, added only after a second seat's read)
 are the only windows it lets through.

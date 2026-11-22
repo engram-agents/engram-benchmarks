@@ -85,8 +85,10 @@ EXEMPT_PREFIX = "tools/public-text-check-fixtures/"
 ACK_PATH = "tools/public-text-check-acknowledged.txt"
 EXEMPT_PATH = "tools/public-text-check-exempt-windows.txt"
 # Where and when the window was measured against this repository's own text; a constant, not a computation.
-NEGATIVE_CONTROL = ("negative control: this repository's own prose and code, measured on study/beam-tuning-log-2 "
-                    "at bc0aca7, 2026-11-19: 2 windows at 8 words (both exempt), 0 at 9")
+NEGATIVE_CONTROL = ("negative control: this repository's own prose and code (every tracked file outside "
+                    "studies/beam-2026-11/data/), measured on the merge of study/beam-tuning-log-2 3f0904ee "
+                    "with main 8e6d522b, 2026-11-22: at 8 words every in-scope hit is a hash-exempted window; "
+                    "4 lines at 9, 2 at 10, 2 at 12, all web boilerplate in tools/review-page")
 SHA40_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 CONTROL_CLASSES = ("top-level", "nested", "question")
 HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")

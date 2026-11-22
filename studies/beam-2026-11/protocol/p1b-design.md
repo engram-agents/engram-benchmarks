@@ -1,5 +1,7 @@
 # P1b: the larger K = 3 against k = 1 instrument, on the later exchanges (DESIGN, for the design owner's read)
 
+*Dates in place of message pointers (edit of 2026-11-22): where this file names a team message by its date, the date is the message's UTC date, so a message sent on a New York evening carries the next day's date. Dates of Lei's own decisions are his New York day, as written.*
+
 Status: **ACCEPTED as the design** by the design owner (2026-11-19, read in full at 46cfb362), with six
 additions, written in below as marked (A1 to A6); amendment diff read and GO TO BUILD given (2026-11-19), plus A7. The
 registered

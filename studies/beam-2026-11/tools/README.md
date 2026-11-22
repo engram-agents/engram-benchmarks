@@ -102,6 +102,10 @@ by `feed2.py`; `vanilla-hello.sh` writes `vanilla-hello<TAG>.json` and `.err` in
 If a GPU reservation wrapper is needed on your host, put it in front of `$PY -I $BEAM_TOOLS/feed2.py`
 yourself; the scripts here run the commands exactly as the practice runs did.
 
+`pilot-run.sh` treats `BEAM_ARM_HOME` as a dedicated, disposable arm home: it stops processes whose command line names
+that home's `.engram/` path and moves the home aside before a run. Never point it at a real user's home directory. (The
+script itself is not edited here: its bytes are those that ran in recorded sessions.)
+
 ## `check-port-identity.py`
 
 Checks that a ported copy of `feed.py`/`feed2.py` shows the student exactly what a reference copy

@@ -1,5 +1,7 @@
 # Tuning log (practice runs; never scored)
 
+*Dates in place of message pointers (edit of 2026-11-22): where this file names a team message by its date, the date is the message's UTC date, so a message sent on a New York evening carries the next day's date. Dates of Lei's own decisions are his New York day, as written.*
+
 Every practice run, and every change made to get the student to use ENGRAM, with its reason and arm 1's
 equivalent (Kepler's tuning guard). All runs used tuning conversation 15 of the 100K split, which is
 therefore not in the scored set. No arm-versus-arm accuracy is computed on any of them; the practice
@@ -249,6 +251,8 @@ too, the same evening). The design owner accepted the idea with conditions and r
   skill takes without them. If that path does not resolve cascades, or cannot finish in the student's
   window, that is a product finding for the tracker; there is no exam-only sleep variant. If the student
   does not sleep on the message, that is a result; ENGRAM and its sleep are not named to the student.
+
+  *Note added 2026-11-22: the line above states the design, not what ran. In every session run through this date, sub-agents, the web tools and the scheduling tools were offered to the student with no permission check; none was called (three independent counts over the 39 session logs that contain tool calls). A probe without a model the same day (Claude Code 2.1.328, one run) showed that a sub-agent call would have worked and could write outside the student's home. The tool rule was enforced nowhere. A dated public correction is to follow in this repository.*
 - Logged for 2b: the store before and after the wrap-up (node count, superseded nodes, cascade markers
   resolved, nodes faded by the turn advance), and the wrap-up's wall time and tokens as their own row.
 - Reported: 2a and 2b side by side, per question and by question type, as a paired look inside one arm
@@ -318,6 +322,8 @@ for trigger reliability, so the wording's own effect cannot be separated from th
 **Known in advance (engram#4803):** without sub-agents the shipped sleep stops after its first half,
 whatever the message says. So no wording can produce cascade resolution in the exam today; this test
 shows only whether the first half runs, and Phase 2b shows what it changes.
+
+*Note added 2026-11-22: the line above states the design, not what ran. In every session run through this date, sub-agents, the web tools and the scheduling tools were offered to the student with no permission check; none was called (three independent counts over the 39 session logs that contain tool calls). A probe without a model the same day (Claude Code 2.1.328, one run) showed that a sub-agent call would have worked and could write outside the student's home. The tool rule was enforced nowhere. A dated public correction is to follow in this repository.*
 
 ## Long recall run STOPPED (logged at 2026-11-15T01:43:00Z, before the stop)
 
@@ -2368,7 +2374,7 @@ code with the scorer, reproduced the two accuracies, the 38-exchange mean, both 
   understanding of the rule, so it checks the code, not the reading of the rule.
 - **The ruling chain this result rests on, in one place:**
 
-| ruling | crossing | what it fixed |
+| ruling | date | what it fixed |
 |---|---|---|
 | 1 | 2026-11-19 | a turn ending on a tool call is answered by its last text block (stands, none occurred); made on a premise later shown false (Borges, 2026-11-19) |
 | 2 | 2026-11-19 | a final text that is exactly `[no output]` is a missing answer; the earlier block is the sensitivity score |
@@ -2635,6 +2641,10 @@ grading scripts apply unchanged. The list comes back through a drop folder the o
   words, history list reconciled; Sol has sent his confirmation in his own words (2026-11-19).
 - **Bound, both instruments:** verbatim runs against the pinned 100K file only; not paraphrase, not other splits, nothing
   under 8 words.
+
+### Window re-measured on the merged tree (2026-11-22)
+
+The negative control was measured again on the merge e08eb10d29578b4820306d791b655ac9e2feab54 (parents: study/beam-tuning-log-2 at 3f0904ee and main at 8e6d522b5d97), in the control's own scope, every tracked file outside `studies/beam-2026-11/data/`. In that scope the counts are: at 8 words every hit is a hash-exempted window (the checker does not print an exempt-hit count); at 9 words 4 lines; at 10 words 2; at 12 words 2. `studies/beam-2026-11/data/p1-questions.json` is under `data/`, outside the control's scope, and quotes a few benchmark words under its ATTRIBUTION notice; it gives 2 hits at 9 words on the branch alone and on the merge. The window stays at 8 words. The in-scope hits at 9 words and above are web boilerplate in `tools/review-page` (hash-exempted at 8 words, approved line by line by the design owner).
 
 ### P1b K = 3 reading (exchanges 46-135): start
 
