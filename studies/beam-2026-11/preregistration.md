@@ -164,7 +164,8 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   input schema has no background option, so such a request is refused at input validation, and a foreground command
   past the limit is killed at 120 seconds instead of moved (cells D and S). The launcher also asserts unset every
   auto-background variable the binary reads; that is a second barrier only (cell D was quiet with the enabling variable
-  set): the switches are what protect the run. The background switch changes HOW a sub-agent runs (in the foreground
+  set): the switches are what protect the run, where nothing turns them off (a settings file in the student's home
+  can: see below, and the managed tier). The background switch changes HOW a sub-agent runs (in the foreground
   instead of asynchronously), not WHETHER it can: in cell S a sub-agent ran with the switches on and wrote outside the
   student's home. Sub-agents are closed by the OFF set alone, and nothing in this plan reads "background disabled" as
   a statement about sub-agents. The skills missing from the session's first record in cells D and S (loop,
@@ -183,12 +184,15 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
     model's background call runs, and a long foreground command is moved to the background at 120 s with a turn nobody
     sent about 30 s later;
   - written during the session: the running process applies it (a child process sees the switches off), but the
-    shell's schema keeps no background option (it is fixed when the session starts), so the model's background call
-    is still refused; the 120-second move happens, and a turn nobody sent follows. The exam's forced compaction does
+    shell's schema keeps no background option (fixed when the session starts, as far as measured), so the model's
+    background call is still refused; the 120-second move happens, and a turn nobody sent follows. The exam's forced
+    compaction does
     not change this: after it, the schema still offers no option, the settings written earlier are still in force, and
     the move still happens (one forced compaction, two turns after the write; a later or second compaction is not
     measured). Because the exam's forced compaction comes before the questions (section 8), a file written during
-    the reading phase leaves EVERY answer of that exam produced with the timeout route open and the forwarder silent.
+    the reading phase leaves every answer of that exam produced with the timeout route open and the forwarder silent,
+    unless something rebuilds the schema later in the session: not seen across the one forced compaction measured;
+    automatic compactions and sessions running long after the write are not measured.
   A managed settings tier can hold the switches against such a file. Measured, same conditions: a managed settings file
   at the system location (/etc/claude-code/managed-settings.json, inside the probe's own namespace) is applied and wins
   over a user file both present at launch and written during the session. Three other deliveries of the same block are
@@ -601,7 +605,9 @@ Two judges, named by the one thing that differs between them (the project lead's
   or events put it there, and the count per member and per arm. Its
   members: a failed automatic compaction during reading (section 14, rule B); a recall daemon already gone at stop
   (section 14); ENGRAM's first session not complete at the end of setup (section 14); recall daemon files changed by
-  the arm during setup (section 14); a run marked for a pervasive forwarder lapse (section 7). That second figure is
+  the arm during setup (section 14); a run marked for a pervasive forwarder lapse (section 7); an exam whose
+  questions went unanswered because the switches were turned off by a settings file written during setup (section
+  14); a run marked 'switches turned off by a settings file written during the exam' (section 14). That second figure is
   descriptive and never a score (the design owner, 2026-11-22): it is reported beside the primary contrast, never
   instead, labelled descriptive, never in the abstract or a headline, and never as the study's result. H1 and the
   primary are decided on the primary contrast only, and the primary moves on nothing but section 14's flags.
@@ -703,7 +709,8 @@ it cannot succeed (section 7), and the four network counts are reported per arm.
 7); only the endpoint verdict above flags a run. Each flagged run may be re-run once, with the reason logged before
 the re-run; a second failure stays excluded. A wrong or empty answer is never a harness fault. A refusal by the
 model-endpoint forwarder is never a flag; section 7 states its rule: a refusal on a launch's first request stops the
-launch before any exam begins (below), a later isolated refusal refuses that request only, and a pervasive lapse
+launch before any exam begins (below; except where the settings-file rule below classes the cause as the arm's), a
+later isolated refusal refuses that request only, and a pervasive lapse
 MARKS the run, which stays in the primary analysis, counted against the arm, and halts further launches. A
 book-closed run in which the student opens its own transcript is NOT a harness fault: it is the student's
 behaviour, flagged in the report and reported as it stands, never re-run (section 13).
@@ -776,9 +783,9 @@ follow the security seat's reads):
     after such a run until the design owner and the security seat have read its records, as for a pervasive lapse. This
     rule is executable only on a build whose reader of section 7 has landed: the count of turns nobody sent and the
     statement that no answer shifted have no instrument before it.
-  Where the managed tier of section 7 HOLDS, a file the arm changed is recorded and reported in the run's settings
-  records, and the exam is unaffected: no mark, no halt (the tier keeps the switches on, so nothing lapses).
-  Such exams are reported by name.
+  Such exams are reported by name and are in the contrast set (section 11). Where the managed tier of section 7
+  HOLDS, a file the arm changed is recorded and reported in the run's settings records, and the exam is unaffected:
+  no mark, no halt, and not in the contrast set (the tier keeps the switches on, so no event touches the exam).
 - Which run counts. For each conversation and arm, the primary uses the first run that completes without a flag.
   A run that completed without a flag is never run again. A re-run exists only after a flag, once, with the reason
   logged before it starts. Flags are mechanical and are decided before any answer of that run is read. Book-closed
