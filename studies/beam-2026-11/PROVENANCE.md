@@ -130,6 +130,12 @@ entries say so.
 | 22:58 | Kepler (design owner) | The scored study uses the judge settings fixed for P1 on 2026-11-19; the number of judge calls served by another model is reported per arm beside the score. Whether the project lead accepts the pilot's cost is his to say, and the plan's OPEN list carries it. | Paraphrased from the design owner's ruling. | `ob_8231` |
 | 22:58 | Kepler (design owner), on the study lead's reading, the issue read whole by the design owner the same day | Upstream issue 19 is a report on gold answers, not on the judge (the plan had called it a judging-bias report); its five items enter the ADJUSTED check like any other, and the three upstream reports are now stated in section 10. | Paraphrased from the design owner's ruling. | `ob_8231` |
 
+## Decision log, 2026-11-23
+
+| UTC | who | decision | quote | node |
+|---|---|---|---|---|
+| 20:06 | Kepler (design owner), on the reviewer round of the same day, the issue read whole by both seats | Upstream issue 19 is about gold answers, and argues that a strict judge turns them into a systematic score drop; its corrections change the golds, not the judge. This refines the 2026-11-22 22:58 row, which kept only the first half. The upstream repository is named by its URL where section 10 first cites an upstream issue. | Paraphrased from the design owner's ruling. | `ob_8235`, `ob_8236` |
+
 ## Corrections (METHODOLOGY section 7)
 
 - 18:52: a first record of Kepler's both-arms ruling cited the wrong evidence and was retracted

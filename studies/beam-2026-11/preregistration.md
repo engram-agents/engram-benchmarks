@@ -336,11 +336,12 @@ Two judges, named by the one thing that differs between them (the project lead's
 - Judge: Claude Sonnet, which the project lead asked to try first on 2026-11-16, its cost to be measured on a pilot;
   the pilot ran the same day. Every judge call pins the model id `claude-sonnet-5-5`, through the first-party API, at
   effort low, one call per rubric item, with no temperature setting: the settings the design owner fixed for P1's
-  grading on 2026-11-19 (tuning log, entry "Judge settings, fixed now", which reaches main with the study record).
+  grading on 2026-11-19 (the study record's tuning log, data/tuning-log.md, entry "Judge settings, fixed now";
+  it reaches main with that record).
   The same for every arm, with the paper's rubrics unchanged. Every call records the model that served it; a call
   served by another model is reported, not dropped, and the number of such calls is reported per arm beside the
   score (the judge is never told the arm, so they should fall evenly; the count lets a reader see that they did). A
-  refusal or an unparseable reply is recorded with an empty score and reported. The judge is never told the arm.
+  refusal or an unparseable reply is recorded with an empty score and reported.
 - Paper over code (the project lead's rule): where the benchmark's peer-reviewed paper (published at ICLR 2026,
   per the paper's own header) and its released code
   clearly contradict each other (the paper states something at a location we can cite, and the code does
@@ -350,6 +351,8 @@ Two judges, named by the one thing that differs between them (the project lead's
   scored run, never chosen after a result is seen. Applications so far: one, the judge prompt (next bullet). Cases
   where the paper is silent and the released code therefore stands are listed the same way: one, how an Event
   Ordering answer is cut into items (the Event Ordering bullets below).
+  Upstream issues and commits cited in this plan are those of the benchmark's repository,
+  https://github.com/mohammadtavakoli78/BEAM.
   Partial credit is not one: the paper scores each rubric item 0, 0.5 or 1, and the current code parses the
   judge's score as a number (at b2da22e every score conversion of the earlier code, `int()`, upstream issue 8,
   became `float()`), so the paper and the current code agree.
@@ -414,7 +417,8 @@ Two judges, named by the one thing that differs between them (the project lead's
   SCORE-REVIEW-PRINCIPLES.md requires) and, where we agree, corroborated with a short comment on that issue rather
   than reported again; only a finding not already reported is raised as a new issue. Every finding, whether credited,
   corroborated or new, is cited. The adjusted set is frozen before arm labels are unblinded.
-- Upstream issue 19 (opened 2026-10-12, unanswered as of 2026-11-22) concerns gold answers, not the judge. According
+- Upstream issue 19 (opened 2026-10-12, unanswered as of 2026-11-22) is about gold answers. It argues that a strict
+  judge turns them into a systematic score drop, and its corrections change the golds, not the judge. According
   to the report, five gold answers of 100K conversation 1, a scored conversation here, conflict with the conversation
   text: two abstention questions (1 and 2) whose gold says the information is absent while the conversation contains
   it, and three questions (7, 19 and 20) where the conversation holds two valid values and the rubric accepts one. The
