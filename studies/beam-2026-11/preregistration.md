@@ -170,7 +170,45 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   a statement about sub-agents. The skills missing from the session's first record in cells D and S (loop,
   workflow-authoring, deep-research; all three present in cell U) are second signs that the switches reached the
   run; no cell set one switch alone, so which switch removes which skill is not measured. The background switch's
-  own sign is the shell's schema with no background option, which the forwarder checks on every request (below).
+  own sign is the shell's schema with no background option, which the forwarder checks on every request (below). The
+  schema is fixed when the session starts, so the absence of the option shows a switch that was off at launch, not one
+  turned off later; a switch turned off during the exam is invisible to this check; and a schema that HAS the option
+  shows the switch was already off at launch. That makes the check a launch gate, not a live one.
+  A settings file in the student's home can turn the switches off. Measured 2026-11-23 (2.1.328, print mode, one run
+  per cell, scripted model; data/probes-2026-11-23/): an environment block in the user, project or project-local
+  settings file that sets the three switches to an empty string (or "0") overrides the values the harness set. A setup
+  session runs as the student in that home with permissions bypassed, so it can write such a file; so can the student
+  during an exam. What a file changes depends on WHEN it is written:
+  - present at launch: the shell's schema offers the background option on every request that carries the shell, the
+    model's background call runs, and a long foreground command is moved to the background at 120 s with a turn nobody
+    sent about 30 s later;
+  - written during the session: the running process applies it (a child process sees the switches off), but the
+    shell's schema keeps no background option (it is fixed when the session starts), so the model's background call
+    is still refused; the 120-second move happens, and a turn nobody sent follows. The exam's forced compaction does
+    not change this: after it, the schema still offers no option, the settings written earlier are still in force, and
+    the move still happens (one forced compaction, two turns after the write; a later or second compaction is not
+    measured). Because the exam's forced compaction comes before the questions (section 8), a file written during
+    the reading phase leaves EVERY answer of that exam produced with the timeout route open and the forwarder silent.
+  A managed settings tier can hold the switches against such a file. Measured, same conditions: a managed settings file
+  at the system location (/etc/claude-code/managed-settings.json, inside the probe's own namespace) is applied and wins
+  over a user file both present at launch and written during the session. Three other deliveries of the same block are
+  NOT applied: a command-line flag for managed settings (parsed, its environment block ignored), and the
+  managed-settings path variable naming either a folder or the file itself (the variable reaches the process; the file
+  is not read as a managed source).
+  So the scored box delivers the managed tier at the system location, by building its own /etc: a private tmpfs with
+  every host /etc entry bound read-only (strictly, or their count asserted), the wrapper's existing /etc masks
+  preserved and still counted, and a harness-owned folder bound READ-ONLY at /etc/claude-code holding the three
+  switches. No step needs root on the host. This is a REQUIREMENT and a freeze precondition: before the freeze, the
+  construction has its own dry-box cell, run as the student's user inside the scope, read by the security seat. As of
+  this amendment the construction is not built; the measurements above were made in the probe's own namespace, from
+  an agent's account. Only if it cannot be built does a host root step go to the project lead, with the reason. If
+  it cannot be built and no root step is taken, whether the study runs with the reader (below) as its only barrier
+  is NOT pre-decided; the design owner rules it then, with the security seat. Two launcher rules hold whatever the
+  route: no value the launcher passes is
+  computed from a path under the arm's home, and the launcher's PATH never gains a directory the student can write.
+  The client itself draws the line this tier relies on: when it reports workflows as disabled by a settings key, it
+  names the source as either managed settings or the user's own settings (read in 2.1.328's code, not measured).
+  Where the managed tier is absent or fails, section 14's settings-file rule classes what happens.
   Default and measurement, kept apart. On 2.1.328 in print mode the 120-second move to the background is the default
   (cell U: the past runs' arguments and environment, with the probe's scripted model and a stand-in MCP tool); on
   that version it was open in the configuration every run before this rule used, and no occurrence of it was found
@@ -184,11 +222,27 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   command was not one). The 120 seconds are only the default (a call may ask for up to 600), and short commands
   chain, so nothing here stops a student stalling a turn; section 14's turn-timeout rule is neither weakened nor
   settled by it.
-  The proctor's reader. It matches each result to the turn it sent, so the result of a turn nobody sent can never be
-  read as the answer to the next question, and it bounds its own wait, so a silent harness cannot stall it past the
-  turn timeout; what a timed-out turn then means is section 14's rule. (The readers used before this rule returned the
-  first result after a send; no occurrence of a turn nobody sent was found in those runs, to the table's bound:
-  2.1.328 only, and those runs also used 2.1.325 and 2.1.327; PROVENANCE, Corrections, 2026-11-22.)
+  The proctor's reader, a FREEZE PRECONDITION: the plan does not freeze until the scored launcher's reader is merged
+  with its cells (the reader built so far returns the first result after a send and does not meet this). It binds
+  each result to the turn it sent and counts the turns nobody sent, so the result of such a turn can never be read as
+  the answer to the next question; and it bounds its own wait, so a silent harness cannot stall it past the turn
+  timeout; what a timed-out turn then means is section 14's rule. Where no managed tier holds the switches, a settings
+  file written during the exam leaves the forwarder silent for the rest of it (above), and this reader is then the only
+  thing that keeps a turn nobody sent from being read as the next answer. Cells before the freeze, the planted ones
+  first: (i) a turn nobody sent produced on purpose, in two shapes, the launch-time one and the during-the-session one
+  (a settings file written after the first turn, no managed tier), each run WITH the forwarder in the path; each
+  asserts that the reader's count is 1 and that no later answer moves to another question; the planted cells are seen
+  firing before any quiet count is read as evidence; (ii) the forwarder refuses a request mid-run, and the reader
+  records that turn as unanswered, not shifted. The refusal in (ii) has a cause the forwarder AS BUILT can produce
+  mid-run: a request body over the request cap (413, kind 'cap'), produced by the cell. The reader's requirement does
+  not depend on the cause, so the cell tests what it is for now. Its expectation names the class vocabulary it uses
+  (the built forwarder's kinds: framing, cap, rule, upstream), so a mismatch reads as 'wrong class', not 'no
+  refusal'. The background-option cause cannot serve: the schema is fixed at launch, so that cause fires only on a
+  launch's first request (rule (a)). When the body-parsing forwarder lands with the launcher, its own cells add the
+  parse-bound case, with both bounds and their order named. (The readers used before this rule returned the first
+  result after a
+  send; no occurrence of a turn nobody sent was found in those runs, to the table's bound: 2.1.328 only, and those
+  runs also used 2.1.325 and 2.1.327; PROVENANCE, Corrections, 2026-11-22.)
   Checked on every request, not once per run. The model-endpoint forwarder parses a copy of every request body (bounded
   size and nesting depth, never evaluated, never logged) and forwards the original bytes unmodified. It refuses a
   request whose body does not parse (invalid UTF-8 and duplicate keys included), has no tools list, has no Bash tool,
@@ -196,7 +250,9 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   schema shape it cannot read (two Bash entries, a reference, a composition) is refused, never resolved. Each refusal
   is a line the harness writes outside the box, with its class (unparseable, no tools list, no Bash, run_in_background
   present, unsupported schema shape), the request's index counted from the launch's first request, and the Bash
-  property names seen (names only, nothing of the body); a refusal is distinguishable from a transport error. An exam
+  property names seen (names only, nothing of the body); a refusal is distinguishable from a transport error.
+  These five classes describe the forwarder to be built with the launcher; the forwarder built so far has four refusal
+  kinds (framing, cap, rule, upstream) and parses no body. An exam
   counts only if the forwarder wrote a pass line for the launch's first request; with none, the launch did not start
   under this rule: it is a launch stopped before any exam begins, handled by section 14's rule for that case. A
   forwarder that dies later leaves transport errors, which silence the model like a lapse; that is the model endpoint
@@ -208,7 +264,7 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   is shown not to refuse every legitimate launch. The study's rule for refusals:
   (a) a refusal on a launch's first request refuses the launch (nothing of the exam has gone upstream, and in that
       launch the student has had no turn); it is a launch stopped before any exam begins, handled by section 14's
-      rule for that case;
+      rule for that case, except where section 14's settings-file rule classes the cause as the arm's;
   (b) a later isolated refusal refuses that request only: the exam is kept, counted, and reported with the class and
       the launch-relative index;
   (c) a lapse is PERVASIVE when every request from some index k to the launch's last has the same class and the same
@@ -220,9 +276,10 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   After the onset that count is a verification expected to be zero (every request is refused, so the model gets no
   turn); a nonzero count means a request reached the model without passing the check, and it halts launches like a
   pervasive lapse. Cost, stated: a genuine lapse silences the model for the rest of that exam, and the arm carries the
-  unanswered questions in the primary analysis. It is a harness fault counted against the arm, uniformly, because the
-  alternative is a re-run a student could reach; the mark and the count of turns nobody sent let a reader see the
-  penalty came from the harness. Limit (OPEN list): the forwarder cannot tell a forged request from the harness's own.
+  unanswered questions in the primary analysis. A lapse is counted against the arm, uniformly, whatever its cause,
+  because the alternative is a re-run a student could reach; where the settings records of section 14 show the arm
+  wrote the cause, the report says so beside the mark. Limit (OPEN list): the forwarder cannot tell a forged request
+  from the harness's own.
   Before the freeze, the scored launcher's own dry-box cell, in the launcher's real arguments and environment (the
   twelve-name OFF set, the three switches, the auto-background variables unset), no model: both routes (the model's
   background request; a 150-second foreground command that is not a bare sleep, no timeout parameter), and the probe's
@@ -563,7 +620,9 @@ line, from the wrapper log; arm 2's recall daemon lines (the arm's statement and
 ready, the stop's outcome, and the after-session record of the daemon's process id and that no process holds its
 socket) and, per prompt, whether recall fell back to keyword search; the forwarder's lines (each pass and refusal,
 with class, launch-relative index and Bash property names) and the run's count of turns nobody sent, with those after
-a lapse's onset counted separately (section 7). For arm 2 also: the harness's own record, written outside the box,
+a lapse's onset counted separately (section 7); the settings records of section 14 (per listed file and moment:
+content hash, modify time, change time, the environment block's names and values, the named keys; or 'absent'). For
+arm 2 also: the harness's own record, written outside the box,
 of the first-session marker's state at the end of setup; the three
 paths the daemon setting is derived from (present or absent, and a content hash of each present one), before and
 after the setup session (section 14); and for every exam the daemon stop's outcome, the box's oom_kill count at
@@ -686,6 +745,40 @@ follow the security seat's reads):
   setup'), the before and after records, and that the statement was changed by rule; it runs as the arm left
   itself, and its score counts in the primary. If no student turn can then be sent, it is scored as an exam with
   no answers, counted, and reported by name. Such exams are reported by name and are in the contrast set.
+- Settings files changed by the arm. The harness records, from outside the box and read-only, never clearing or
+  repairing, these files: the user, project and project-local settings files, ~/.claude.json, and the managed settings
+  file (harness-owned; its record shows the harness set it). For each file at each moment: its content hash, modify
+  time and change time; its environment block's key names and values; and the named settings keys that 2.1.328
+  combines with the switches: backgroundTasksDisabled and backgroundAgentLaunchDisabled, read in the same
+  predicate as the background switch; disableWorkflows and enableWorkflows (set false), read in the function that
+  decides whether workflows are available, beside the workflows switch; for the cron switch, no settings key was
+  found at the one site that reads the variable by name, and readers reaching it through an alias were not
+  searched. This is a reading of the binary's code at the predicates and the function that test the switches, not shown
+  complete. For ~/.claude.json nothing else of its content is recorded. A file absent at a
+  moment is recorded as absent, a state of its own. The whole-file hash and change time catch any change; the named
+  keys only explain one. A write followed by a restore leaves the hash equal, and the modify time can be set back; the
+  change time cannot be without privilege. Stated bound: samples at three moments, as strong as that can be. Moments:
+  arm 2, before the setup session, after it, and after each exam; arm 1, before the exam launch (the home as built)
+  and after each exam. In arm 1 a first-request refusal cannot have a cause the arm wrote, since the student has had
+  no turn in that home; if its before-record is wrong, the harness built the home wrong.
+  The records decide the class first. Wrong before the setup session (arm 2) or before the launch (arm 1): the harness
+  built the home wrong; not a run; fix, rebuild (arm 2: redo setup); it counts toward the three stops above; only this
+  outcome
+  goes down the stopped-launch path. Right before and changed by the arm: that is behaviour, counted and reported,
+  never flagged, re-run or excluded, and what follows depends on when the file was written (these two cases arise only
+  where the managed tier of section 7 is absent or fails):
+  - written during setup (present at launch): the forwarder refuses the launch's first request; the harness does not
+    clear or repair the file; the exam is launched once, its questions are unanswered and counted, and the record names
+    the cause ('switches turned off by a settings file written during setup') with the before and after records;
+  - written during the exam: the forwarder does not fire (section 7: its check is a launch gate). The exam COUNTS and is
+    SCORED as it ran; the run is MARKED ('switches turned off by a settings file written during the exam'), stays in the
+    primary analysis, and is reported beside the primary contrast with its count of turns nobody sent. Launches halt
+    after such a run until the design owner and the security seat have read its records, as for a pervasive lapse. This
+    rule is executable only on a build whose reader of section 7 has landed: the count of turns nobody sent and the
+    statement that no answer shifted have no instrument before it.
+  Where the managed tier of section 7 HOLDS, a file the arm changed is recorded and reported in the run's settings
+  records, and the exam is unaffected: no mark, no halt (the tier keeps the switches on, so nothing lapses).
+  Such exams are reported by name.
 - Which run counts. For each conversation and arm, the primary uses the first run that completes without a flag.
   A run that completed without a flag is never run again. A re-run exists only after a flag, once, with the reason
   logged before it starts. Flags are mechanical and are decided before any answer of that run is read. Book-closed
@@ -759,16 +852,12 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   and how often each event happened in every run so far. Until ruled, both stay flags as section 14 states them.
 - The scored launcher merged with its reads: the forwarder's per-request check and its cells, the dry-box cell of
   section 7, the recall daemon's after-session record (section 12), and a line the harness writes for each flag of
-  section 14 (today 'the student process dies' is read from the end of the student's output, not from such a line).
+  section 14 (today 'the student process dies' is read from the end of the student's output, not from such a line);
+  the reader that binds each result to its turn and counts turns nobody sent, with section 7's cells (a freeze
+  precondition); the box's own /etc with the managed tier at the system location, and its dry-box cell as the
+  student's user inside the scope; the settings records of section 14; the launcher rules on argument values and
+  PATH (section 7).
 - The ENGRAM commit the ENGRAM arm runs, named here by its pre-release tag (section 3).
-- A stopped launch whose cause the arm could have written during setup, other than the daemon-setting mismatch
-  section 14 already classes (the case that can be named: a first-request forwarder refusal in arm 2). Not ruled. The
-  question is whether a file in the student's home (a settings file's environment block, user or project level) can
-  change the three switches of section 7 or bring the shell's background option back against the environment the
-  harness sets. One dry-box cell answers it, its expectations and command read by the security seat first. If it can,
-  the forwarder still refuses, so the barrier holds; what changes is the class of that refusal (the arm's behaviour,
-  not a harness fault) and section 7's words 'a harness fault counted against the arm'. The design owner rules after
-  the cell, with the security seat.
 
 ### After the freeze, before registration
 
