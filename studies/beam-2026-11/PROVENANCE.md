@@ -135,6 +135,7 @@ entries say so.
 | UTC | who | decision | quote | node |
 |---|---|---|---|---|
 | 20:06 | Kepler (design owner), on the reviewer round of the same day, the issue read whole by both seats | Upstream issue 19 is about gold answers, and argues that a strict judge turns them into a systematic score drop; its corrections change the golds, not the judge. This refines the 2026-11-22 22:58 row, which kept only the first half. The upstream repository is named by its URL where section 10 first cites an upstream issue. | Paraphrased from the design owner's ruling. | `ob_8235`, `ob_8236` |
+| 20:13 | Kepler (design owner), on the peer read | "The pilot ran the same day" is dropped from section 10, and the pilot's date from the OPEN item: no artifact in this repository or the study record shows that pilot. The judge bullet points at the OPEN item on the project lead's word about the cost. | Paraphrased from the design owner's ruling. | `ob_8237`, `ob_8238` |
 
 ## Corrections (METHODOLOGY section 7)
 

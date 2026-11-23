@@ -333,11 +333,11 @@ Two judges, named by the one thing that differs between them (the project lead's
   the benchmark's released evaluation code does. In this study it is run only in the known-answer
   check, never on scored benchmark items.
 
-- Judge: Claude Sonnet, which the project lead asked to try first on 2026-11-16, its cost to be measured on a pilot;
-  the pilot ran the same day. Every judge call pins the model id `claude-sonnet-5-5`, through the first-party API, at
-  effort low, one call per rubric item, with no temperature setting: the settings the design owner fixed for P1's
-  grading on 2026-11-19 (the study record's tuning log, data/tuning-log.md, entry "Judge settings, fixed now";
-  it reaches main with that record).
+- Judge: Claude Sonnet, which the project lead asked to try first on 2026-11-16, its cost to be measured on a pilot
+  (his word on that cost is on the OPEN list). Every judge call pins the model id `claude-sonnet-5-5`, through the
+  first-party API, at effort low, one call per rubric item, with no temperature setting: the settings the design
+  owner fixed for P1's grading on 2026-11-19 (the study record's tuning log, data/tuning-log.md, entry "Judge
+  settings, fixed now"; it reaches main with that record).
   The same for every arm, with the paper's rubrics unchanged. Every call records the model that served it; a call
   served by another model is reported, not dropped, and the number of such calls is reported per arm beside the
   score (the judge is never told the arm, so they should fall evenly; the count lets a reader see that they did). A
@@ -745,8 +745,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - The student wrapper (section 7) merged with its colleague read, its launch line carrying the wrapper file's own
   sha256 (section 14); until then the shell's network is not closed.
-- The project lead's word on the judge's cost (the pilot's figure was reported on 2026-11-16; his answer was asked
-  for on 2026-11-22). Until then section 10 says only what happened.
+- The project lead's word on the judge's cost (his answer was asked for on 2026-11-22). Until then section 10 names
+  the judge he asked to try first; if his answer is no, the judge changes before the first scored run.
 - Judge blinding made mechanical: answers can carry arm tells (ENGRAM node ids, tool names, a notes-file
   path), so they are stripped or normalised before judging, and the rule is stated here.
 - The post-compaction record's counting rule (section 8): proposed by the study lead, read by the design owner.
