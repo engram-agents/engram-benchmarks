@@ -741,8 +741,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
 - The brief's final text frozen (a purpose sentence is under test, see the tuning log).
 - The student wrapper (section 7) merged with its colleague read, its launch line carrying the wrapper file's own
   sha256 (section 14); until then the shell's network is not closed.
-- The project lead's word on the judge's cost (the pilot's figure went to him on 2026-11-16 and was not answered;
-  asked again 2026-11-22). Until then section 10 says only what happened.
+- The project lead's word on the judge's cost (the pilot's figure was reported on 2026-11-16; his answer was asked
+  for on 2026-11-22). Until then section 10 says only what happened.
 - Judge blinding made mechanical: answers can carry arm tells (ENGRAM node ids, tool names, a notes-file
   path), so they are stripped or normalised before judging, and the rule is stated here.
 - The post-compaction record's counting rule (section 8): proposed by the study lead, read by the design owner.
