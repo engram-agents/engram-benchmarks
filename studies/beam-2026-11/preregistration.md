@@ -806,7 +806,8 @@ follow the security seat's reads):
     statement that no answer shifted have no instrument before it.
   A file that turns off only the workflows switch fires neither mechanism (none is expected: the Workflow tool is in
   the OFF set of section 7, which binds at dispatch, and every other use of that switch found in the client's code is
-  dispatch-side or visibility; but no cell has set it alone). It is the arm's behaviour: the exam COUNTS and is SCORED
+  dispatch-side, settings application or visibility, and none of them starts a turn; but no cell has set it alone). It
+  is the arm's behaviour: the exam COUNTS and is SCORED
   as it ran; the run is MARKED ('workflows switch turned off by a settings file', with when), stays in the primary
   analysis, and its count of turns nobody sent is reported; launches halt for the same read as after a file written
   during the exam, and, like that case, this rule is executable only on a build whose reader has landed.
@@ -817,8 +818,9 @@ follow the security seat's reads):
   primary analysis, and its count of turns nobody sent is reported; launches halt until the design owner and the
   security seat have read its records. This rule is executable only on a build whose reader has landed: the reader
   is what keeps a turn the scheduler started from being read as the next answer, and what counts it. If the same file
-  also turns off the background switch, the two cases above decide the outcome and this mark is added to that run's
-  record.
+  also turns off the background switch, the two cases above decide the outcome, and the cron mark is added to that
+  run's record as a fact about its settings (the cron switch was off too), never as a claim that the scheduler fired:
+  such a run may hold no turn the scheduler started, and a reader does not look for one.
   Such exams are reported by name and are in the contrast set (section 11). Where the managed tier of section 7
   HOLDS and the arm's change is to the three switches' environment values (the only form measured under the tier),
   the file is recorded and reported in the run's settings records, and the exam is unaffected: no mark, no halt, and
