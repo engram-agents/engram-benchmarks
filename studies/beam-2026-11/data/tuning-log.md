@@ -2900,3 +2900,16 @@ Two leftover test sandboxes were alive on the study host while both P1b readings
 - **Ruling.** The readings are not re-run, and the P1b outcome logged above stands.
 
 How such leftovers arise is unproven and filed as #17. The launch module now stops each session's scope and refuses to launch while anything earlier is alive.
+
+### The --counts lists of the clustered power runs (2026-11-24, on the peer read)
+
+- **The gap.** The peer read found that Runs 4 and 5 of `data/p1-answering-power-clustered-output.txt`, the four
+  layouts of `data/p1b-power-curve.txt` and the final-count re-simulation could not be reproduced from this record: the
+  script's numbers depend on the ORDER of `--counts`, and only the sorted layout is printed (the final-list entry above
+  writes `--counts <the layout above>`).
+- **The record.** The literal lists are now in `data/p1-power-counts.txt`. Each was checked by re-running the first cell
+  of its table from that table's seed with the same script: every one reproduces its three published figures exactly
+  (the other cells were not re-run). The final-count re-simulation already carried its list on the first line of
+  `data/p1b-final-count-resim.txt`; that line is the list the final-list entry's `<the layout above>` stands for.
+- **Not changed.** The script still uses `--counts` in the order given; sorting inside it would change the numbers of
+  every later run, so it is left as it is and the order is recorded instead.
