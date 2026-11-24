@@ -810,12 +810,15 @@ follow the security seat's reads):
   as it ran; the run is MARKED ('workflows switch turned off by a settings file', with when), stays in the primary
   analysis, and its count of turns nobody sent is reported; launches halt for the same read as after a file written
   during the exam, and, like that case, this rule is executable only on a build whose reader has landed.
-  A file that turns off the cron switch, alone or with others, where no managed tier holds it, gets the background
-  switch's handling, because the client's scheduler (section 7) can then start turns nobody sent: the exam COUNTS and
+  A file that turns off the cron switch, alone or with the workflows switch, where no managed tier holds it, gets the
+  background switch's handling, because the client's scheduler (section 7) can then start turns nobody sent: the exam
+  COUNTS and
   is SCORED as it ran; the run is MARKED ('cron switch turned off by a settings file', with when), stays in the
   primary analysis, and its count of turns nobody sent is reported; launches halt until the design owner and the
   security seat have read its records. This rule is executable only on a build whose reader has landed: the reader
-  is what keeps a turn the scheduler started from being read as the next answer, and what counts it.
+  is what keeps a turn the scheduler started from being read as the next answer, and what counts it. If the same file
+  also turns off the background switch, the two cases above decide the outcome and this mark is added to that run's
+  record.
   Such exams are reported by name and are in the contrast set (section 11). Where the managed tier of section 7
   HOLDS and the arm's change is to the three switches' environment values (the only form measured under the tier),
   the file is recorded and reported in the run's settings records, and the exam is unaffected: no mark, no halt, and
