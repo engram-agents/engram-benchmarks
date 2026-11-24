@@ -149,6 +149,7 @@ entries say so.
 | UTC | who | decision | quote | node |
 |---|---|---|---|---|
 | 13:21 | Kepler (design owner), on the peer read | A settings file changed while the managed tier holds leaves the exam unaffected only for the three switches' environment values, the only form measured under the tier. A named settings key changed under the tier, and a file that turns off only the workflows or the cron switch, are each marked by name, kept in the primary, put in the contrast set of section 11, and halt launches for a read; both are measured in the dry-box round of the box's own /etc before the freeze. This refines the 2026-11-23 22:54 row. | Paraphrased from the design owner's ruling. | `ob_8266` |
+| 13:29 | Kepler (design owner), on the security seat's read of the client's code | Corrected the same morning: the cron half of the 13:21 row is withdrawn, and that row's clause now covers the workflows switch only. The cron switch is the only kill gate of the client's scheduled-task scheduler, which reads task files and submits a stored prompt as a turn without a tool call (read in the code of 2.1.328 and 2.1.329, not measured). A settings file that clears the cron switch gets the background switch's handling; the task sources are recorded with the settings files; the dry-box round measures the scheduler with a positive control seen firing first. | Paraphrased from the design owner's ruling; the code read is the security seat's, cited as a read. | `ob_8268`, `ob_8269` |
 
 ## Corrections (METHODOLOGY section 7)
 

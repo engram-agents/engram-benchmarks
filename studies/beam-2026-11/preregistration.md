@@ -162,7 +162,15 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   (cells A, B, B4, U). Both arms therefore run with three harness switches set in the student's environment:
   CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, CLAUDE_CODE_DISABLE_CRON and CLAUDE_CODE_DISABLE_WORKFLOWS. With them the shell's
   input schema has no background option, so such a request is refused at input validation, and a foreground command
-  past the limit is killed at 120 seconds instead of moved (cells D and S). The launcher also asserts unset every
+  past the limit is killed at 120 seconds instead of moved (cells D and S). A third source of turns nobody sent goes
+  through no tool: the client's scheduled-task scheduler, whose only kill gate is CLAUDE_CODE_DISABLE_CRON (no
+  settings key is read at that gate; its other term is a feature flag that defaults on), reads a durable task store
+  (.claude/scheduled_tasks.json under a store directory the client builds at runtime, watched live, so a file written
+  during the session is picked up) and per-project routine tasks (a source the client builds from the project root),
+  and a fire submits a stored prompt as a turn. The OFF set does not close it, since no tool is called, and the
+  forwarder's check does not see such a turn. Read from the code of the client, versions 2.1.328 and 2.1.329, not
+  measured: no run was made, and the precondition a fire needs (a task whose creating session's transcript the run
+  can see) was not constructed. The launcher also asserts unset every
   auto-background variable the binary reads; that is a second barrier only (cell D was quiet with the enabling variable
   set): the switches are what protect the run, where nothing turns them off (a settings file in the student's home
   can: see below, and the managed tier). The background switch changes HOW a sub-agent runs (in the foreground
@@ -206,7 +214,10 @@ design decision, not a tuning knob. "Not met, and here is why" is a publishable 
   construction has its own dry-box cell, run as the student's user inside the scope, read by the security seat; the
   same round measures, under the tier, each named settings key of section 14 set in a user file (present at launch
   and written during the session, both routes: the model's background request and a 150-second foreground
-  command), and the workflows and the cron switch each turned off alone with the OFF set in force. As of
+  command); the workflows switch turned off alone with the OFF set in force; and the scheduler, with the cron switch
+  alone cleared and the OFF set in force: a durable task present at launch, a second written during the session, a
+  positive control seen firing first (the same task with all three switches cleared), and the same under the tier,
+  where no fire is expected. As of
   this amendment the construction is not built; the measurements above were made in the probe's own namespace, from
   an agent's account. Only if it cannot be built does a host root step go to the project lead, with the reason. If
   it cannot be built and no root step is taken, whether the study runs with the reader (below) as its only barrier
@@ -610,9 +621,10 @@ Two judges, named by the one thing that differs between them (the project lead's
   (section 14); ENGRAM's first session not complete at the end of setup (section 14); recall daemon files changed by
   the arm during setup (section 14); a run marked for a pervasive forwarder lapse (section 7); an exam whose
   questions went unanswered because the switches were turned off by a settings file written during setup (section
-  14); a run marked 'switches turned off by a settings file written during the exam' (section 14); a run marked 'a
-  switch other than the background switch turned off by a settings file' (section 14); a run marked 'a named
-  settings key changed under the managed tier' (section 14). That second figure is
+  14); a run marked 'switches turned off by a settings file written during the exam' (section 14); a run marked
+  'workflows switch turned off by a settings file' (section 14); a run marked 'cron switch turned off by a settings
+  file' (section 14); a run marked 'a named settings key changed under the managed tier' (section 14). That second
+  figure is
   descriptive and never a score (the design owner, 2026-11-22): it is reported beside the primary contrast, never
   instead, labelled descriptive, never in the abstract or a headline, and never as the study's result. H1 and the
   primary are decided on the primary contrast only, and the primary moves on nothing but section 14's flags.
@@ -758,15 +770,19 @@ follow the security seat's reads):
   itself, and its score counts in the primary. If no student turn can then be sent, it is scored as an exam with
   no answers, counted, and reported by name. Such exams are reported by name and are in the contrast set.
 - Settings files changed by the arm. The harness records, from outside the box and read-only, never clearing or
-  repairing, these files: the user, project and project-local settings files, ~/.claude.json, and the managed settings
-  file (harness-owned; its record shows the harness set it). For each file at each moment: its content hash, modify
+  repairing, these files: the user, project and project-local settings files, ~/.claude.json, the managed settings
+  file (harness-owned; its record shows the harness set it), and the scheduler's two task sources of section 7 (its
+  durable task store and its per-project routine tasks, at the locations the client builds for them, which the
+  dry-box round resolves before the freeze). For each file at each moment: its content hash, modify
   time and change time; its environment block's key names and values; and the named settings keys that 2.1.328
   combines with the switches: backgroundTasksDisabled and backgroundAgentLaunchDisabled, read in the same
   predicate as the background switch; disableWorkflows and enableWorkflows (set false), read in the function that
   decides whether workflows are available, beside the workflows switch; for the cron switch, no settings key was
   found at the one site that reads the variable by name, and readers reaching it through an alias were not
   searched. This is a reading of the binary's code at the predicates and the function that test the switches, not shown
-  complete. For ~/.claude.json nothing else of its content is recorded. A file absent at a
+  complete. For ~/.claude.json nothing else of its content is recorded; for the task sources, nothing beyond the hash
+  and the two times. A task source present while the cron switch is on is recorded and reported, with no mark on that
+  alone (the scheduler is killed); present with the switch off, the cron case below applies. A file absent at a
   moment is recorded as absent, a state of its own. The whole-file hash and change time catch any change; the named
   keys only explain one. A write followed by a restore leaves the hash equal, and the modify time can be set back; the
   change time cannot be without privilege. Stated bound: samples at three moments, as strong as that can be. Moments:
@@ -788,18 +804,25 @@ follow the security seat's reads):
     after such a run until the design owner and the security seat have read its records, as for a pervasive lapse. This
     rule is executable only on a build whose reader of section 7 has landed: the count of turns nobody sent and the
     statement that no answer shifted have no instrument before it.
-  A file that turns off only the workflows or the cron switch fires neither mechanism (none is expected: the tools
-  those switches concern are in the OFF set of section 7, which binds at dispatch; but no cell has set one switch
-  alone). It is the arm's behaviour: the exam COUNTS and is SCORED as it ran; the run is MARKED ('a switch other than
-  the background switch turned off by a settings file', with which switch and when), stays in the primary analysis,
-  and its count of turns nobody sent is reported; launches halt for the same read as after a file written during the
-  exam, and, like that case, this rule is executable only on a build whose reader has landed.
+  A file that turns off only the workflows switch fires neither mechanism (none is expected: the Workflow tool is in
+  the OFF set of section 7, which binds at dispatch, and every other use of that switch found in the client's code is
+  dispatch-side or visibility; but no cell has set it alone). It is the arm's behaviour: the exam COUNTS and is SCORED
+  as it ran; the run is MARKED ('workflows switch turned off by a settings file', with when), stays in the primary
+  analysis, and its count of turns nobody sent is reported; launches halt for the same read as after a file written
+  during the exam, and, like that case, this rule is executable only on a build whose reader has landed.
+  A file that turns off the cron switch, alone or with others, where no managed tier holds it, gets the background
+  switch's handling, because the client's scheduler (section 7) can then start turns nobody sent: the exam COUNTS and
+  is SCORED as it ran; the run is MARKED ('cron switch turned off by a settings file', with when), stays in the
+  primary analysis, and its count of turns nobody sent is reported; launches halt until the design owner and the
+  security seat have read its records. This rule is executable only on a build whose reader has landed: the reader
+  is what keeps a turn the scheduler started from being read as the next answer, and what counts it.
   Such exams are reported by name and are in the contrast set (section 11). Where the managed tier of section 7
   HOLDS and the arm's change is to the three switches' environment values (the only form measured under the tier),
   the file is recorded and reported in the run's settings records, and the exam is unaffected: no mark, no halt, and
   not in the contrast set (the tier keeps those values on). A change under the tier to one of the named settings
   keys above is not measured, and no mechanism is predicted for it: the exam COUNTS and is SCORED as it ran; the run
-  is MARKED ('a named settings key changed under the managed tier', with the key and the moment), stays in the
+  is MARKED ('a named settings key changed under the managed tier', with the key, the moment, and whether the dry-box
+  round had measured that key by then), stays in the
   primary analysis, and is in the contrast set; launches halt until the design owner and the security seat have
   read its records. The dry-box round of section 7 measures both cases before the freeze, and this text is then
   rewritten to what was measured.
@@ -879,8 +902,8 @@ conversation. Arm 2 at about 45 to 98 s per exchange: roughly 2 to 4 h per conve
   section 14 (today 'the student process dies' is read from the end of the student's output, not from such a line);
   the reader that binds each result to its turn and counts turns nobody sent, with section 7's cells (a freeze
   precondition); the box's own /etc with the managed tier at the system location, and its dry-box cell as the
-  student's user inside the scope, with the settings-key and single-switch cells (section 7); the settings records
-  of section 14; the launcher rules on argument values and
+  student's user inside the scope, with the settings-key, workflows-switch and scheduler cells (section 7); the
+  settings records of section 14; the launcher rules on argument values and
   PATH (section 7).
 - The ENGRAM commit the ENGRAM arm runs, named here by its pre-release tag (section 3).
 
