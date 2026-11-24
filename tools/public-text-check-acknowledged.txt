@@ -1,0 +1,4 @@
+# History findings that are known and kept by decision (see the header of public-text-check.py).
+# One entry per line: <full 40-hex commit sha> <path> -- <reason>. This file holds shas and paths, never text.
+2c5d903ae4ee78c103bbc12bbd835db54db34fea studies/beam-2026-11/data/p1-keyfacts-final.md -- P1 key-fact list committed 2026-11-18 against the study's own hash-only rule; removed from the tip 2026-11-19; history kept by the design owner's ruling (a rewrite is the repository owner's decision); excerpts remain under CC BY-SA 4.0 (see studies/beam-2026-11/ATTRIBUTION.md)
+ef2697cb8c64d7192844516dd8ccf67911403e05 studies/beam-2026-11/data/gate2-runA-analysis-output.txt -- run A analysis output with lines quoting the conversation; those lines redacted at the tip 2026-11-19; history kept, same ruling

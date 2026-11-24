@@ -1,0 +1,6 @@
+== run A, exchanges 1-45 (k = 1): window 2026-11-15T18:39:07Z to 2026-11-15T21:53:41Z, 45 source exchanges
+ENGRAM, nodes created in the window by type: {'evidence': 1, 'observation_factual': 215}
+ENGRAM observations: 215 (4.78 per source exchange); claim characters 99750 (2217 per source exchange, 464 per observation); quote characters 19500 (433 per source exchange)
+tool calls per source exchange: engram_add_observation 4.84, Bash 2.49, engram_supersede 0.16, ToolSearch 0.07, engram_inspect 0.07, Read 0.02
+Edit/Write calls by destination: none
+Bash calls redirecting output into a file (not /dev/null): 5; targets: {'EX27': 4, 'flexibility': 1}

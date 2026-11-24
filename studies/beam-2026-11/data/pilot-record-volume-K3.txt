@@ -1,0 +1,7 @@
+== pilot K = 3 (setup 7b73fe7b): window 2026-11-16T17:11:49Z to 2026-11-16T18:16:42Z, 45 source exchanges
+ENGRAM, nodes created in the window by type: {'evidence': 1, 'observation_factual': 104}
+ENGRAM observations: 104 (2.31 per source exchange); claim characters 24353 (541 per source exchange, 234 per observation); quote characters 9807 (218 per source exchange)
+tool calls per source exchange: engram_add_observation 2.36, Edit 1.51, engram_checkpoint 0.36, Read 0.24, Write 0.07, Bash 0.04, engram_inspect 0.02, engram_supersede 0.02
+Edit/Write calls by destination: {'harness auto-memory folder': 71}
+  harness auto-memory folder: 71 calls (1.58 per source exchange), 73770 new characters (1639 per source exchange); files: exam-personal-statement-conversation.md x58, MEMORY.md x13
+Bash calls redirecting output into a file (not /dev/null): 0

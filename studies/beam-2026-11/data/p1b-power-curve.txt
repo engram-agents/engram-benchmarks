@@ -1,0 +1,36 @@
+=== layout P1
+TABLE seed 20261124, trials 2000 per cell, bootstrap 1000, base accuracy 0.8, margin 0.1, 38 exchanges, 75 questions (1 x 4 + 11 x 3 + 12 x 2 + 14 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.608 / 0.700 / worse 0.058 | loss 0.05: 0.267 / 0.324 / worse 0.234 | loss 0.10: 0.069 / 0.075 / worse 0.565
+rho=0.2 D=0.25 | loss 0.00: 0.446 / 0.556 / worse 0.051 | loss 0.05: 0.177 / 0.228 / worse 0.163 | loss 0.10: 0.050 / 0.062 / worse 0.383
+rho=0.2 D=0.35 | loss 0.00: 0.339 / 0.443 / worse 0.040 | loss 0.05: 0.144 / 0.182 / worse 0.138 | loss 0.10: 0.052 / 0.065 / worse 0.286
+rho=0.6 D=0.15 | loss 0.00: 0.594 / 0.706 / worse 0.060 | loss 0.05: 0.246 / 0.342 / worse 0.224 | loss 0.10: 0.064 / 0.079 / worse 0.536
+rho=0.6 D=0.25 | loss 0.00: 0.395 / 0.527 / worse 0.059 | loss 0.05: 0.167 / 0.261 / worse 0.154 | loss 0.10: 0.043 / 0.081 / worse 0.365
+rho=0.6 D=0.35 | loss 0.00: 0.310 / 0.441 / worse 0.046 | loss 0.05: 0.125 / 0.214 / worse 0.143 | loss 0.10: 0.039 / 0.093 / worse 0.281
+=== layout A
+TABLE seed 20261124, trials 2000 per cell, bootstrap 1000, base accuracy 0.8, margin 0.1, 76 exchanges, 150 questions (2 x 4 + 22 x 3 + 24 x 2 + 28 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.846 / 0.927 / worse 0.044 | loss 0.05: 0.358 / 0.457 / worse 0.346 | loss 0.10: 0.051 / 0.057 / worse 0.799
+rho=0.2 D=0.25 | loss 0.00: 0.679 / 0.794 / worse 0.043 | loss 0.05: 0.253 / 0.335 / worse 0.244 | loss 0.10: 0.052 / 0.066 / worse 0.593
+rho=0.2 D=0.35 | loss 0.00: 0.532 / 0.667 / worse 0.048 | loss 0.05: 0.202 / 0.269 / worse 0.200 | loss 0.10: 0.043 / 0.065 / worse 0.488
+rho=0.6 D=0.15 | loss 0.00: 0.805 / 0.896 / worse 0.056 | loss 0.05: 0.335 / 0.457 / worse 0.346 | loss 0.10: 0.049 / 0.084 / worse 0.786
+rho=0.6 D=0.25 | loss 0.00: 0.604 / 0.751 / worse 0.041 | loss 0.05: 0.219 / 0.327 / worse 0.247 | loss 0.10: 0.049 / 0.095 / worse 0.554
+rho=0.6 D=0.35 | loss 0.00: 0.482 / 0.648 / worse 0.043 | loss 0.05: 0.173 / 0.303 / worse 0.176 | loss 0.10: 0.052 / 0.102 / worse 0.429
+=== layout B
+TABLE seed 20261124, trials 2000 per cell, bootstrap 1000, base accuracy 0.8, margin 0.1, 114 exchanges, 225 questions (3 x 4 + 33 x 3 + 36 x 2 + 42 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.942 / 0.984 / worse 0.046 | loss 0.05: 0.470 / 0.591 / worse 0.463 | loss 0.10: 0.055 / 0.069 / worse 0.916
+rho=0.2 D=0.25 | loss 0.00: 0.802 / 0.912 / worse 0.038 | loss 0.05: 0.287 / 0.393 / worse 0.349 | loss 0.10: 0.047 / 0.065 / worse 0.767
+rho=0.2 D=0.35 | loss 0.00: 0.680 / 0.806 / worse 0.046 | loss 0.05: 0.258 / 0.356 / worse 0.241 | loss 0.10: 0.055 / 0.075 / worse 0.612
+rho=0.6 D=0.15 | loss 0.00: 0.934 / 0.974 / worse 0.045 | loss 0.05: 0.443 / 0.557 / worse 0.469 | loss 0.10: 0.051 / 0.075 / worse 0.901
+rho=0.6 D=0.25 | loss 0.00: 0.762 / 0.870 / worse 0.047 | loss 0.05: 0.275 / 0.423 / worse 0.307 | loss 0.10: 0.045 / 0.096 / worse 0.718
+rho=0.6 D=0.35 | loss 0.00: 0.614 / 0.752 / worse 0.049 | loss 0.05: 0.235 / 0.371 / worse 0.241 | loss 0.10: 0.045 / 0.100 / worse 0.543
+=== layout C
+TABLE seed 20261124, trials 2000 per cell, bootstrap 1000, base accuracy 0.8, margin 0.1, 90 exchanges, 216 questions (36 x 3 + 54 x 2), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.971 / 0.979 / worse 0.042 | loss 0.05: 0.494 / 0.555 / worse 0.516 | loss 0.10: 0.052 / 0.064 / worse 0.941
+rho=0.2 D=0.25 | loss 0.00: 0.833 / 0.876 / worse 0.046 | loss 0.05: 0.347 / 0.421 / worse 0.342 | loss 0.10: 0.058 / 0.075 / worse 0.787
+rho=0.2 D=0.35 | loss 0.00: 0.715 / 0.795 / worse 0.040 | loss 0.05: 0.278 / 0.351 / worse 0.254 | loss 0.10: 0.043 / 0.067 / worse 0.636
+rho=0.6 D=0.15 | loss 0.00: 0.931 / 0.958 / worse 0.053 | loss 0.05: 0.456 / 0.576 / worse 0.453 | loss 0.10: 0.050 / 0.083 / worse 0.904
+rho=0.6 D=0.25 | loss 0.00: 0.743 / 0.842 / worse 0.049 | loss 0.05: 0.285 / 0.414 / worse 0.293 | loss 0.10: 0.050 / 0.090 / worse 0.704
+rho=0.6 D=0.35 | loss 0.00: 0.612 / 0.760 / worse 0.037 | loss 0.05: 0.229 / 0.366 / worse 0.205 | loss 0.10: 0.050 / 0.112 / worse 0.542

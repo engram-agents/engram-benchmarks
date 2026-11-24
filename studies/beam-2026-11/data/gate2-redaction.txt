@@ -1,0 +1,21 @@
+Redacted copies of the entry-gate criterion 2 analysis and controls (design owner's ruling, 2026-11-16).
+The originals were committed in the study lead's private working repository at 2026-11-15T18:38:23Z, before run A
+started (18:39:07Z); this repository received only their sha256 prefixes (commit b90b012). Each original holds one
+host path, replaced here by a placeholder; nothing else differs. A reader can check the redaction, not the timing.
+The copies are for reading, not running: the controls import the analysis by its original module name
+(analyze_gate2), which this repository holds only as analyze-gate2.redacted.py.
+
+== analyze-gate2.redacted.py (from analyze_gate2.py)
+original sha256 prefix (as logged before the run): 2a338912c2c8dd46
+redacted sha256: 0e352bff2c9f997b5db7cc5c55edb6e15b8f233b87b1cf81f7be88f19f046590
+lines: original 296, redacted 296; differing lines: 1
+differing line (original line number): 228c228
+shape of the change: one string literal holding a host path -> "<HOST PATH REDACTED>"; the original literal is not shown
+
+== gate2-controls.redacted.py (from gate2_controls.py)
+original sha256 prefix (as logged before the run): cd5549b2eb5f5df6
+redacted sha256: 3ac4eff4d8802b4ca356a423a7664e5b9314a97c199a2b5ef90e86dddbcea7d5
+lines: original 152, redacted 152; differing lines: 1
+differing line (original line number): 141c141
+shape of the change: one string literal holding a host path -> "<HOST PATH REDACTED>"; the original literal is not shown
+

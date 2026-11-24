@@ -1,0 +1,65 @@
+name: public-text-check
+
+# Keeps benchmark text out of this public repository (see "Benchmark text" in the README's privacy rules).
+# A sibling of privacy-scan.yml, on the same triggers, so the privacy scan's workflow stays untouched.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  # The dataset is fetched at a pinned revision and must hash to the pinned value; any other bytes fail the job.
+  BEAM_REVISION: 3205395e897e7318c7b094ef4e6047b9b82dbb03
+  BEAM_SHA256: c0519be25907005ba873c927c50877471d550873039d96c041554d0075a78ace
+
+jobs:
+  public-text-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned dependencies
+        run: python -m pip install pyarrow==26.0.1 pytest==9.1.1
+      - name: Checker tests
+        run: python -m pytest -q tools/
+      - name: Download the pinned dataset (fails closed)
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$RUNNER_TEMP/beam-100K.parquet" \
+            "https://huggingface.co/datasets/Mohammadta/BEAM/resolve/${BEAM_REVISION}/data/100K-00000-of-00001.parquet"
+          test -s "$RUNNER_TEMP/beam-100K.parquet"
+      - name: Check tracked files (hash is verified by the checker; a mismatch is exit 3)
+        run: |
+          python tools/public-text-check.py \
+            --dataset "$RUNNER_TEMP/beam-100K.parquet" --expect-sha256 "$BEAM_SHA256"
+      - name: Check commits in the PR range (every added line)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python tools/public-text-check.py \
+            --dataset "$RUNNER_TEMP/beam-100K.parquet" --expect-sha256 "$BEAM_SHA256" \
+            --history "origin/$BASE_REF..HEAD"
+      - name: Check commits in the push range (every added line)
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "${BEFORE//0/}" ]; then
+            echo "push has no previous commit (all-zero before); skipping the history check"
+          else
+            python tools/public-text-check.py \
+              --dataset "$RUNNER_TEMP/beam-100K.parquet" --expect-sha256 "$BEAM_SHA256" \
+              --history "$BEFORE..$AFTER"
+          fi

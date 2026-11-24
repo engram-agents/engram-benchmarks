@@ -102,11 +102,23 @@ by `feed2.py`; `vanilla-hello.sh` writes `vanilla-hello<TAG>.json` and `.err` in
 If a GPU reservation wrapper is needed on your host, put it in front of `$PY -I $BEAM_TOOLS/feed2.py`
 yourself; the scripts here run the commands exactly as the practice runs did.
 
+`pilot-run.sh` treats `BEAM_ARM_HOME` as a dedicated, disposable arm home: it stops processes whose command line names
+that home's `.engram/` path and moves the home aside before a run. Never point it at a real user's home directory. (The
+script itself is not edited here: its bytes are those that ran in recorded sessions.)
+
 ## `check-port-identity.py`
 
 Checks that a ported copy of `feed.py`/`feed2.py` shows the student exactly what a reference copy
 shows: sha256 of the brief, proctor marker, per-exchange line, setup fact sheet and nudge, and of
 `render()` and `exchanges()` output on a small synthetic conversation, the question prompt prefix, plus
 a comparison of every string literal in the source as a multiset in both directions (so a change to one
-of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py REFERENCE_DIR PORTED_DIR`. Exit 0 =
+of two copies of a duplicated literal, or an extra literal in the port, is reported). Usage: `check-port-identity.py PORTED_DIR` compares a copy's student-visible components with the committed pin in `data/pinned-runs-feed.json` (anyone can run it); `check-port-identity.py REFERENCE_DIR PORTED_DIR` runs the full comparison and refuses (exit 2) a reference whose feed.py does not hash to the pinned sha256; `--reference-sha` overrides the pin with a printed warning. Exit 0 =
 identical.
+
+## `feed4.py`, `setup-id.py`, `coverage.py`, `gate-input-evidence.py`
+
+`feed4.py`: the gate runs' feed script plus `--per-round K` (speed pilot P1) and `--dump-plan`. `setup-id.py`: the
+setup id by content, with the import walk (every study-local module the feed script imports must be a component).
+`coverage.py`: the pilots' note-coverage attribution, its controls, and the per-run measures. `gate-input-evidence.py`:
+shows, byte for byte, that a run's student received the messages its own `feed.py` builds. Each file's docstring has
+its usage; the tuning log has their outputs.

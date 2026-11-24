@@ -1,0 +1,20 @@
+run in K5-conv9, conversation 9, exchanges 1..45: 75 observation nodes created in span (excluded: 2 before the run started, 0 after reading ended or outside every exchange window)
+notes per source exchange (store-confirmed observations created in the span): 75/45 = 1.67
+OLD rule at the ROUND level (any node created during the exchange's round; with k = 5 every exchange of a round gets the round's nodes, so this is trivially high and not comparable with k = 1): 45/45 = 1.000
+NEW rule, min 20 chars: quote-credited 41/45 = 0.911; claim-only (weaker column) adds 0; ambiguous nodes 3
+NEW rule, min 40 chars: quote-credited 41/45 = 0.911; claim-only (weaker column) adds 0; ambiguous nodes 3  <- decision setting
+NEW rule, min 80 chars: quote-credited 34/45 = 0.756; claim-only (weaker column) adds 0; ambiguous nodes 3
+nodes whose quote matches nothing in their own exchange at 40 chars: 9 (first ids: ['ob_0013', 'ob_0014', 'ob_0017', 'ob_0020', 'ob_0034', 'ob_0035', 'ob_0039', 'ob_0046'])
+rule 2: 0 node(s) not marked quote_verified, excluded from the quote column
+note: every observation in this store has quote_verified = True, so rule 2 does not filter here
+quote length (chars): min 31, p25 69, median 100, p75 159, max 266; under 40: 5
+REAL-DATA NEGATIVE CONTROL: every node attributed 5 rounds late -> quote-credited 1/45 at 40 chars (1 nodes credited: {'repeated in own exchange too': 1})
+k (exchanges per round): 5; rounds in span: 9
+  coverage at position 1 of the round: 9/9
+  coverage at position 2 of the round: 9/9
+  coverage at position 3 of the round: 8/9
+  coverage at position 4 of the round: 8/9
+  coverage at position 5 of the round: 7/9
+covered exchanges credited ONLY by text the conversation already showed in an earlier exchange: 0
+wall seconds per source exchange: 77.2; input tokens per source exchange: 105624
+automatic compactions during the span's rounds (each begins inside a round): 6; per source exchange 0.13; rounds with at least one: 6

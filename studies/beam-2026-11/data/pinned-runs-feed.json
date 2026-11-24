@@ -1,0 +1,18 @@
+{
+  "what": "the feed.py the runs used from E3 on (every gate run on setup 8762312e): its sha256 and its student-visible components as check-port-identity.py --emit hashes them",
+  "why not the file itself": "it names the local model endpoint twice, which this repository's privacy scan refuses, and any edit would change the hash this file pins",
+  "feed.py sha256": "d2abfd38ab3ef2a2935c830de2f92ccf288dec70bd9d9e59383cd8b57cfcf6c4",
+  "components": {
+    "BRIEF": "d13305d041b87491abd888267c476d3b0362fae555b38bdcf3ffc2b981d00e56",
+    "PROCTOR": "1c7c0c154f409fb86fe7a06b7d46cd42f5137cabcf3439ee0d8bf57f38d37e60",
+    "TURN_LINE": "4ca0d678bd9b65dff38d00c63d506fedba1377d025b8d03cbdbab27cc8b08c1c",
+    "FACT_SHEET": "a32a3ed1cdd5f21d1f83ae948e617bc087790a0f7f621580fcfde9bf0536a11f",
+    "NUDGE": "bd818b8e02b8894c99a9ac8dbab68fead561f09e3152ca52004cbc6fd6da8aca",
+    "QUESTION_PREFIX": "d5c9698c26ac7902fc20fde182c2d9ae06cc10db1b8ec219e9f308ddf40978b6",
+    "feed2.BRIEF is feed.BRIEF": true,
+    "feed2 uses feed's QUESTION_PREFIX": true,
+    "render": "0c748de60d2902a6ec6f3185da4ef49ded8bd393932b321a4d4689f1fb8da14c",
+    "exchanges": "61db769e8989ee5a9e93322465469c76e64829b77d673b2dd2f3ced87b86ad7a"
+  },
+  "legacy_question_prefix": true
+}

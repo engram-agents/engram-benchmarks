@@ -1,4 +1,6 @@
 # One address per line; blank lines and lines starting with # are ignored (a comment never allows anything).
-# Deliberate: the public project address of the study lead, author of the repository's initial commit.
+# Deliberate: the public project addresses of team members who author commits in this repository (the study lead,
+# author of the initial commit, and a second team member with commits in the reviewed range).
 # Listed so the identity check stays strict for everyone else.
 borges.funes@engram-agent.org
+sol.montaigne@engram-agent.org

@@ -1,0 +1,12 @@
+counts=4,4,4,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+start=2026-11-19T16:42:35Z
+TABLE seed 20261124, trials 4000 per cell, bootstrap 1000, base accuracy 0.8, margin 0.1, 74 exchanges, 144 questions (5 x 4 + 13 x 3 + 29 x 2 + 27 x 1), bounds at percentiles 4.0/96.0 (nominal one-sided 95%)
+each cell: ACCEPTED-by-bound rate (clustered, deciding) / question-level Newcombe pass rate (beside it) / WORSE rate (clustered upper bound < 0)
+rho=0.2 D=0.15 | loss 0.00: 0.826 / 0.905 / worse 0.048 | loss 0.05: 0.363 / 0.445 / worse 0.354 | loss 0.10: 0.046 / 0.062 / worse 0.806
+rho=0.2 D=0.25 | loss 0.00: 0.658 / 0.764 / worse 0.045 | loss 0.05: 0.243 / 0.324 / worse 0.243 | loss 0.10: 0.044 / 0.066 / worse 0.593
+rho=0.2 D=0.35 | loss 0.00: 0.515 / 0.637 / worse 0.040 | loss 0.05: 0.194 / 0.264 / worse 0.185 | loss 0.10: 0.046 / 0.070 / worse 0.461
+rho=0.6 D=0.15 | loss 0.00: 0.800 / 0.889 / worse 0.046 | loss 0.05: 0.332 / 0.439 / worse 0.330 | loss 0.10: 0.055 / 0.079 / worse 0.768
+rho=0.6 D=0.25 | loss 0.00: 0.596 / 0.727 / worse 0.046 | loss 0.05: 0.226 / 0.338 / worse 0.223 | loss 0.10: 0.042 / 0.094 / worse 0.547
+rho=0.6 D=0.35 | loss 0.00: 0.468 / 0.628 / worse 0.049 | loss 0.05: 0.178 / 0.304 / worse 0.180 | loss 0.10: 0.038 / 0.088 / worse 0.431
+exit=0
+end=2026-11-19T16:43:01Z

@@ -1,0 +1,36 @@
+# The --counts lists of the clustered power runs (recorded 2026-11-24, on the peer read of the record layer)
+#
+# tools/p1-answering-power-clustered.py assigns each question to its exchange with np.repeat(np.arange(E), counts),
+# so a table's numbers depend on the ORDER of --counts, not only on the layout its TABLE line prints. Runs 1 to 3 of
+# data/p1-answering-power-clustered-output.txt used the script's default list. The lists below were not written beside
+# their tables when the runs were made. Runs 4 and 5: recovered from the study lead's record of the commands as run.
+# The power curve: rebuilt from the layout and the run-5 list. Each one was CHECKED by re-running the FIRST cell of its
+# table (rho 0.2, D 0.15, loss 0.00) from that table's seed, trials, base accuracy and bounds with script sha256
+# 9f5631f45cfcdeaa; each reproduces the three published figures exactly. The other cells were not re-run.
+
+== data/p1-answering-power-clustered-output.txt, Run 4 (38 exchanges, 76 questions; seed 20261121, 4000 trials)
+2,3,2,3,2,4,2,1,2,3,3,2,2,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1
+first cell re-run: 0.613 / 0.719 / worse 0.053 (published: the same)
+
+== data/p1-answering-power-clustered-output.txt, Run 5 (38 exchanges, 75 questions; seed 20261121, 4000 trials)
+2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1
+first cell re-run: 0.623 / 0.743 / worse 0.049 (published: the same)
+
+== data/p1b-power-curve.txt, layout P1 (38 exchanges, 75 questions; seed 20261124, 2000 trials): Run 5's list
+2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1
+first cell re-run: 0.608 / 0.700 / worse 0.058 (published: the same)
+
+== data/p1b-power-curve.txt, layout A (76 exchanges, 150 questions): Run 5's list twice, in order
+2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1,2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1
+first cell re-run: 0.846 / 0.927 / worse 0.044 (published: the same)
+
+== data/p1b-power-curve.txt, layout B (114 exchanges, 225 questions): Run 5's list three times, in order
+2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1,2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1,2,3,2,3,2,4,2,1,2,3,3,2,1,3,1,2,1,1,3,1,1,1,2,3,3,3,2,2,1,1,1,2,3,1,3,1,2,1
+first cell re-run: 0.942 / 0.984 / worse 0.046 (published: the same)
+
+== data/p1b-power-curve.txt, layout C (90 exchanges, 216 questions): 36 x 3, then 54 x 2
+3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2
+first cell re-run: 0.971 / 0.979 / worse 0.042 (published: the same)
+
+== data/p1b-final-count-resim.txt (74 exchanges, 144 questions; seed 20261124, 4000 trials)
+the list is the first line of that file; first cell re-run from it: 0.826 / 0.905 / worse 0.048 (published: the same)

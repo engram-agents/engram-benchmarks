@@ -1,0 +1,842 @@
+{
+ "P001": {
+  "kind": "primary",
+  "qid": "F11",
+  "session": "K3"
+ },
+ "P002": {
+  "kind": "primary",
+  "qid": "A08",
+  "session": "k1"
+ },
+ "P003": {
+  "kind": "primary",
+  "qid": "F43",
+  "session": "K3"
+ },
+ "P004": {
+  "kind": "primary",
+  "qid": "F45",
+  "session": "k1"
+ },
+ "P005": {
+  "kind": "primary",
+  "qid": "F84",
+  "session": "k1"
+ },
+ "P006": {
+  "kind": "primary",
+  "qid": "F16",
+  "session": "k1"
+ },
+ "P007": {
+  "kind": "primary",
+  "qid": "F05",
+  "session": "K3"
+ },
+ "P008": {
+  "kind": "primary",
+  "qid": "F46",
+  "session": "K3"
+ },
+ "P009": {
+  "kind": "primary",
+  "qid": "F70",
+  "session": "k1"
+ },
+ "P010": {
+  "kind": "primary",
+  "qid": "F14",
+  "session": "k1"
+ },
+ "P011": {
+  "kind": "primary",
+  "qid": "F79",
+  "session": "k1"
+ },
+ "P012": {
+  "kind": "primary",
+  "qid": "F03",
+  "session": "k1"
+ },
+ "P013": {
+  "kind": "primary",
+  "qid": "F80",
+  "session": "K3"
+ },
+ "P014": {
+  "kind": "primary",
+  "qid": "F35",
+  "session": "K3"
+ },
+ "P015": {
+  "kind": "primary",
+  "qid": "F12",
+  "session": "k1"
+ },
+ "P016": {
+  "kind": "primary",
+  "qid": "A02",
+  "session": "k1"
+ },
+ "P017": {
+  "kind": "primary",
+  "qid": "F21",
+  "session": "K3"
+ },
+ "P018": {
+  "kind": "primary",
+  "qid": "F50",
+  "session": "k1"
+ },
+ "P019": {
+  "kind": "primary",
+  "qid": "F30",
+  "session": "k1"
+ },
+ "P020": {
+  "kind": "primary",
+  "qid": "F48",
+  "session": "k1"
+ },
+ "P021": {
+  "kind": "primary",
+  "qid": "F45",
+  "session": "K3"
+ },
+ "P022": {
+  "kind": "primary",
+  "qid": "F69",
+  "session": "k1"
+ },
+ "P023": {
+  "kind": "primary",
+  "qid": "F23",
+  "session": "K3"
+ },
+ "P024": {
+  "kind": "primary",
+  "qid": "F85",
+  "session": "k1"
+ },
+ "P025": {
+  "kind": "primary",
+  "qid": "F71",
+  "session": "K3"
+ },
+ "P026": {
+  "kind": "primary",
+  "qid": "F51",
+  "session": "k1"
+ },
+ "P027": {
+  "kind": "primary",
+  "qid": "F24",
+  "session": "K3"
+ },
+ "P028": {
+  "kind": "primary",
+  "qid": "F13",
+  "session": "k1"
+ },
+ "P029": {
+  "kind": "primary",
+  "qid": "A05",
+  "session": "K3"
+ },
+ "P030": {
+  "kind": "primary",
+  "qid": "F47",
+  "session": "k1"
+ },
+ "P031": {
+  "kind": "primary",
+  "qid": "F78",
+  "session": "K3"
+ },
+ "P032": {
+  "kind": "primary",
+  "qid": "F18",
+  "session": "K3"
+ },
+ "P033": {
+  "kind": "primary",
+  "qid": "F28",
+  "session": "k1"
+ },
+ "P034": {
+  "kind": "primary",
+  "qid": "F38",
+  "session": "k1"
+ },
+ "P035": {
+  "kind": "primary",
+  "qid": "A07",
+  "session": "k1"
+ },
+ "P036": {
+  "kind": "primary",
+  "qid": "F03",
+  "session": "K3"
+ },
+ "P037": {
+  "kind": "primary",
+  "qid": "F21",
+  "session": "k1"
+ },
+ "P038": {
+  "kind": "primary",
+  "qid": "F39",
+  "session": "K3"
+ },
+ "P039": {
+  "kind": "primary",
+  "qid": "F49",
+  "session": "K3"
+ },
+ "P040": {
+  "kind": "primary",
+  "qid": "F66",
+  "session": "k1"
+ },
+ "P041": {
+  "kind": "primary",
+  "qid": "F36",
+  "session": "K3"
+ },
+ "P042": {
+  "kind": "primary",
+  "qid": "F12",
+  "session": "K3"
+ },
+ "P043": {
+  "kind": "primary",
+  "qid": "F08",
+  "session": "k1"
+ },
+ "P044": {
+  "kind": "primary",
+  "qid": "F27",
+  "session": "k1"
+ },
+ "P045": {
+  "kind": "primary",
+  "qid": "A03",
+  "session": "K3"
+ },
+ "P046": {
+  "kind": "primary",
+  "qid": "F76",
+  "session": "k1"
+ },
+ "P047": {
+  "kind": "primary",
+  "qid": "F56",
+  "session": "K3"
+ },
+ "P048": {
+  "kind": "primary",
+  "qid": "F24",
+  "session": "k1"
+ },
+ "P049": {
+  "kind": "primary",
+  "qid": "F58",
+  "session": "K3"
+ },
+ "P050": {
+  "kind": "primary",
+  "qid": "F05",
+  "session": "k1"
+ },
+ "P051": {
+  "kind": "primary",
+  "qid": "F15",
+  "session": "K3"
+ },
+ "P052": {
+  "kind": "primary",
+  "qid": "F19",
+  "session": "K3"
+ },
+ "P053": {
+  "kind": "primary",
+  "qid": "F73",
+  "session": "k1"
+ },
+ "P054": {
+  "kind": "primary",
+  "qid": "F44",
+  "session": "K3"
+ },
+ "P055": {
+  "kind": "primary",
+  "qid": "F46",
+  "session": "k1"
+ },
+ "P056": {
+  "kind": "primary",
+  "qid": "F26",
+  "session": "K3"
+ },
+ "P057": {
+  "kind": "primary",
+  "qid": "F34",
+  "session": "K3"
+ },
+ "P058": {
+  "kind": "primary",
+  "qid": "F20",
+  "session": "K3"
+ },
+ "P059": {
+  "kind": "primary",
+  "qid": "A05",
+  "session": "k1"
+ },
+ "P060": {
+  "kind": "primary",
+  "qid": "F85",
+  "session": "K3"
+ },
+ "P061": {
+  "kind": "primary",
+  "qid": "F29",
+  "session": "k1"
+ },
+ "P062": {
+  "kind": "primary",
+  "qid": "F30",
+  "session": "K3"
+ },
+ "P063": {
+  "kind": "primary",
+  "qid": "F74",
+  "session": "K3"
+ },
+ "P064": {
+  "kind": "primary",
+  "qid": "F69",
+  "session": "K3"
+ },
+ "P065": {
+  "kind": "primary",
+  "qid": "F25",
+  "session": "k1"
+ },
+ "P066": {
+  "kind": "primary",
+  "qid": "F02",
+  "session": "k1"
+ },
+ "P067": {
+  "kind": "primary",
+  "qid": "F27",
+  "session": "K3"
+ },
+ "P068": {
+  "kind": "sensitivity",
+  "qid": "A04",
+  "session": "k1"
+ },
+ "P069": {
+  "kind": "primary",
+  "qid": "F37",
+  "session": "k1"
+ },
+ "P070": {
+  "kind": "primary",
+  "qid": "F63",
+  "session": "K3"
+ },
+ "P071": {
+  "kind": "sensitivity",
+  "qid": "F43",
+  "session": "k1"
+ },
+ "P072": {
+  "kind": "primary",
+  "qid": "F65",
+  "session": "K3"
+ },
+ "P073": {
+  "kind": "primary",
+  "qid": "F67",
+  "session": "k1"
+ },
+ "P074": {
+  "kind": "primary",
+  "qid": "F31",
+  "session": "K3"
+ },
+ "P075": {
+  "kind": "primary",
+  "qid": "F13",
+  "session": "K3"
+ },
+ "P076": {
+  "kind": "primary",
+  "qid": "F60",
+  "session": "k1"
+ },
+ "P077": {
+  "kind": "primary",
+  "qid": "F67",
+  "session": "K3"
+ },
+ "P078": {
+  "kind": "primary",
+  "qid": "F10",
+  "session": "K3"
+ },
+ "P079": {
+  "kind": "primary",
+  "qid": "F84",
+  "session": "K3"
+ },
+ "P080": {
+  "kind": "primary",
+  "qid": "A09",
+  "session": "K3"
+ },
+ "P081": {
+  "kind": "primary",
+  "qid": "F38",
+  "session": "K3"
+ },
+ "P082": {
+  "kind": "primary",
+  "qid": "F61",
+  "session": "k1"
+ },
+ "P083": {
+  "kind": "primary",
+  "qid": "A06",
+  "session": "k1"
+ },
+ "P084": {
+  "kind": "sensitivity",
+  "qid": "F14",
+  "session": "K3"
+ },
+ "P085": {
+  "kind": "primary",
+  "qid": "F61",
+  "session": "K3"
+ },
+ "P086": {
+  "kind": "primary",
+  "qid": "F59",
+  "session": "k1"
+ },
+ "P087": {
+  "kind": "primary",
+  "qid": "F22",
+  "session": "k1"
+ },
+ "P088": {
+  "kind": "primary",
+  "qid": "F15",
+  "session": "k1"
+ },
+ "P089": {
+  "kind": "primary",
+  "qid": "F36",
+  "session": "k1"
+ },
+ "P090": {
+  "kind": "primary",
+  "qid": "F59",
+  "session": "K3"
+ },
+ "P091": {
+  "kind": "primary",
+  "qid": "A03",
+  "session": "k1"
+ },
+ "P092": {
+  "kind": "sensitivity",
+  "qid": "F17",
+  "session": "K3"
+ },
+ "P093": {
+  "kind": "primary",
+  "qid": "F63",
+  "session": "k1"
+ },
+ "P094": {
+  "kind": "primary",
+  "qid": "F25",
+  "session": "K3"
+ },
+ "P095": {
+  "kind": "primary",
+  "qid": "F75",
+  "session": "K3"
+ },
+ "P096": {
+  "kind": "primary",
+  "qid": "F01",
+  "session": "K3"
+ },
+ "P097": {
+  "kind": "primary",
+  "qid": "F28",
+  "session": "K3"
+ },
+ "P098": {
+  "kind": "primary",
+  "qid": "F26",
+  "session": "k1"
+ },
+ "P099": {
+  "kind": "primary",
+  "qid": "F75",
+  "session": "k1"
+ },
+ "P100": {
+  "kind": "primary",
+  "qid": "F73",
+  "session": "K3"
+ },
+ "P101": {
+  "kind": "primary",
+  "qid": "F10",
+  "session": "k1"
+ },
+ "P102": {
+  "kind": "primary",
+  "qid": "F60",
+  "session": "K3"
+ },
+ "P103": {
+  "kind": "primary",
+  "qid": "A07",
+  "session": "K3"
+ },
+ "P104": {
+  "kind": "primary",
+  "qid": "F47",
+  "session": "K3"
+ },
+ "P105": {
+  "kind": "primary",
+  "qid": "F83",
+  "session": "K3"
+ },
+ "P106": {
+  "kind": "primary",
+  "qid": "F42",
+  "session": "k1"
+ },
+ "P107": {
+  "kind": "primary",
+  "qid": "F39",
+  "session": "k1"
+ },
+ "P108": {
+  "kind": "primary",
+  "qid": "F56",
+  "session": "k1"
+ },
+ "P109": {
+  "kind": "primary",
+  "qid": "F83",
+  "session": "k1"
+ },
+ "P110": {
+  "kind": "primary",
+  "qid": "F02",
+  "session": "K3"
+ },
+ "P111": {
+  "kind": "primary",
+  "qid": "A04",
+  "session": "K3"
+ },
+ "P112": {
+  "kind": "primary",
+  "qid": "F40",
+  "session": "K3"
+ },
+ "P113": {
+  "kind": "primary",
+  "qid": "F31",
+  "session": "k1"
+ },
+ "P114": {
+  "kind": "primary",
+  "qid": "F20",
+  "session": "k1"
+ },
+ "P115": {
+  "kind": "primary",
+  "qid": "F04",
+  "session": "k1"
+ },
+ "P116": {
+  "kind": "primary",
+  "qid": "F53",
+  "session": "k1"
+ },
+ "P117": {
+  "kind": "primary",
+  "qid": "F64",
+  "session": "k1"
+ },
+ "P118": {
+  "kind": "primary",
+  "qid": "F01",
+  "session": "k1"
+ },
+ "P119": {
+  "kind": "primary",
+  "qid": "F80",
+  "session": "k1"
+ },
+ "P120": {
+  "kind": "primary",
+  "qid": "F33",
+  "session": "K3"
+ },
+ "P121": {
+  "kind": "primary",
+  "qid": "F65",
+  "session": "k1"
+ },
+ "P122": {
+  "kind": "primary",
+  "qid": "F22",
+  "session": "K3"
+ },
+ "P123": {
+  "kind": "primary",
+  "qid": "F79",
+  "session": "K3"
+ },
+ "P124": {
+  "kind": "primary",
+  "qid": "F18",
+  "session": "k1"
+ },
+ "P125": {
+  "kind": "primary",
+  "qid": "F53",
+  "session": "K3"
+ },
+ "P126": {
+  "kind": "primary",
+  "qid": "F17",
+  "session": "k1"
+ },
+ "P127": {
+  "kind": "primary",
+  "qid": "F11",
+  "session": "k1"
+ },
+ "P128": {
+  "kind": "primary",
+  "qid": "F19",
+  "session": "k1"
+ },
+ "P129": {
+  "kind": "primary",
+  "qid": "F16",
+  "session": "K3"
+ },
+ "P130": {
+  "kind": "primary",
+  "qid": "F66",
+  "session": "K3"
+ },
+ "P131": {
+  "kind": "primary",
+  "qid": "F48",
+  "session": "K3"
+ },
+ "P132": {
+  "kind": "primary",
+  "qid": "F50",
+  "session": "K3"
+ },
+ "P133": {
+  "kind": "primary",
+  "qid": "F49",
+  "session": "k1"
+ },
+ "P134": {
+  "kind": "primary",
+  "qid": "F29",
+  "session": "K3"
+ },
+ "P135": {
+  "kind": "primary",
+  "qid": "F78",
+  "session": "k1"
+ },
+ "P136": {
+  "kind": "primary",
+  "qid": "A01",
+  "session": "K3"
+ },
+ "P137": {
+  "kind": "primary",
+  "qid": "F09",
+  "session": "k1"
+ },
+ "P138": {
+  "kind": "primary",
+  "qid": "F81",
+  "session": "K3"
+ },
+ "P139": {
+  "kind": "sensitivity",
+  "qid": "F37",
+  "session": "K3"
+ },
+ "P140": {
+  "kind": "primary",
+  "qid": "F09",
+  "session": "K3"
+ },
+ "P141": {
+  "kind": "primary",
+  "qid": "F33",
+  "session": "k1"
+ },
+ "P142": {
+  "kind": "primary",
+  "qid": "F54",
+  "session": "K3"
+ },
+ "P143": {
+  "kind": "primary",
+  "qid": "F57",
+  "session": "K3"
+ },
+ "P144": {
+  "kind": "primary",
+  "qid": "A02",
+  "session": "K3"
+ },
+ "P145": {
+  "kind": "primary",
+  "qid": "F74",
+  "session": "k1"
+ },
+ "P146": {
+  "kind": "primary",
+  "qid": "F81",
+  "session": "k1"
+ },
+ "P147": {
+  "kind": "primary",
+  "qid": "F54",
+  "session": "k1"
+ },
+ "P148": {
+  "kind": "primary",
+  "qid": "F57",
+  "session": "k1"
+ },
+ "P149": {
+  "kind": "primary",
+  "qid": "F76",
+  "session": "K3"
+ },
+ "P150": {
+  "kind": "primary",
+  "qid": "A01",
+  "session": "k1"
+ },
+ "P151": {
+  "kind": "primary",
+  "qid": "F40",
+  "session": "k1"
+ },
+ "P152": {
+  "kind": "sensitivity",
+  "qid": "F35",
+  "session": "k1"
+ },
+ "P153": {
+  "kind": "sensitivity",
+  "qid": "A08",
+  "session": "K3"
+ },
+ "P154": {
+  "kind": "primary",
+  "qid": "F72",
+  "session": "K3"
+ },
+ "P155": {
+  "kind": "primary",
+  "qid": "F42",
+  "session": "K3"
+ },
+ "P156": {
+  "kind": "primary",
+  "qid": "F04",
+  "session": "K3"
+ },
+ "P157": {
+  "kind": "primary",
+  "qid": "F71",
+  "session": "k1"
+ },
+ "P158": {
+  "kind": "primary",
+  "qid": "F70",
+  "session": "K3"
+ },
+ "P159": {
+  "kind": "primary",
+  "qid": "F08",
+  "session": "K3"
+ },
+ "P160": {
+  "kind": "primary",
+  "qid": "A09",
+  "session": "k1"
+ },
+ "P161": {
+  "kind": "primary",
+  "qid": "F23",
+  "session": "k1"
+ },
+ "P162": {
+  "kind": "primary",
+  "qid": "F58",
+  "session": "k1"
+ },
+ "P163": {
+  "kind": "primary",
+  "qid": "F64",
+  "session": "K3"
+ },
+ "P164": {
+  "kind": "primary",
+  "qid": "A06",
+  "session": "K3"
+ },
+ "P165": {
+  "kind": "primary",
+  "qid": "F51",
+  "session": "K3"
+ },
+ "P166": {
+  "kind": "primary",
+  "qid": "F72",
+  "session": "k1"
+ },
+ "P167": {
+  "kind": "primary",
+  "qid": "F44",
+  "session": "k1"
+ },
+ "P168": {
+  "kind": "primary",
+  "qid": "F34",
+  "session": "k1"
+ }
+}
