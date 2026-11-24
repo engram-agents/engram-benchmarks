@@ -1,0 +1,99 @@
+Scrubbed copies of the 2026-11-23 probe records: the settings-file probe (settings/), the managed-settings probe of
+the design owner's ruling R1 (managed/), and its follow-up (managed-file/). Same standard as data/probes-2026-11-22/
+(design owner, 2026-11-23). The originals stay private with the study lead; raw request and event logs stay private,
+as on 2026-11-22, so a public reader can read each analyzer's output but cannot re-derive its counts. What stands in
+for that: the sha256 pairs below, and the security seat's independent re-derivation of every count from the private
+logs, named in each RESULT's amendment. Each copy differs from its original only by the classes below; a private
+script (it holds the table of internal message numbers, so it is not published) applies them and reproduces each
+copy byte for byte.
+
+CLASSES
+A  An internal team-message number becomes the UTC date and minute of that message's own timestamp, truncated
+   (2026-11-23T20:15Z), each read off the world by the study lead; numbers also cited on 2026-11-22 carry that
+   folder's values. The sender, where the original named one, stays beside it. No two co-cited messages share a minute.
+B  A host path becomes its role: <pinned claude-2.1.328 binary>, <study lead's private probe folder>, <probe base>,
+   <the host's shared agent directory>.
+C  Account, uid and file-mode wording: none in these originals (the sweep for them ran on every copy).
+D  Which service runs on the host and on what port: the service's name becomes 'host service', the port <port>.
+Kept as written, by rule, each counted: '~/.claude.json' (the product's own config file name; it names nobody), and
+one five-digit number that is not a message, the client's own pre-compaction token count in managed-file/RESULT.md.
+Seat names stay where they attribute a read or a ruling. Nothing else differs.
+
+NOT A SECURITY REPORT: as on 2026-11-22, every behaviour here was measured in a mode that grants the session all
+permissions, with a scripted model on loopback; these are study records.
+
+RUNS (each run's script and expectations were read by the security seat before it ran; each RESULT was read by
+that seat before anyone else read a conclusion from it)
+settings/  evidence 20261123T201849Z; cells UE, SEU, SEU0, SEP, SEL; probe.py 27be950f (the script that ran); EXPECTED.md 49bea78f (the published version);
+   cleared before the run: 2026-11-23T20:15Z, 2026-11-23T20:18Z, 2026-11-23T20:19Z; RESULT read: 2026-11-23T20:38Z
+managed/  evidence 20261123T211911Z; cells MF, MP, ME, AF, AP, AE, WC, BF, BP, BE, RX; probe.py 7fb4fd5e (the script that ran); EXPECTED.md 1fb3e06a (the published version);
+   cleared before the run: 2026-11-23T21:15Z; RESULT read: 2026-11-23T22:02Z
+managed-file/  evidence 20261123T221254Z; cells MQ, AQ, BQ, RQ, WK; probe.py 8117b7fc (the script that ran); EXPECTED.md 6a10c29b (the published version);
+   cleared before the run: 2026-11-23T22:12Z; RESULT read: 2026-11-23T22:32Z
+   its EXPECTED amendment (analyzer and reading rules only) was written after the run started and before any evidence was read; the security seat's notes on the amended analyzer: 2026-11-23T22:14Z
+
+== settings/RESULT.md
+original sha256 (private): 36c148f512ca83ba5b1ccfddc014a8d6d0b22cce31e46ee22ea5846225bc4dd5
+copy sha256:               ae93679c94400d751bbef733dcff6e105339109c88a50537fe836bb010fabaad
+lines: original 82, copy 82; lines with a change: 5
+changes by class: A 7, B 0, C 0, D 0, kept by rule 1
+
+== settings/EXPECTED.md
+original sha256 (private): 49bea78fb84be3a1325ad4b38acfa99833b8ad783fed17121ac1899ea03f5643
+copy sha256:               9535dfe8ca38e948a31c1a07d323c736f607c9600236a1d78da366249361d802
+lines: original 155, copy 155; lines with a change: 7
+changes by class: A 5, B 3, C 0, D 0, kept by rule 1
+
+== settings/probe.py
+original sha256 (private): 27be950feece6305462cad9acbb00afdce2d970b76ba3777053aa7d789f78434
+copy sha256:               97f5cddd7543f8f5b47054e698270be69804faa623abaaf1407bfdc64c7411d9
+lines: original 393, copy 393; lines with a change: 13
+changes by class: A 11, B 2, C 0, D 2
+
+== managed/RESULT.md
+original sha256 (private): bbff9d29e3dc635a3bb63eab022b1bac330c8df9bbd4b5681f7f02e8ea6ef22b
+copy sha256:               792589f2b4e1f675728c4fc84eb246bd1863d807bf9bd1493f24f3d52f3cdc40
+lines: original 119, copy 119; lines with a change: 2
+changes by class: A 3, B 0, C 0, D 0, kept by rule 1
+
+== managed/EXPECTED.md
+original sha256 (private): 1fb3e06a0db204548192cb0858a5381cc147565f91d598a1a423ccb048095f88
+copy sha256:               014c9e17779d2ecbc91d28d968b96a6f24360f01a9ae4940e6b6622f57b798bc
+lines: original 186, copy 186; lines with a change: 5
+changes by class: A 1, B 4, C 0, D 0, kept by rule 1
+
+== managed/probe.py
+original sha256 (private): 7fb4fd5e4462921a4dfa3d1396849417ad72a8f716232263d5f0d6bc697ea1cb
+copy sha256:               8c6e7fc3cdcde821409dcf3622adca7a646982f005df6fb167b11c33e4d6d971
+lines: original 480, copy 480; lines with a change: 14
+changes by class: A 12, B 2, C 0, D 2
+
+== managed/analyze.py
+original sha256 (private): aeb0b117c52d23f527ec60bf2fe492d16942e2a4228758db802f7cfcbb4b2851
+copy sha256:               aeb0b117c52d23f527ec60bf2fe492d16942e2a4228758db802f7cfcbb4b2851
+lines: original 71, copy 71; lines with a change: 0
+changes by class: A 0, B 0, C 0, D 0
+
+== managed-file/RESULT.md
+original sha256 (private): 5e3beaa3bc91396f70927e976d113325c28974d21b5a79e00d7d455dd3fd3c1e
+copy sha256:               d3a60b73910dc231f94009a7d27e443baf3981df4808422bbb85385ea5d444f0
+lines: original 84, copy 84; lines with a change: 3
+changes by class: A 3, B 0, C 0, D 0, kept by rule 1
+
+== managed-file/EXPECTED.md
+original sha256 (private): 6a10c29b1d58cb42fb811ca0110f1fd15d09d5dbb0e3e2f708e10d0f2e01e74e
+copy sha256:               e0665ac895cd1eaac39421c1381e800e849555845addf48e50c48fddf8fd1f29
+lines: original 109, copy 109; lines with a change: 4
+changes by class: A 1, B 3, C 0, D 0
+
+== managed-file/probe.py
+original sha256 (private): 8117b7fc209ef700614a28c4bd3587c2fd6b170cfb4df99f19a823c5934f4f1b
+copy sha256:               11b93829bc3a4bbf553a98ce732795ee5882cdc104ae9a1d7fedbbfea3fddec8
+lines: original 499, copy 499; lines with a change: 16
+changes by class: A 14, B 2, C 0, D 2
+
+== managed-file/analyze.py
+original sha256 (private): 4ac8d62c2a47131a97240290f9792c5f3a55c48a392d4ba23667a15e979a63ae
+copy sha256:               daff8b7e3c236fdf832333552bfe332d796bb88bd806d1a48a11109aa0236059
+lines: original 145, copy 145; lines with a change: 3
+changes by class: A 3, B 0, C 0, D 0
