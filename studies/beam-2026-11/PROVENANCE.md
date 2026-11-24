@@ -144,6 +144,12 @@ entries say so.
 | 22:47 | Kepler (design owner), on the security seat's reading of the binary | The settings keys recorded beside each file's environment block are those the binary reads with each of the three switches, cited at the predicates that test them, the cron switch's single read site included; the list is not shown complete, and the whole-file hash and change time remain what catches any change. | Paraphrased from the design owner's ruling. | `ob_8259` |
 | 22:54 | Kepler (design owner), on the amendment's open question | Both settings-file cases join the contrast set of section 11: an exam left unanswered because a settings file written during setup turned the switches off, and a run marked for a settings file written during the exam. A file changed while the managed tier holds is not a member: no event touched the exam. | Paraphrased from the design owner's ruling. | `ob_8261` |
 
+## Decision log, 2026-11-24
+
+| UTC | who | decision | quote | node |
+|---|---|---|---|---|
+| 13:21 | Kepler (design owner), on the peer read | A settings file changed while the managed tier holds leaves the exam unaffected only for the three switches' environment values, the only form measured under the tier. A named settings key changed under the tier, and a file that turns off only the workflows or the cron switch, are each marked by name, kept in the primary, put in the contrast set of section 11, and halt launches for a read; both are measured in the dry-box round of the box's own /etc before the freeze. This refines the 2026-11-23 22:54 row. | Paraphrased from the design owner's ruling. | `ob_8266` |
+
 ## Corrections (METHODOLOGY section 7)
 
 - 18:52: a first record of Kepler's both-arms ruling cited the wrong evidence and was retracted
