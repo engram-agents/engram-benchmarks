@@ -109,7 +109,59 @@ def check_loaded(path):
     return 0
 
 
-def main():
+def load_question_file(path):
+    """--question-file: a JSON list of {"id": str, "question": str}. Returns the list, or raises ValueError naming
+    the defect. The ids must be unique, every question non-empty, and the list non-empty."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            items = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read {path} as JSON: {e}")
+    if not isinstance(items, list):
+        raise ValueError("the file must be a JSON list of {id, question} objects")
+    if not items:
+        raise ValueError("the list is empty (nothing to deliver)")
+    seen = set()
+    for n, it in enumerate(items, 1):
+        if not isinstance(it, dict):
+            raise ValueError(f"item {n} is not an object")
+        if not isinstance(it.get("id"), str) or not it["id"].strip():
+            raise ValueError(f"item {n} has no string id")
+        if not isinstance(it.get("question"), str):
+            raise ValueError(f"item {n} has no string question")
+        if not it["question"].strip():
+            raise ValueError(f"item {n} (id {it['id']!r}) has an empty question")
+        if it["id"] in seen:
+            raise ValueError(f"duplicate id {it['id']!r}")
+        seen.add(it["id"])
+    return items
+
+
+def check_question_args(ap, args):
+    """Refuse (argparse error, exit 2) every unsafe use of --question-file, before any student process or unload."""
+    if not args.question_file:
+        return None
+    if args.questions:
+        ap.error("--question-file cannot be combined with --questions (dataset questions)")
+    if args.ask:
+        ap.error("--question-file cannot be combined with --ask (practice questions)")
+    if not args.resume:
+        ap.error("--question-file requires --resume SESSION (answering resumes the run's own session)")
+    if args.setup_only:
+        ap.error("--question-file cannot be combined with --setup-only")
+    if args.first_session:
+        ap.error("--question-file cannot be combined with --first-session")
+    if args.turns != 0:
+        ap.error("--question-file requires --turns 0 (an answering run reads nothing)")
+    if args.start != ap.get_default("start"):
+        ap.error("--question-file cannot be combined with --start (an answering run reads nothing)")
+    try:
+        return load_question_file(args.question_file)
+    except ValueError as e:
+        ap.error(f"--question-file: {e}")
+
+
+def build_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm-home", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--conv", type=int, required=True); ap.add_argument("--turns", type=int, required=True)
@@ -125,7 +177,15 @@ def main():
     ap.add_argument("--dump-plan", action="store_true", help="v4: print the planned messages as JSON and exit")
     ap.add_argument("--expect-components", help="v4: the setup's component file (setup-id.py output); the run "
                     "refuses unless the feed4.py and feed.py it loaded hash to the lines there (required to run)")
+    ap.add_argument("--question-file", help="a JSON list of {id, question}: delivered in file order, once each, after "
+                    "the optional /compact (use with --resume SESSION --turns 0); refused with --questions or --ask")
+    return ap
+
+
+def main():
+    ap = build_parser()
     args = ap.parse_args()
+    qitems = check_question_args(ap, args)
     os.makedirs(args.out, exist_ok=True)
     conv = next(c for c in pq.read_table(data_path()).to_pylist() if str(c["conversation_id"]) == str(args.conv))
     exs = exchanges(conv)[args.start - 1: args.turns]  # v3: 1-based start
@@ -150,13 +210,16 @@ def main():
             plan.append(("question", PROCTOR + " " + QUESTION_PREFIX + item["question"], []))
     for qtext in args.ask:
         plan.append(("practice-question", PROCTOR + " " + QUESTION_PREFIX + qtext, []))
+    for it in qitems or []:
+        plan.append(("question", PROCTOR + " " + QUESTION_PREFIX + it["question"], [], it["id"]))
     pending = os.path.join(os.path.abspath(args.arm_home), ".engram", "first-run-pending")
     if args.dump_plan:  # v4: print the exact messages and stop, before any student process starts
-        json.dump([{"kind": k, "exchanges": e, "text": x} for k, x, e in plan], sys.stdout); return 0
+        json.dump([{"kind": p[0], "exchanges": p[2], "text": p[1], **({"id": p[3]} if len(p) > 3 else {})}
+                   for p in plan], sys.stdout); return 0
     st = Student(args); log = open(os.path.join(args.out, "turns.jsonl"), "a"); rc = 0
     try:
         i = 0
-        for kind, text, carried in plan:
+        for kind, text, carried, *qid in plan:
             rounds = 0
             while True:
                 i += 1
@@ -167,7 +230,7 @@ def main():
                        "in_tok": u.get("input_tokens"), "out_tok": u.get("output_tokens"),
                        "tools": ev.get("_tools", ev.get("tools")), "eof": ev.get("eof"), "timeout": ev.get("timeout"),
                        "session_id": st.session_id, "result": ev.get("result") or ev.get("_last_text"),
-                       "exchanges": carried, "per_round": args.per_round}
+                       "exchanges": carried, "per_round": args.per_round, **({"id": qid[0]} if qid else {})}
                 log.write(json.dumps(row) + "\n"); log.flush()
                 print(f"{i} {kind}: wall {row['wall_s']}s in {row['in_tok']} out {row['out_tok']} "
                       f"tools {row['tools']} | {str(row['result'] or '')[-160:]!r}", flush=True)
@@ -195,6 +258,7 @@ if __name__ == "__main__":
             sys.exit(_rc)
     if "--dump-plan" in sys.argv:  # v4: a dry plan dump never touches the model server
         sys.exit(main())
+    _ap = build_parser(); check_question_args(_ap, _ap.parse_args())  # a refused --question-file touches nothing (no unload)
     try:
         rc = main()
     finally:
